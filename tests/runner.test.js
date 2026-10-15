@@ -68,6 +68,9 @@ test("Mac runner claims once, runs checks, commits locally, reports and preserve
     assert.ok(calls.at(-1).args.result.localArtifact);
     assert.equal(await readFile(path.join(repo, "file.txt"), "utf8"), "before\n");
     assert.notEqual(done.commit, baseCommit);
+    const worktreesBefore = await git("worktree", "list", "--porcelain");
+    await assert.rejects(executeRequest({ packet: { ...packet, request: { ...request, id: "REQ-ABCDEF14" } }, call: async () => { throw new Error("Claim conflict"); }, config: { repoPath: repo, stateDir, codexPath: "fake-codex" }, run }), /Claim conflict/);
+    assert.equal(await git("worktree", "list", "--porcelain"), worktreesBefore);
     const blockedRequest = { ...request, id: "REQ-ABCDEF13" };
     const blockedCalls = [];
     const blockedCall = async (name, args) => { blockedCalls.push(name); return name === "claim_request" ? { ...packet, request: blockedRequest, claimToken: "private" } : {}; };

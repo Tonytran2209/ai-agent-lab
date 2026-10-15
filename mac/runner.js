@@ -82,7 +82,13 @@ export async function executeRequest({ packet, call, config, signal, run = comma
   await git(config.repoPath, ["worktree", "add", "-b", branch, worktree, r.baseCommit]);
   await noSymlinks(worktree, r.draft.allowedPaths);
   const head = await git(worktree, ["rev-parse", "HEAD"]);
-  const claimed = await call("claim_request", { requestId: r.id, agentName: "mac-runner", observedBaseCommit: head });
+  let claimed;
+  try { claimed = await call("claim_request", { requestId: r.id, agentName: "mac-runner", observedBaseCommit: head }); }
+  catch (e) {
+    // No agent has edited this worktree; failed claims must not leak a worktree per poll.
+    await git(config.repoPath, ["worktree", "remove", worktree]).then(() => git(config.repoPath, ["branch", "-d", branch])).catch(() => {});
+    throw e;
+  }
   const token = claimed.claimToken;
   const controller = new AbortController();
   const abort = () => controller.abort();
