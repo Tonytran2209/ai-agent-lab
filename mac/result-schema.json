@@ -1,0 +1,17 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["summary", "blocked", "checks"],
+  "properties": {
+    "summary": { "type": "string" },
+    "blocked": { "type": "boolean" },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["command", "passed"],
+        "properties": { "command": { "type": "string" }, "passed": { "type": "boolean" } }
+      }
+    }
+  }
+}

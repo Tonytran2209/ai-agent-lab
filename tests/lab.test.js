@@ -132,6 +132,12 @@ test("HTTP authentication, CSRF, member permissions and actual MCP pull lifecycl
     assert.equal((await fetch(base + "/api/requests/" + r.id + "/draft", { method: "PUT", headers: admin, body: JSON.stringify(draft) })).status, 200);
     assert.equal((await fetch(base + "/api/requests/" + r.id + "/approve", { method: "POST", headers: member })).status, 403);
     assert.equal((await fetch(base + "/api/requests/" + r.id + "/approve", { method: "POST", headers: admin })).status, 200);
+    assert.equal((await fetch(base + "/api/requests/" + r.id + "/submit", { method: "POST", headers: member, body: JSON.stringify(draft) })).status, 403);
+    assert.equal((await fetch(base + "/api/requests/" + r.id + "/prepare", { method: "POST", headers: member, body: JSON.stringify({ autoApprove: true }) })).status, 403);
+    const manualRequest = service.create(feedback, "Admin");
+    const submitted = await fetch(base + "/api/requests/" + manualRequest.id + "/submit", { method: "POST", headers: admin, body: JSON.stringify(draft) });
+    assert.equal(submitted.status, 200); assert.equal((await submitted.json()).status, "approved");
+    service.reject(manualRequest.id, "Admin", "Test done.");
     client = new Client({ name: "test-codex-client", version: "1.0.0" });
     await client.connect(new StreamableHTTPClientTransport(new URL(base + "/mcp"), { requestInit: { headers: { Authorization: "Bearer " + config.MCP_TOKEN } } }));
     const tools = await client.listTools(); assert.equal(tools.tools.length, 6);

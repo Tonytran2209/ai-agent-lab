@@ -8,11 +8,13 @@
   },
   "scripts": {
     "dev": "node server/index.js",
+    "runner": "node mac/runner.js",
+    "runner:install": "node mac/install.js",
     "dev:ui": "vite --host 127.0.0.1",
     "build": "vite build",
     "start": "node server/index.js",
     "test": "node --test --test-concurrency=1 tests/*.test.js",
-    "check": "node --check server/index.js && node --check server/service.js && node --check server/mcp.js && npm run test && npm run build"
+    "check": "node --check server/index.js && node --check server/service.js && node --check server/mcp.js && node --check mac/runner.js && node --check mac/install.js && npm run test && npm run build"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.1",

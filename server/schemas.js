@@ -26,8 +26,9 @@ export const completionSchema = z.object({
   summary: z.string().min(10).max(6000),
   changedPaths: z.array(relativePath).min(1).max(20),
   commit: z.string().regex(/^[a-f0-9]{40}$/),
-  artifactUrl: z.string().url().max(1000),
+  artifactUrl: z.string().url().max(1000).optional(),
+  localArtifact: z.object({ branch: z.string().regex(/^lab\/[A-Za-z0-9_-]+$/) }).optional(),
   checks: z.array(z.object({ command: z.string().max(200), passed: z.boolean(), output: z.string().max(4000) })).min(1).max(10),
-});
+}).refine(v => Boolean(v.artifactUrl) !== Boolean(v.localArtifact), "Cần đúng một artifact: URL GitHub hoặc commit cục bộ.");
 export function fail(message, status = 409) { throw Object.assign(new Error(message), { status }); }
 
