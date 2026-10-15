@@ -10,11 +10,11 @@ Giao diện bám Design MD của Writer Studio: canvas `#141414`, sidebar `#1212
 2. Admin nhấn **Phân tích** để AI đọc feedback + library ghim theo commit; hoặc chuẩn bị request thủ công.
 3. Làm rõ câu hỏi còn thiếu, kiểm tra layer, các file cụ thể, risk và tiêu chí nghiệm thu.
 4. Admin **Lưu request**, rồi **Duyệt request**.
-5. Mở checkout Writer Studio trong Codex chat, kết nối MCP và yêu cầu lấy request.
+5. Mac runner tự nhận request đã duyệt; hoặc mở checkout Writer Studio trong Codex chat và lấy qua MCP thủ công.
 6. Codex xác minh remote/HEAD, claim, sửa trong phạm vi, gửi progress và kết quả kiểm tra.
 7. Admin mở diff/PR, kiểm tra hành vi và nghiệm thu. Lab không tự merge/deploy.
 
-App này không tự gọi Codex SDK hoặc tạo turn trong chat. Codex là MCP client chủ động lấy request.
+Có thể lấy request thủ công qua MCP hoặc bật **Mac runner** để tự chạy Codex CLI khi request được duyệt. Xem [cài Mac runner](docs/mac-runner.md). Runner không mở chat GUI.
 
 ## Deploy Railway
 
@@ -46,6 +46,10 @@ Healthcheck: `GET /health`. Production fail-fast nếu thiếu secret hoặc `AP
 Dữ liệu nằm trong `/data/lab.sqlite` và SQLite WAL. **Không có Volume, dữ liệu có thể mất khi redeploy.** Bật backup Volume; khi backup bằng công cụ riêng, dùng SQLite online backup hoặc dừng service trước khi copy cả database/WAL.
 
 Ứng dụng được chuẩn bị cho Railway; deployment thực tế và cấu hình secrets do chủ workspace thực hiện.
+
+## Luồng đơn giản và tự chạy trên Mac
+
+Admin chọn **Gửi & chuẩn bị**; mặc định tự duyệt UI rủi ro thấp theo policy, hoặc chọn soạn để duyệt. Request chưa đủ điều kiện dừng ở cần làm rõ/chờ duyệt. **Duyệt & chạy** lưu và duyệt nội dung đang sửa trong một bước. Mac runner nhận trong khoảng 15 giây khi rảnh, chạy từng request trong worktree riêng, báo kết quả và commit cục bộ chưa push. Cần cài runner một lần theo [hướng dẫn](docs/mac-runner.md). Không tự merge/deploy.
 
 ## Kết nối Codex MCP
 
@@ -93,7 +97,7 @@ Claim có thời hạn **15 phút**; agent heartbeat ít nhất **mỗi 5 phút*
 - GitHub token chỉ dùng server-side. Repo được allow-list cố định; không nhận URL fetch tùy ý.
 - Scope là danh sách **file cụ thể**, tối đa 20 file. Chặn glob, traversal, `.env`, `.git` và các file ngoài layer ownership.
 - Database luôn high risk và cần migration notes. Cross-layer tối thiểu medium risk.
-- **Tất cả request đều cần admin approval**. Đây là cơ chế thận trọng hơn auto-safe branch/PR trong policy Writer Studio.
+- Request cần admin duyệt hoặc quyền tự duyệt UI rủi ro thấp được admin chọn ở lần chuẩn bị. Bộ lọc tự duyệt nằm trong `service.autoApprove`; các request còn lại chờ duyệt.
 - Approval hash gắn với draft + base commit + library version. MCP không có tool approve.
 - Database contract hoặc file scope đang active chặn request trùng.
 - Các rule ownership thực thi trong `server/service.js`; nếu contract canonical đổi ownership, cập nhật validator trước khi duyệt các scope mới.

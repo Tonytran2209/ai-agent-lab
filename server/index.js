@@ -6,7 +6,7 @@ import { z, ZodError } from "zod";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { openDatabase } from "./db.js";
-import { createService } from "./service.js";
+import { hash, createService } from "./service.js";
 import { createAuth } from "./auth.js";
 import { analyzeFeedback } from "./ai.js";
 import { syncLibrary } from "./library.js";
@@ -57,6 +57,7 @@ export function createApp(config, options = {}) {
     next();
   };
   app.put("/api/requests/:id/draft", editable, (req, res) => res.json(service.edit(req.params.id, req.body, req.user.name)));
+  app.post("/api/requests/:id/submit", editable, (req, res) => res.json(service.submit(req.params.id, req.body, req.user.name)));
   app.post("/api/requests/:id/clarify", (req, res) => {
     const r = service.get(req.params.id);
     if (req.user.role !== "admin" && r.author !== req.user.name) fail("Chỉ tác giả/admin được bổ sung feedback.", 403);
@@ -64,11 +65,15 @@ export function createApp(config, options = {}) {
     res.json(service.clarify(req.params.id, note, req.user.name));
   });
   const analyzing = new Set();
-  app.post("/api/requests/:id/analyze", editable, limiter(6), async (req, res) => {
+  app.post(["/api/requests/:id/analyze", "/api/requests/:id/prepare"], editable, limiter(6), async (req, res) => {
+    const { autoApprove } = z.object({ autoApprove: z.boolean().default(false) }).parse(req.body ?? {});
     if (analyzing.has(req.params.id)) fail("AI đang phân tích request này.");
     if (analyzing.size >= 3) fail("AI đang xử lý đủ số request đồng thời. Thử lại sau.", 429);
     analyzing.add(req.params.id);
-    try { res.json(await analyzeFeedback(service, req.params.id, req.user.name, config)); }
+    try {
+      const prepared = await analyzeFeedback(service, req.params.id, req.user.name, config);
+      res.json(autoApprove ? service.autoApprove(req.params.id, req.user.name, hash(JSON.stringify(prepared))) : prepared);
+    }
     finally { analyzing.delete(req.params.id); }
   });
   app.post("/api/requests/:id/approve", auth.admin, (req, res) => res.json(service.approve(req.params.id, req.user.name)));

@@ -7,3 +7,6 @@ data/
 *.sqlite*
 coverage/
 
+
+mac/config.local.json
+mac/state/

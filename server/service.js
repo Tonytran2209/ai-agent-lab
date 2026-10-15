@@ -115,6 +115,34 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
       });
     },
     rawForAnalysis: id => get(id),
+    submit(id, input, actor) {
+      return transaction(db, () => {
+        const r = get(id); mutable(r);
+        r.draft = validateDraft(input, library(r.libraryVersionId));
+        if (r.draft.questions.length) fail("Cần trả lời câu hỏi trước khi duyệt.");
+        r.title = r.draft.title;
+        r.approval = { actor, at: now(), requestHash: hash(JSON.stringify({ draft: r.draft, baseCommit: r.baseCommit, libraryVersionId: r.libraryVersionId })) };
+        r.status = "approved";
+        return changed(r, "request_approved", actor, "Lưu và duyệt trong một bước.");
+      });
+    },
+    autoApprove(id, actor, expectedHash) {
+      return transaction(db, () => {
+        const r = get(id);
+        if (hash(JSON.stringify(publicRequest(r))) !== expectedHash) fail("Request đã đổi. Cần kiểm tra lại.");
+        const d = r.draft;
+        // Policy is evaluated server-side, never solely from the model's risk label.
+        const eligible = r.status === "awaiting-approval" && d && d.layer === "design" && d.risk === "low" &&
+          !d.questions.length && !d.newFiles.length && d.allowedPaths.length <= 5 &&
+          d.allowedPaths.every(p => /^(src\/components\/.*\.(tsx|jsx)|src\/[^/]+\.css)$/.test(p) &&
+            !/(auth|permission|billing|storage|provider|payment|login|session)/i.test(p)) &&
+          r.reproduction.trim().length >= 10 && r.expected.trim().length >= 10;
+        if (!eligible) return publicRequest(r);
+        r.approval = { actor, mode: "auto-low-risk", at: now(), requestHash: hash(JSON.stringify({ draft: d, baseCommit: r.baseCommit, libraryVersionId: r.libraryVersionId })) };
+        r.status = "approved";
+        return changed(r, "request_auto_approved", actor, "Admin cho phép tự duyệt UI rủi ro thấp ở lần chuẩn bị này.");
+      });
+    },
     approve(id, actor) {
       return transaction(db, () => {
         const r = get(id);
@@ -168,11 +196,13 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
       return transaction(db, () => {
         const r = get(id); verifyLease(r, token); const result = completionSchema.parse(input);
         if (!result.changedPaths.every(p => r.draft.allowedPaths.includes(p))) fail("Diff chứa file ngoài allowedPaths.");
+        if (result.artifactUrl) {
         const url = new URL(result.artifactUrl);
         const prefix = "/" + r.repository + "/";
         if (url.hostname !== "github.com" || !url.pathname.startsWith(prefix) ||
           !/^(pull\/\d+|commit\/[a-f0-9]{40})\/?$/.test(url.pathname.slice(prefix.length))) fail("Artifact phải là PR hoặc commit của đúng repo.", 400);
         if (url.pathname.includes("/commit/") && !url.pathname.endsWith(result.commit)) fail("Commit artifact không khớp commit báo cáo.", 400);
+        }
         const passed = result.checks.some(c => c.command === "npm run check" && c.passed) && result.checks.every(c => c.passed);
         r.result = { ...result, attestation: "agent-reported", reportedAt: now() };
         const owner = r.lease.owner; r.status = passed ? "review" : "failed"; r.lease = null;
