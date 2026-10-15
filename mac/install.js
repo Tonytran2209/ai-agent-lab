@@ -1,16 +1,17 @@
 import { execFileSync } from "node:child_process";
-import { mkdir, writeFile, chmod, readFile } from "node:fs/promises";
+import { mkdir, writeFile, chmod, cp, access } from "node:fs/promises";
 import { homedir, userInfo } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { connect } from "./runner.js";
+import { connect, repositoryMatches } from "./runner.js";
 
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const sourceRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const args = process.argv.slice(2);
 const option = name => args[args.indexOf(name) + 1];
 const dryRun = args.includes("--dry-run");
 const fileCredentials = args.includes("--credential-file");
-const repoPath = option("--repo");
+const root = dryRun ? sourceRoot : path.join(homedir(), "Library", "Application Support", "AI Agent Lab");
+let repoPath = option("--repo");
 const url = option("--url");
 if (!args.includes("--repo") || !args.includes("--url") || !path.isAbsolute(repoPath)) throw new Error("Usage: npm run runner:install -- --repo /absolute/WriterStudio --url https://your-lab/mcp [--dry-run]");
 const endpoint = new URL(url);
@@ -20,6 +21,34 @@ const codexPath = args.includes("--codex") ? option("--codex") : execFileSync("/
 if (!path.isAbsolute(codexPath)) throw new Error("Không tìm thấy Codex CLI. Truyền --codex /absolute/path/to/codex.");
 const token = process.env.AI_AGENT_LAB_MCP_TOKEN;
 if (!dryRun && (!token || token.length < 24)) throw new Error("Cần AI_AGENT_LAB_MCP_TOKEN trong môi trường Terminal.");
+if (!dryRun) {
+  const originalRepo = repoPath;
+  const remote = execFileSync("git", ["-C", originalRepo, "config", "--get", "remote.origin.url"], { encoding: "utf8" }).trim();
+  if (!repositoryMatches(remote)) throw new Error("Checkout không đúng Writer Studio.");
+  await mkdir(root, { recursive: true, mode: 0o700 });
+  await chmod(root, 0o700);
+  if (sourceRoot !== root) {
+    for (const name of ["node_modules", "server"]) await cp(path.join(sourceRoot, name), path.join(root, name), { recursive: true });
+    await cp(path.join(sourceRoot, "package.json"), path.join(root, "package.json"));
+    await mkdir(path.join(root, "mac"), { recursive: true });
+    for (const name of ["runner.js", "install.js", "result-schema.json"]) await cp(path.join(sourceRoot, "mac", name), path.join(root, "mac", name));
+  }
+  repoPath = path.join(root, "repository");
+  let exists = true;
+  try { await access(repoPath); } catch { exists = false; }
+  if (!exists) {
+    execFileSync("git", ["clone", "--no-hardlinks", originalRepo, repoPath], { stdio: "inherit" });
+    execFileSync("git", ["-C", repoPath, "remote", "set-url", "origin", remote]);
+  } else if (!repositoryMatches(execFileSync("git", ["-C", repoPath, "config", "--get", "remote.origin.url"], { encoding: "utf8" }).trim())) {
+    throw new Error("Cached repository không đúng project.");
+  }
+  for (const key of ["user.name", "user.email"]) {
+    try {
+      const value = execFileSync("git", ["-C", originalRepo, "config", "--get", key], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+      if (value) execFileSync("git", ["-C", repoPath, "config", key, value]);
+    } catch {}
+  }
+}
 const stateDir = path.join(root, "mac", "state");
 await mkdir(stateDir, { recursive: true, mode: 0o700 });
 const config = { repoPath, mcpUrl: url, codexPath, stateDir, pollIntervalMs: 15000 };
