@@ -9,6 +9,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const args = process.argv.slice(2);
 const option = name => args[args.indexOf(name) + 1];
 const dryRun = args.includes("--dry-run");
+const fileCredentials = args.includes("--credential-file");
 const repoPath = option("--repo");
 const url = option("--url");
 if (!args.includes("--repo") || !args.includes("--url") || !path.isAbsolute(repoPath)) throw new Error("Usage: npm run runner:install -- --repo /absolute/WriterStudio --url https://your-lab/mcp [--dry-run]");
@@ -26,7 +27,11 @@ const configPath = path.join(root, "mac", "config.local.json");
 await writeFile(configPath, JSON.stringify(config, null, 2) + "\n", { mode: 0o600 });
 const quote = value => "'" + value.replaceAll("'", "'\\''") + "'";
 const wrapperPath = path.join(stateDir, "start.sh");
-await writeFile(wrapperPath, `#!/bin/zsh\nset -eu\nexport AI_AGENT_LAB_MCP_TOKEN="$(/usr/bin/security find-generic-password -a ${quote(userInfo().username)} -s ai-agent-lab-mcp -w)"\nexport PATH=${quote(path.dirname(process.execPath) + ":/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin")}\ncd ${quote(root)}\nexec ${quote(process.execPath)} ${quote(path.join(root, "mac/runner.js"))} ${quote(configPath)}\n`, { mode: 0o700 });
+const tokenPath = path.join(stateDir, "mcp-token");
+const credentialCommand = fileCredentials
+  ? `IFS= read -r AI_AGENT_LAB_MCP_TOKEN < ${quote(tokenPath)}\nexport AI_AGENT_LAB_MCP_TOKEN`
+  : `export AI_AGENT_LAB_MCP_TOKEN="$(/usr/bin/security find-generic-password -a ${quote(userInfo().username)} -s ai-agent-lab-mcp -w)"`;
+await writeFile(wrapperPath, `#!/bin/zsh\nset -eu\n${credentialCommand}\nexport PATH=${quote(path.dirname(process.execPath) + ":/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin")}\ncd ${quote(root)}\nexec ${quote(process.execPath)} ${quote(path.join(root, "mac/runner.js"))} ${quote(configPath)}\n`, { mode: 0o700 });
 await chmod(wrapperPath, 0o700);
 const xml = value => value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
 const plist = `<?xml version="1.0" encoding="UTF-8"?>
@@ -49,15 +54,25 @@ if (dryRun) {
   const connection = await connect(config, token);
   await connection.call("list_ready_requests");
   await connection.client.close();
-  try {
+  if (fileCredentials) {
+    await chmod(stateDir, 0o700);
+    await writeFile(tokenPath, token + "\n", { mode: 0o600 });
+    await chmod(tokenPath, 0o600);
+  } else try {
     execFileSync("/usr/bin/security", ["add-generic-password", "-U", "-a", userInfo().username, "-s", "ai-agent-lab-mcp", "-w", token], { stdio: ["ignore", "ignore", "pipe"] });
-  } catch { throw new Error("Không lưu được token vào Keychain. Kiểm tra quyền macOS."); }
+  } catch { throw new Error("Không lưu được token vào Keychain. Chạy lại trong Terminal hoặc chọn --credential-file để dùng tệp riêng quyền 600."); }
   const agentDir = path.join(homedir(), "Library", "LaunchAgents");
   await mkdir(agentDir, { recursive: true });
   const target = path.join(agentDir, "com.ai-agent-lab.runner.plist");
   await writeFile(target, plist, { mode: 0o600 }); await chmod(target, 0o600);
   const domain = "gui/" + process.getuid();
   try { execFileSync("/bin/launchctl", ["bootout", domain, target], { stdio: "ignore" }); } catch {}
-  execFileSync("/bin/launchctl", ["bootstrap", domain, target], { stdio: "inherit" });
-  console.log("Mac runner đã cài và chạy. Log: " + path.join(stateDir, "runner.log"));
+  try {
+    execFileSync("/bin/launchctl", ["bootstrap", domain, target], { stdio: "inherit" });
+    console.log("Mac runner đã cài và chạy. Log: " + path.join(stateDir, "runner.log"));
+  } catch {
+    console.error("Đã cài các tệp nhưng macOS chặn đăng ký tiến trình nền. Chạy lệnh sau trong Terminal ngoài sandbox:");
+    console.error(`/bin/launchctl bootstrap ${quote(domain)} ${quote(target)}`);
+    process.exitCode = 1;
+  }
 }
