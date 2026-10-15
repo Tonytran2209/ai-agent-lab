@@ -34,7 +34,9 @@ npm run runner:install -- \
   --url https://DOMAIN-CUA-BAN/mcp
 ```
 
-Thêm `--dry-run` để chỉ sinh config/LaunchAgent trong `mac/state`, chưa lưu token/cài/chạy. Installer thật kiểm tra MCP version và đọc queue, lưu token vào macOS Keychain (`ai-agent-lab-mcp`), cài `~/Library/LaunchAgents/com.ai-agent-lab.runner.plist`, rồi chạy. macOS có thể hỏi quyền Keychain. Token không nằm trong plist/config repo. Agent tự chạy sau đăng nhập, không cần khai báo lại token sau reboot. Đừng di chuyển thư mục Agent Lab sau khi cài; nếu đổi đường dẫn, chạy installer lại.
+Thêm `--dry-run` để chỉ sinh config/LaunchAgent trong `mac/state`, chưa lưu token/cài/chạy. Installer thật kiểm tra MCP version và đọc queue, lưu token vào macOS Keychain (`ai-agent-lab-mcp`), cài `~/Library/LaunchAgents/com.ai-agent-lab.runner.plist`, rồi chạy. macOS có thể hỏi quyền Keychain. Token không nằm trong plist/config repo. Nếu môi trường chặn Keychain, thêm `--credential-file` để lưu token tại `mac/state/mcp-token`, thư mục quyền 700 và tệp quyền 600 (chỉ user sở hữu đọc được, đã gitignore); wrapper đọc tệp khi khởi động. Đây là lưu trữ trên đĩa, không mã hóa bằng Keychain. Agent tự chạy sau đăng nhập, không cần khai báo lại token sau reboot. Đừng di chuyển thư mục Agent Lab sau khi cài; nếu đổi đường dẫn, chạy installer lại.
+
+Nếu installer báo `Bootstrap failed: 5` khi chạy trong sandbox, các tệp đã cài nhưng LaunchAgent chưa bật. Chạy lệnh `launchctl bootstrap` được installer in ra trong Terminal của macOS (không cần sudo). Xác minh bằng `launchctl print "gui/$(id -u)/com.ai-agent-lab.runner"` và xem log.
 
 ## Xem và dừng
 
