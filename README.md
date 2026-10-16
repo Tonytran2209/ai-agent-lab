@@ -47,6 +47,12 @@ Dữ liệu nằm trong `/data/lab.sqlite` và SQLite WAL. **Không có Volume, 
 
 Ứng dụng được chuẩn bị cho Railway; deployment thực tế và cấu hình secrets do chủ workspace thực hiện.
 
+## Thông báo và trạng thái xử lý
+
+Admin có mục Thông báo và toast khi có feedback mới hoặc tiến trình thay đổi; giao diện tự cập nhật mỗi 5 giây khi mở. Đầu request giải thích rõ đang chờ chuẩn bị, AI đang chuẩn bị, còn câu hỏi, chờ duyệt, chờ Mac hay đã chạy. Low risk là mức rủi ro, không đồng nghĩa đã được duyệt. Admin có thể chọn Chuẩn bị để duyệt hoặc Chuẩn bị & tự duyệt UI an toàn cho feedback từ member; policy tự duyệt vẫn kiểm tra đầy đủ ở server.
+
+Mac runner gửi heartbeat có xác thực tới POST /runner/status; API config chỉ hiển thị pha xử lý và thời điểm gần nhất. Sau 2 phút không có heartbeat, giao diện báo chưa có tín hiệu gần đây thay vì khẳng định Mac đang online. Runner cũ vẫn lấy việc được nhưng cần cập nhật để gửi heartbeat mới. Trạng thái này do runner báo, không phải proof thực thi độc lập.
+
 ## Luồng đơn giản và tự chạy trên Mac
 
 Admin chọn **Gửi & chuẩn bị**; mặc định tự duyệt UI rủi ro thấp theo policy, hoặc chọn soạn để duyệt. Request chưa đủ điều kiện dừng ở cần làm rõ/chờ duyệt. **Duyệt & chạy** lưu và duyệt nội dung đang sửa trong một bước. Mac runner nhận trong khoảng 15 giây khi rảnh, chạy từng request trong worktree riêng, báo kết quả và commit cục bộ chưa push. Cần cài runner một lần theo [hướng dẫn](docs/mac-runner.md). Không tự merge/deploy.

@@ -115,6 +115,7 @@ test("HTTP authentication, CSRF, member permissions and actual MCP pull lifecycl
   let client;
   try {
     assert.equal((await fetch(base + "/health")).status, 200);
+    assert.equal((await fetch(base + "/runner/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ phase: "idle" }) })).status, 401);
     assert.equal((await fetch(base + "/api/requests")).status, 401);
     assert.equal((await fetch(base + "/mcp", { method: "POST" })).status, 401);
     assert.equal((await fetch(base + "/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json", Origin: "https://evil.example" }, body: JSON.stringify({ name: "Admin", password: config.ADMIN_PASSWORD }) })).status, 403);
@@ -125,6 +126,11 @@ test("HTTP authentication, CSRF, member permissions and actual MCP pull lifecycl
       return { Cookie: res.headers.get("set-cookie").split(";")[0], "X-CSRF-Token": body.user.csrf, "Content-Type": "application/json" };
     }
     const member = await login(config.USER_PASSWORD), admin = await login(config.ADMIN_PASSWORD);
+    const statusResponse = await fetch(base + "/runner/status", { method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer " + config.MCP_TOKEN }, body: JSON.stringify({ phase: "idle", requestId: null }) });
+    assert.equal(statusResponse.status, 200);
+    const appConfig = await (await fetch(base + "/api/config", { headers: admin })).json();
+    assert.equal(appConfig.runner.connected, true);
+    assert.equal((await fetch(base + "/runner/status", { method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer " + config.MCP_TOKEN }, body: JSON.stringify({ phase: "running" }) })).status, 400);
     assert.equal((await fetch(base + "/api/requests", { method: "POST", headers: { Cookie: member.Cookie, "Content-Type": "application/json" }, body: JSON.stringify(feedback) })).status, 403);
     const created = await fetch(base + "/api/requests", { method: "POST", headers: member, body: JSON.stringify(feedback) });
     assert.equal(created.status, 201); const r = await created.json();
@@ -134,6 +140,12 @@ test("HTTP authentication, CSRF, member permissions and actual MCP pull lifecycl
     assert.equal((await fetch(base + "/api/requests/" + r.id + "/approve", { method: "POST", headers: admin })).status, 200);
     assert.equal((await fetch(base + "/api/requests/" + r.id + "/submit", { method: "POST", headers: member, body: JSON.stringify(draft) })).status, 403);
     assert.equal((await fetch(base + "/api/requests/" + r.id + "/prepare", { method: "POST", headers: member, body: JSON.stringify({ autoApprove: true }) })).status, 403);
+    const preparationTest = service.create(feedback, "Member");
+    const prepareFailure = await fetch(base + "/api/requests/" + preparationTest.id + "/prepare", { method: "POST", headers: admin, body: JSON.stringify({ autoApprove: true }) });
+    assert.equal(prepareFailure.status, 503);
+    assert.equal(service.get(preparationTest.id).preparation.status, "failed");
+    assert.equal(service.get(preparationTest.id).status, "feedback");
+    assert.equal(service.get(preparationTest.id).approval, null);
     const manualRequest = service.create(feedback, "Admin");
     const submitted = await fetch(base + "/api/requests/" + manualRequest.id + "/submit", { method: "POST", headers: admin, body: JSON.stringify(draft) });
     assert.equal(submitted.status, 200); assert.equal((await submitted.json()).status, "approved");

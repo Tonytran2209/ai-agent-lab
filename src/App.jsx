@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { workflowLabels, workflowMessage, requestChanges, requestSignal, preparationRunning } from "./workflow.js";
 import { FlaskConical, Inbox, ListChecks, Library, Plug, Plus, ArrowRight, ArrowUpRight, Search, RefreshCw, ShieldCheck, Sparkles, Copy, X, LogOut, ChevronRight, Check, Clock, FileCode2, AlertTriangle, MessageSquare, LoaderCircle, GitBranch, Send, PanelLeftClose, Menu, CircleDot } from "lucide-react";
 
 const labels = { feedback: "Feedback mới", "needs-triage": "Cần làm rõ", draft: "Bản nháp", "awaiting-approval": "Chờ duyệt", approved: "Chờ Mac nhận", claimed: "Đã claim", running: "Đang thực thi", review: "Chờ nghiệm thu", completed: "Hoàn tất", failed: "Kiểm tra thất bại", rejected: "Đã từ chối" };
@@ -13,6 +14,9 @@ export default function App() {
   const [requests, setRequests] = useState([]), [config, setConfig] = useState(null), [library, setLibrary] = useState(null);
   const [selected, setSelected] = useState(null), [detail, setDetail] = useState(null), [tab, setTab] = useState("request");
   const [query, setQuery] = useState(""), [filter, setFilter] = useState("all"), [compose, setCompose] = useState(false);
+  const previousRequests = useRef(null);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [readAt, setReadAt] = useState(() => Number(localStorage.getItem("lab-notifications-read-at")) || 0);
   const [busy, setBusy] = useState(""), [toast, setToast] = useState(null), [loadError, setLoadError] = useState(""), [mobileNav, setMobileNav] = useState(false);
   async function api(url, init = {}) {
     const res = await fetch("/api" + url, { ...init, headers: { "Content-Type": "application/json", ...(user ? { "X-CSRF-Token": user.csrf } : {}), ...init.headers } });
@@ -25,13 +29,19 @@ export default function App() {
   }
   async function refresh() {
     const [r, c, l] = await Promise.all([api("/requests"), api("/config"), api("/library")]);
+    const changes = requestChanges(previousRequests.current, r.requests);
+    previousRequests.current = new Map(r.requests.map(v => [v.id, requestSignal(v)]));
+    if (user?.role === "admin" && changes.length) {
+      const item = changes[0];
+      setToast({ type: "success", requestId: item.id, message: changes.length > 1 ? changes.length + " feedback/request vừa cập nhật. Mở Thông báo để xem." : item.id + ": " + (preparationRunning(item) ? "Đang chuẩn bị request với AI" : workflowLabels[item.status] || item.status) });
+    }
     setRequests(r.requests); setConfig(c); setLibrary(l); setLoadError("");
   }
   useEffect(() => { fetch("/api/auth/me").then(async r => { if (r.ok) setUser((await r.json()).user); }).catch(() => setLoadError("Không kết nối được server.")).finally(() => setBoot(false)); }, []);
   useEffect(() => {
     if (!user) return;
     refresh().catch(e => setLoadError(e.message));
-    const timer = setInterval(() => refresh().catch(e => setLoadError(e.message)), 15000);
+    const timer = setInterval(() => refresh().catch(e => setLoadError(e.message)), 5000);
     return () => clearInterval(timer);
   }, [user]);
   useEffect(() => {
@@ -58,6 +68,8 @@ export default function App() {
   if (!user) return <Login onLogin={setUser} error={loadError}/>;
   const active = requests.filter(r => ["claimed", "running"].includes(r.status)).length;
   const ready = requests.filter(r => r.status === "approved").length;
+  const queueCount = requests.filter(r => !["feedback", "needs-triage", "rejected"].includes(r.status)).length;
+  const unread = requests.filter(r => Date.parse(r.updatedAt) > readAt).length;
   const reviews = requests.filter(r => r.status === "review").length;
   const list = requests.filter(r => (view !== "queue" || !["feedback", "needs-triage", "rejected"].includes(r.status)) && (filter === "all" || r.status === filter) && (r.title + " " + r.id + " " + r.feedback).toLowerCase().includes(query.toLowerCase()));
   const r = detail?.request;
@@ -68,12 +80,13 @@ export default function App() {
       <div className="project-switch"><span className="project-avatar">W</span><div><strong>Writer Studio</strong><small>Project connected</small></div><ChevronRight size={14}/></div>
       <div className="nav-label">WORKSPACE</div>
       <nav>
-        {[["inbox", Inbox, "Feedback inbox", requests.filter(r => r.status === "feedback").length], ["queue", ListChecks, "Request queue", ready], ["library", Library, "MD Library", null], ["connection", Plug, "Kết nối Codex", null]].map(([key, Icon, title, count]) => <button key={key} className={"nav-item " + (view === key ? "active" : "")} onClick={() => navigate(key)}><Icon size={17}/><span>{title}</span>{count > 0 && <span className="nav-count">{count}</span>}</button>)}
+        {[["inbox", Inbox, "Feedback inbox", requests.filter(r => r.status === "feedback").length], ["queue", ListChecks, "Request queue", queueCount], ["library", Library, "MD Library", null], ["connection", Plug, "Kết nối Codex", null]].map(([key, Icon, title, count]) => <button key={key} className={"nav-item " + (view === key ? "active" : "")} onClick={() => navigate(key)}><Icon size={17}/><span>{title}</span>{count > 0 && <span className="nav-count">{count}</span>}</button>)}
       </nav>
-      <div className="sidebar-bottom"><div className="pull-mode"><span className="connection-dot"/><div><strong>Mac runner</strong><small>Chỉ request đã duyệt</small></div></div><div className="account"><span className="avatar">{user.name.slice(0, 1).toUpperCase()}</span><div><strong>{user.name}</strong><small>{user.role === "admin" ? "Workspace admin" : "Team member"}</small></div><button className="icon-button" aria-label="Đăng xuất" onClick={() => act("logout", async () => { await api("/auth/logout", { method: "POST" }); setUser(null); setRequests([]); setSelected(null); }, null)}><LogOut size={16}/></button></div></div>
+      <div className="sidebar-bottom"><div className="pull-mode"><span className={"connection-dot " + (!config?.runner?.connected ? "offline" : "")}/><div><strong>{config?.runner?.connected ? "Mac đã kết nối" : "Mac chưa có heartbeat"}</strong><small>{config?.runner?.connected ? config.runner.phase === "running" ? "Đang xử lý " + config.runner.requestId : "Đang chờ request" : "Kiểm tra runner trên Mac"}</small></div></div><div className="account"><span className="avatar">{user.name.slice(0, 1).toUpperCase()}</span><div><strong>{user.name}</strong><small>{user.role === "admin" ? "Workspace admin" : "Team member"}</small></div><button className="icon-button" aria-label="Đăng xuất" onClick={() => act("logout", async () => { await api("/auth/logout", { method: "POST" }); setUser(null); setRequests([]); setSelected(null); previousRequests.current = null; }, null)}><LogOut size={16}/></button></div></div>
     </aside>
     <main className="main">
-      <header className="topbar"><div className="breadcrumb"><button className="icon-button mobile-only" aria-label="Mở menu" onClick={() => setMobileNav(true)}><Menu size={19}/></button><span>Workspace</span><ChevronRight size={13}/><strong>{view === "inbox" ? "Feedback inbox" : view === "queue" ? "Request queue" : view === "library" ? "MD Library" : "Kết nối Codex"}</strong></div><span className="subtle desktop-only"><GitBranch size={13}/> main · Writer Studio</span></header>
+      <header className="topbar"><div className="breadcrumb"><button className="icon-button mobile-only" aria-label="Mở menu" onClick={() => setMobileNav(true)}><Menu size={19}/></button><span>Workspace</span><ChevronRight size={13}/><strong>{view === "inbox" ? "Feedback inbox" : view === "queue" ? "Request queue" : view === "library" ? "MD Library" : "Kết nối Codex"}</strong></div><div className="topbar-actions"><span className="subtle desktop-only">Tự cập nhật mỗi 5 giây</span>{user.role === "admin" && <Button aria-expanded={notificationsOpen} onClick={() => { setNotificationsOpen(!notificationsOpen); const now = Date.now(); setReadAt(now); localStorage.setItem("lab-notifications-read-at", String(now)); }}><Inbox size={15}/>Thông báo {unread > 0 && <span className="counter">{unread}</span>}</Button>}</div></header>
+      {notificationsOpen && <section className="panel notification-panel" aria-label="Thông báo workspace"><div className="panel-heading"><h2>Feedback và tiến trình mới nhất</h2><button className="icon-button" aria-label="Đóng thông báo workspace" onClick={() => setNotificationsOpen(false)}><X size={15}/></button></div>{[...requests].sort((a,b) => Date.parse(b.updatedAt)-Date.parse(a.updatedAt)).slice(0,10).map(item => <button className="notification-row" key={item.id} onClick={() => { choose(item.id); navigate("inbox"); setNotificationsOpen(false); }}><strong>{item.title}</strong><span>{item.author} · {preparationRunning(item) ? "Đang chuẩn bị request với AI" : workflowLabels[item.status]} · {date(item.updatedAt)}</span></button>)}{!requests.length && <p>Chưa có feedback.</p>}</section>}
       <div className="page-heading"><div><div className="eyebrow">AI AGENT LAB / WRITER STUDIO</div><h1>{view === "inbox" ? "Từ feedback đến thay đổi." : view === "queue" ? "Request có phạm vi rõ ràng." : view === "library" ? "Tri thức của project." : "Đưa request vào Codex."}</h1><p>{view === "inbox" ? "Ghi nhận vấn đề, làm rõ ý định và chuẩn bị request để bạn duyệt." : view === "queue" ? "Theo dõi request đã chuẩn bị, tiến trình Codex và kết quả kiểm tra." : view === "library" ? "Design, backend và database contract được ghim theo phiên bản Git." : "Mac runner nhận request đã duyệt và chạy Codex tự động."}</p></div>{["inbox", "queue"].includes(view) && <Button className="primary" onClick={() => setCompose(true)}><Plus size={16}/>Gửi feedback</Button>}</div>
       {loadError && <div className="alert error" role="alert">{loadError}<button onClick={() => refresh().catch(e => setLoadError(e.message))}>Thử lại</button></div>}
       {["inbox", "queue"].includes(view) && <>
@@ -89,6 +102,7 @@ export default function App() {
           <section className="detail panel">
             {!r ? <Empty icon={FileCode2} title="Mỗi thay đổi bắt đầu từ một ý kiến." action={<Button onClick={() => setCompose(true)}><Plus size={15}/>Gửi feedback đầu tiên</Button>}>Chọn một feedback để xem thông tin, chuẩn bị phạm vi sửa và theo dõi Codex.</Empty> : <>
               <div className="detail-heading"><div className="row-top"><span className="mono">{r.id}</span><Badge status={r.status}/></div><h2>{r.title}</h2><p>{r.author} · {date(r.createdAt)} · Writer Studio</p></div>
+              <div className={"workflow-status status-" + r.status} role="status"><strong>{preparationRunning(r) ? "Đang chuẩn bị request với AI" : workflowLabels[r.status]}</strong><p>{workflowMessage(r, config?.runner)}</p>{config?.runner?.lastSeenAt && <small>Mac báo trạng thái lần cuối: {date(config.runner.lastSeenAt)}</small>}</div>
               <div className="tabs" role="tablist" aria-label="Chi tiết request">{[["request", "Request"], ["feedback", "Feedback gốc"], ["activity", "Hoạt động"], ["result", "Kết quả"]].map(([k, v]) => <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? "active" : ""} onClick={() => setTab(k)}>{v}</button>)}</div>
               <div className="detail-body">
                 {tab === "feedback" && <FeedbackDetail request={r} onClarify={note => act("clarify", () => api("/requests/" + r.id + "/clarify", { method: "POST", body: JSON.stringify({ note }) }), "Đã lưu bổ sung. Request cần được chuẩn bị lại.")} busy={busy}/>}
@@ -97,7 +111,11 @@ export default function App() {
                 {tab === "request" && <>
                   <div className="version-card"><GitBranch size={15}/><div><span>Source và library được ghim</span><small className="mono">{r.baseCommit.slice(0, 12)} / {r.libraryVersionId.slice(0, 12)}</small></div><a href={"https://github.com/" + r.repository + "/tree/" + r.baseCommit} target="_blank" rel="noreferrer" aria-label="Mở source commit"><ArrowUpRight size={16}/></a></div>
                   {r.lease && <div className="alert"><Clock size={16}/><div><strong>{r.lease.owner} đang giữ claim</strong><p>Hết hạn {date(r.lease.expiresAt)}. Agent cần cập nhật tiến trình để gia hạn.</p></div></div>}
-                  {editableStates.includes(r.status) && user.role === "admin" && <div className="analysis-card"><div><Sparkles size={18}/><div><strong>Chuẩn bị request</strong><p>AI soạn phạm vi và tiêu chí. Bạn có thể duyệt và chạy ngay bên dưới.</p></div></div><Button busy={busy === "analyze"} disabled={!config?.aiConfigured || Boolean(busy)} onClick={() => act("analyze", () => api("/requests/" + r.id + "/analyze", { method: "POST" }), "AI đã soạn request. Hãy kiểm tra phạm vi và tiêu chí.")}>Chuẩn bị <ArrowRight size={14}/></Button>{!config?.aiConfigured && <small>Chưa cấu hình AI. Bạn vẫn có thể chuẩn bị request thủ công bên dưới.</small>}</div>}
+                  {editableStates.includes(r.status) && user.role === "admin" && <div className="analysis-card"><div><Sparkles size={18}/><div><strong>Chuẩn bị request</strong><p>AI soạn phạm vi và tiêu chí. Bạn có thể duyệt và chạy ngay bên dưới.</p></div></div><Button busy={busy === "analyze"} disabled={!config?.aiConfigured || Boolean(busy)} onClick={() => act("analyze", () => api("/requests/" + r.id + "/analyze", { method: "POST" }), "AI đã soạn request. Hãy kiểm tra phạm vi và tiêu chí.")}>Chuẩn bị để duyệt <ArrowRight size={14}/></Button><Button busy={busy === "auto-prepare"} disabled={!config?.aiConfigured || Boolean(busy)} onClick={() => act("auto-prepare", async () => {
+                      const result = await api("/requests/" + r.id + "/prepare", { method: "POST", body: JSON.stringify({ autoApprove: true }) });
+                      setToast({ type: "success", message: result.status === "approved" ? "Đã tự duyệt UI đủ điều kiện và vào hàng đợi Mac." : "Đã chuẩn bị. Request chưa đủ điều kiện tự duyệt; xem câu hỏi hoặc nhấn Duyệt & chạy." });
+                      return result;
+                    })}>Chuẩn bị & tự duyệt UI an toàn</Button>{!config?.aiConfigured && <small>Chưa cấu hình AI. Bạn vẫn có thể chuẩn bị request thủ công bên dưới.</small>}</div>}
                   {r.draft?.questions.length > 0 && <div className="alert warning"><AlertTriangle size={17}/><div><strong>Cần làm rõ trước khi duyệt</strong><ul>{r.draft.questions.map((q, i) => <li key={i}>{q}</li>)}</ul><button className="text-button" onClick={() => setTab("feedback")}>Bổ sung thông tin <ArrowRight size={13}/></button></div></div>}
                   {editableStates.includes(r.status) && user.role === "admin" ? <DraftEditor key={r.id + ":" + r.updatedAt} request={r} busy={busy} onSubmit={draft => act("submit", () => api("/requests/" + r.id + "/submit", { method: "POST", body: JSON.stringify(draft) }), "Đã lưu và duyệt. Mac runner sẽ nhận trong khoảng 15 giây nếu đang chạy.")} onSave={draft => act("save", () => api("/requests/" + r.id + "/draft", { method: "PUT", body: JSON.stringify(draft) }), "Đã lưu bản request.")}/> :
                     r.draft ? <DraftView draft={r.draft}/> : <Empty icon={Sparkles} title="Feedback đang chờ chuẩn bị">Admin sẽ phân tích feedback và xác định phạm vi thay đổi.</Empty>}
@@ -126,7 +144,7 @@ export default function App() {
         if (prepared) setToast({ type: "success", message: prepared.status === "approved" ? "Đã qua kiểm tra tự duyệt. Chờ Mac runner nhận." : prepared.status === "needs-triage" ? "Đã soạn request. Cần bổ sung thông tin." : "Đã soạn request. Kiểm tra rồi nhấn Duyệt & chạy." });
       } else setToast({ type: "success", message: "Đã lưu feedback." });
     }}/>}
-    {toast && <div className={"toast " + toast.type} role="status">{toast.type === "error" ? <AlertTriangle size={17}/> : <Check size={17}/>}<span>{toast.message}</span><button className="icon-button" aria-label="Đóng thông báo" onClick={() => setToast(null)}><X size={15}/></button></div>}
+    {toast && <div className={"toast " + toast.type} role="status">{toast.type === "error" ? <AlertTriangle size={17}/> : <Check size={17}/>}<span>{toast.message}</span>{toast.requestId && <button className="text-button" onClick={() => { choose(toast.requestId); navigate("inbox"); setToast(null); }}>Xem</button>}<button className="icon-button" aria-label="Đóng thông báo" onClick={() => setToast(null)}><X size={15}/></button></div>}
   </div>;
 }
 
