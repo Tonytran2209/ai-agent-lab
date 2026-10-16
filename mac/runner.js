@@ -71,7 +71,7 @@ export function childEnvironment(env) {
   for (const key of ["AI_AGENT_LAB_MCP_TOKEN", "MCP_TOKEN", "ADMIN_PASSWORD", "SESSION_SECRET", "USER_PASSWORD", "OPENAI_API_KEY", "GITHUB_TOKEN", "GH_TOKEN"]) delete clean[key];
   return clean;
 }
-export async function executeRequest({ packet, call, config, signal, run = command }) {
+export async function executeRequest({ packet, call, config, signal, run = command, reportStatus = async () => {} }) {
   const r = safePacket(packet);
   if (!repositoryMatches(await git(config.repoPath, ["config", "--get", "remote.origin.url"]))) throw new Error("Remote checkout không đúng Writer Studio.");
   await git(config.repoPath, ["fetch", "--no-tags", "origin", r.baseCommit], { signal });
@@ -100,13 +100,14 @@ export async function executeRequest({ packet, call, config, signal, run = comma
   const heartbeat = setInterval(() => {
     if (heartbeatBusy) return;
     heartbeatBusy = true;
-    heartbeatTask = call("report_progress", { requestId: r.id, claimToken: token, note: "Mac runner đang chạy Codex và kiểm tra trong worktree riêng." })
+    heartbeatTask = reportStatus({ phase: "running", requestId: r.id }).then(() => call("report_progress", { requestId: r.id, claimToken: token, note: "Mac runner đang chạy Codex và kiểm tra trong worktree riêng." }))
       .catch(() => controller.abort()).finally(() => { heartbeatBusy = false; });
   }, 60000);
   const stopHeartbeat = async () => { clearInterval(heartbeat); await heartbeatTask; };
   try {
     if (claimed.request?.approval?.requestHash !== r.approval.requestHash) throw new Error("Approval thay đổi trước khi claim; cần kiểm tra lại.");
     await journal("running");
+    await reportStatus({ phase: "running", requestId: r.id });
     await call("report_progress", { requestId: r.id, claimToken: token, note: "Mac đã nhận request. Worktree: " + worktree });
     const schemaPath = fileURLToPath(new URL("./result-schema.json", import.meta.url));
     const outputPath = path.join(config.stateDir, branch.slice(4) + "-result.json");
@@ -189,6 +190,14 @@ export async function main(configPath) {
   const stop = () => controller.abort();
   process.once("SIGTERM", stop); process.once("SIGINT", stop);
   const log = text => console.log(new Date().toISOString(), text);
+  const reportStatus = async value => {
+    // Telemetry failure never grants/releases execution authority. Old backends may return 404.
+    try {
+      await fetch(new URL("/runner/status", config.mcpUrl), { method: "POST", signal: AbortSignal.timeout(10000),
+        headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" }, body: JSON.stringify(value) });
+    } catch {}
+  };
+  let wasConnected = false;
   try {
     log("Mac runner started; polling approved requests.");
     while (!controller.signal.aborted) {
@@ -196,15 +205,18 @@ export async function main(configPath) {
       try {
         connection = await connect(config, token);
         const { requests } = await connection.call("list_ready_requests");
+        await reportStatus({ phase: "idle", requestId: null });
+        if (!wasConnected) log("Đã kết nối Lab; đang kiểm tra hàng đợi.");
+        wasConnected = true;
         for (const r of [...requests].reverse()) {
           if (controller.signal.aborted) break;
           try {
             const packet = await connection.call("get_request", { requestId: r.id });
-            const done = await executeRequest({ packet, call: connection.call, config, signal: controller.signal });
+            const done = await executeRequest({ packet, call: connection.call, config, signal: controller.signal, reportStatus });
             log("Reported " + done.requestId + " branch " + done.branch);
           } catch { log("Request " + r.id + " chưa chạy xong; kiểm tra trạng thái Lab và journal cục bộ."); }
         }
-      } catch { log("Không kết nối được Lab. Sẽ thử lại; kiểm tra URL/token/network."); }
+      } catch { wasConnected = false; log("Không kết nối được Lab. Sẽ thử lại; kiểm tra URL/token/network."); }
       finally { await connection?.client.close().catch(() => {}); }
       if (!controller.signal.aborted) await new Promise(resolve => {
         const finish = () => { clearTimeout(timer); controller.signal.removeEventListener("abort", finish); resolve(); };

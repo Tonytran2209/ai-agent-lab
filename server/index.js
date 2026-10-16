@@ -47,7 +47,7 @@ export function createApp(config, options = {}) {
   app.use("/api", auth.require, limiter(180));
   app.post("/api/auth/logout", (req, res) => { auth.logout(res); res.json({ ok: true }); });
   app.get("/api/config", (req, res) => res.json({ aiConfigured: Boolean(config.OPENAI_API_KEY), model: config.OPENAI_MODEL || "gpt-4.1-mini",
-    mcpUrl: (config.APP_URL || "http://localhost:3000").replace(/\/$/, "") + "/mcp", project: { id: "writer-studio", name: "Writer Studio", repository: "Tonytran2209/RebuildWriterStudioTool" } }));
+    runner: service.runnerStatus(), mcpUrl: (config.APP_URL || "http://localhost:3000").replace(/\/$/, "") + "/mcp", project: { id: "writer-studio", name: "Writer Studio", repository: "Tonytran2209/RebuildWriterStudioTool" } }));
   app.get("/api/requests", (req, res) => res.json({ requests: service.list() }));
   app.post("/api/requests", limiter(20), (req, res) => res.status(201).json(service.create(req.body, req.user.name)));
   app.get("/api/requests/:id", (req, res) => res.json({ request: service.get(req.params.id), events: service.events(req.params.id) }));
@@ -70,11 +70,20 @@ export function createApp(config, options = {}) {
     if (analyzing.has(req.params.id)) fail("AI đang phân tích request này.");
     if (analyzing.size >= 3) fail("AI đang xử lý đủ số request đồng thời. Thử lại sau.", 429);
     analyzing.add(req.params.id);
+    let success = false, started = false;
     try {
+      service.beginPreparation(req.params.id, req.user.name);
+      started = true;
       const prepared = await analyzeFeedback(service, req.params.id, req.user.name, config);
-      res.json(autoApprove ? service.autoApprove(req.params.id, req.user.name, hash(JSON.stringify(prepared))) : prepared);
+      const result = autoApprove ? service.autoApprove(req.params.id, req.user.name, hash(JSON.stringify(prepared))) : prepared;
+      success = true;
+      service.endPreparation(req.params.id, req.user.name, true);
+      res.json({ ...result, preparation: service.get(req.params.id).preparation });
     }
-    finally { analyzing.delete(req.params.id); }
+    finally {
+      try { if (started && !success) service.endPreparation(req.params.id, req.user.name, false); }
+      finally { analyzing.delete(req.params.id); }
+    }
   });
   app.post("/api/requests/:id/approve", auth.admin, (req, res) => res.json(service.approve(req.params.id, req.user.name)));
   app.post("/api/requests/:id/reject", auth.admin, (req, res) => {
@@ -91,6 +100,11 @@ export function createApp(config, options = {}) {
   app.post("/api/library/sync", auth.admin, limiter(3, 10 * 60000), async (req, res) => {
     if (syncing) fail("Library đang đồng bộ."); syncing = true;
     try { res.json(await syncLibrary(service, config.GITHUB_TOKEN)); } finally { syncing = false; }
+  });
+  app.post("/runner/status", auth.mcp, limiter(30), (req, res) => {
+    const input = z.object({ phase: z.enum(["idle", "running"]), requestId: z.string().regex(/^REQ-[A-F0-9]{8}$/).nullable().default(null) }).parse(req.body);
+    if (input.phase === "running" && !input.requestId) fail("Running status requires a request.", 400);
+    res.json(service.reportRunner(input));
   });
   app.post("/mcp", auth.mcp, limiter(120), mcpHandler(service));
   app.all("/mcp", auth.mcp, (req, res) => res.status(405).set("Allow", "POST").json({ error: "Stateless MCP endpoint supports POST only." }));

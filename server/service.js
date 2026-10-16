@@ -77,6 +77,17 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
   };
   return {
     currentLibrary, library, list: () => list().map(publicRequest),
+    reportRunner(input) {
+      const value = { ...input, lastSeenAt: now() };
+      db.prepare("INSERT OR REPLACE INTO settings(key,value) VALUES ('mac_runner',?)").run(JSON.stringify(value));
+      return { ok: true };
+    },
+    runnerStatus() {
+      const row = db.prepare("SELECT value FROM settings WHERE key='mac_runner'").get();
+      if (!row) return { connected: false, phase: "unknown", lastSeenAt: null, requestId: null };
+      const value = JSON.parse(row.value);
+      return { ...value, connected: Date.now() - Date.parse(value.lastSeenAt) < 120000 };
+    },
     get: id => publicRequest(get(id)), packet: id => packet(get(id)),
     events: id => { get(id); return db.prepare("SELECT data FROM events WHERE request_id=? ORDER BY id").all(id).map(r => JSON.parse(r.data)); },
     create(input, actor) {
@@ -112,6 +123,21 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
         r.draft = validateDraft(draft, library(r.libraryVersionId)); r.title = r.draft.title;
         r.ai = ai; r.status = r.draft.questions.length ? "needs-triage" : "awaiting-approval"; r.approval = null;
         return changed(r, "ai_analysis_completed", actor);
+      });
+    },
+    beginPreparation(id, actor) {
+      return transaction(db, () => {
+        const r = get(id); mutable(r);
+        r.preparation = { status: "running", startedAt: now() };
+        return changed(r, "preparation_started", actor);
+      });
+    },
+    endPreparation(id, actor, success) {
+      return transaction(db, () => {
+        const r = get(id);
+        r.preparation = { ...r.preparation, status: success ? "completed" : "failed", finishedAt: now() };
+        return changed(r, success ? "preparation_finished" : "preparation_failed", actor,
+          success ? "" : "Chuẩn bị chưa thành công; feedback vẫn được giữ. Có thể thử lại hoặc soạn thủ công.");
       });
     },
     rawForAnalysis: id => get(id),
