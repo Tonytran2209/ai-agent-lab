@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { workflowLabels, workflowMessage, requestChanges, requestSignal, preparationRunning } from "./workflow.js";
+import { workflowLabels, workflowMessage, requestChanges, requestSignal, preparationRunning, inRequestQueue } from "./workflow.js";
 import { FlaskConical, Inbox, ListChecks, Library, Plug, Plus, ArrowRight, ArrowUpRight, Search, RefreshCw, ShieldCheck, Sparkles, Copy, X, LogOut, ChevronRight, Check, Clock, FileCode2, AlertTriangle, MessageSquare, LoaderCircle, GitBranch, Send, PanelLeftClose, Menu, CircleDot } from "lucide-react";
 
 const labels = { feedback: "Feedback mới", "needs-triage": "Cần làm rõ", draft: "Bản nháp", "awaiting-approval": "Chờ duyệt", approved: "Chờ Mac nhận", claimed: "Đã claim", running: "Đang thực thi", review: "Chờ nghiệm thu", completed: "Hoàn tất", failed: "Kiểm tra thất bại", rejected: "Đã từ chối" };
@@ -68,10 +68,10 @@ export default function App() {
   if (!user) return <Login onLogin={setUser} error={loadError}/>;
   const active = requests.filter(r => ["claimed", "running"].includes(r.status)).length;
   const ready = requests.filter(r => r.status === "approved").length;
-  const queueCount = requests.filter(r => !["feedback", "needs-triage", "rejected"].includes(r.status)).length;
+  const queueCount = requests.filter(inRequestQueue).length;
   const unread = requests.filter(r => Date.parse(r.updatedAt) > readAt).length;
   const reviews = requests.filter(r => r.status === "review").length;
-  const list = requests.filter(r => (view !== "queue" || !["feedback", "needs-triage", "rejected"].includes(r.status)) && (filter === "all" || r.status === filter) && (r.title + " " + r.id + " " + r.feedback).toLowerCase().includes(query.toLowerCase()));
+  const list = requests.filter(r => (view !== "queue" || inRequestQueue(r)) && (filter === "all" || r.status === filter) && (r.title + " " + r.id + " " + r.feedback).toLowerCase().includes(query.toLowerCase()));
   const r = detail?.request;
   return <div className="app-shell">
     {mobileNav && <button className="nav-backdrop" aria-label="Đóng menu" onClick={() => setMobileNav(false)}/>}

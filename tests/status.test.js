@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { openDatabase } from '../server/db.js';
 import { createService, hash } from '../server/service.js';
-import { requestChanges, workflowMessage, workflowLabels } from '../src/workflow.js';
+import { requestChanges, workflowMessage, workflowLabels, inRequestQueue } from '../src/workflow.js';
 
 test('notifications distinguish initial load, new member feedback and execution transitions', () => {
   const feedback = { id: 'REQ-ABCDEF12', status: 'feedback' };
@@ -19,6 +19,9 @@ test('notifications distinguish initial load, new member feedback and execution 
   assert.match(workflowMessage({ status: 'approved' }, { connected: false }), /Chưa nhận được heartbeat/);
   assert.match(workflowMessage({ status: 'approved' }, { connected: true, phase: 'running' }), /request khác/);
   assert.ok(workflowLabels['awaiting-approval'].includes('chờ admin duyệt'));
+  assert.equal(inRequestQueue({ status: "feedback", draft: null }), false);
+  assert.equal(inRequestQueue({ status: "needs-triage", draft: { risk: "low", questions: ["Cần làm rõ?"] } }), true);
+  assert.equal(inRequestQueue({ status: "rejected", draft: {} }), false);
 });
 test('runner presence is durable, expires offline and does not change request approval', () => {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'lab-runner-status-'));
