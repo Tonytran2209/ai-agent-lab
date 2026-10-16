@@ -31,7 +31,7 @@ if (!dryRun) {
     for (const name of ["node_modules", "server"]) await cp(path.join(sourceRoot, name), path.join(root, name), { recursive: true });
     await cp(path.join(sourceRoot, "package.json"), path.join(root, "package.json"));
     await mkdir(path.join(root, "mac"), { recursive: true });
-    for (const name of ["runner.js", "install.js", "result-schema.json"]) await cp(path.join(sourceRoot, "mac", name), path.join(root, "mac", name));
+    for (const name of ["runner.js", "release.js", "install.js", "result-schema.json"]) await cp(path.join(sourceRoot, "mac", name), path.join(root, "mac", name));
   }
   repoPath = path.join(root, "repository");
   let exists = true;
@@ -51,7 +51,7 @@ if (!dryRun) {
 }
 const stateDir = path.join(root, "mac", "state");
 await mkdir(stateDir, { recursive: true, mode: 0o700 });
-const config = { repoPath, mcpUrl: url, codexPath, stateDir, pollIntervalMs: 15000 };
+const config = { releaseEnabled: args.includes("--enable-release"), ghPath: "/opt/homebrew/bin/gh", releaseEnvironment: args.includes("--release-environment") ? option("--release-environment") : "", repoPath, mcpUrl: url, codexPath, stateDir, pollIntervalMs: 15000 };
 const configPath = path.join(root, "mac", "config.local.json");
 await writeFile(configPath, JSON.stringify(config, null, 2) + "\n", { mode: 0o600 });
 const quote = value => "'" + value.replaceAll("'", "'\\''") + "'";

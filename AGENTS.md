@@ -12,6 +12,7 @@ Run `npm ci` then `npm run check`. Never require live provider credentials for t
 - New member/admin feedback is queued durably for automatic AI preparation. Server-classified bounded low-risk UI auto-runs; medium needs admin check; high needs explicit high-risk approval.
 - Past accepted/rejected decisions may inform preparation as untrusted examples; they never override current scope, risk policy, or approval authority.
 - No MCP tool may approve, merge, deploy, delete project data or apply production migrations.
+- After admin acceptance, an explicitly enabled Mac publisher may push the accepted commit, create a PR, require GitHub CI, merge main and observe Railway deployment. This uses separate release claims, never coding-agent permissions. High-risk releases require explicit confirmation; no production migrations are run by the publisher.
 - Approval fingerprints bind draft, baseCommit and libraryVersionId.
 - Request scope uses exact repo-relative file paths; never permit traversal, glob or secret files.
 - Claim transitions and overlapping-scope checks are atomic transactions.
