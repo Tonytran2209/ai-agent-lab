@@ -45,7 +45,7 @@ test('publisher creates a PR idempotently and never force pushes or writes main'
  const result=await publishStep({request:packet(),config,run,api});assert.equal(result.phase,'ci');assert.ok(commands.some(a=>a.includes('push')));assert.ok(!commands.some(a=>a.includes('--force')||a.includes('main')));
  await assert.rejects(publishStep({request:{...packet(),result:{...report,changedPaths:['backend/index.ts']}},config,run,api}),/phạm vi/);
 });
-const ciApi=(checks=[check],override={})=>async(endpoint,method)=>{
+const ciApi=(checks=[check,{...check,name:"browser-check"}],override={})=>async(endpoint,method)=>{
  if(method==='PUT')return {merged:true,sha:merged};
  if(endpoint.includes('/files?'))return [{filename:draft.allowedPaths[0]}];
  if(endpoint.includes('/check-runs?'))return {total_count:checks.length,check_runs:checks};
@@ -55,8 +55,8 @@ const ciApi=(checks=[check],override={})=>async(endpoint,method)=>{
 test('merge requires exact head, scoped PR, successful real GitHub Actions check; empty/pending never merge',async()=>{
  assert.equal((await publishStep({request:packet('ci'),config,run:gitRun,api:ciApi([])})).phase,'ci');
  await assert.rejects(publishStep({request:packet('ci'),config,run:gitRun,api:ciApi([{...check,conclusion:'failure'}])}),/CI/);
- await assert.rejects(publishStep({request:packet('ci'),config,run:gitRun,api:ciApi([check],{head:{sha:merged}})}),/head/);
- await assert.rejects(publishStep({request:packet('ci'),config,run:gitRun,api:ciApi([check],{mergeable:false})}),/xung đột/);
+ await assert.rejects(publishStep({request:packet('ci'),config,run:gitRun,api:ciApi([check,{...check,name:"browser-check"}],{head:{sha:merged}})}),/head/);
+ await assert.rejects(publishStep({request:packet('ci'),config,run:gitRun,api:ciApi([check,{...check,name:"browser-check"}],{mergeable:false})}),/xung đột/);
  const result=await publishStep({request:packet('ci'),config,run:gitRun,api:ciApi()});assert.equal(result.phase,'deploying');assert.equal(result.mergeCommit,merged);
 });
 test('Railway success must belong to the expected commit, environment and Railway bot; failures retain merged main',async()=>{

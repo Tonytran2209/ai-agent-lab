@@ -79,3 +79,11 @@ Nút **Nghiệm thu & phát hành** tạo quyền phát hành gắn với kết 
 Mac xử lý từng bước có claim riêng: xác minh commit/parent/scope, push nhánh (không force), tạo hoặc tìm lại PR, chờ `writer-check` của GitHub Actions và các check khác, merge với expected head SHA, rồi theo dõi deployment do `railway-app[bot]` tạo cho đúng merge commit và môi trường. Không xem trang health chung là bằng chứng đã deploy đúng bản. CI không có hoặc thất bại, PR xung đột, head/scope thay đổi đều ngăn merge. Không chạy migration sản xuất.
 
 Trạng thái PR, CI, merge commit và Railway hiện ngay trong inbox và thông báo. **Thử phát hành lại** tiếp tục từ PR hoặc merge commit đã có; không chạy lại Codex, không merge hai lần. Lỗi/timeout theo dõi deploy không có nghĩa main đã rollback. Mỗi lần chờ CI hoặc deploy tối đa 30 phút; mỗi poll xử lý một bước. Publisher giữ nguyên các nhánh và worktree để có thể kiểm tra/khôi phục.
+
+## Kiểm tra trình duyệt trước nghiệm thu
+
+Runner không khởi chạy Chrome/headless trong LaunchAgent macOS. Kết quả UI có `browserVerification: ci` chuyển sang **Đang kiểm tra trình duyệt**. Worker riêng chỉ được push commit đã báo cáo, tạo draft PR và đọc các checks; không được mark ready, merge hay deploy ở giai đoạn này. `writer-check` và `browser-check` trên GitHub Actions phải đạt trước khi request chuyển sang **Chờ nghiệm thu**. Sau admin nghiệm thu mới chuyển PR sang ready và dùng luồng phát hành hiện có.
+
+Writer Studio chạy Chromium Playwright trên Ubuntu, desktop và mobile, với fixture của component thật và CSS thật. Suite hiện tập trung Draft: giữ thân bài, chỉnh sửa đầy đủ, giữ source và xuất .txt; đo clamp sáu dòng khi có chế độ preview. Đây là bộ regression, không thay thế admin nghiệm thu mọi tiêu chí của một thay đổi UI khác. CI lưu screenshot, HTML report và failure trace trong artifact của workflow trong 14 ngày. Không dùng credentials hoặc dữ liệu production.
+
+Request cũ lỗi riêng ở browser có hai cách xử lý: **Kiểm tra lại trên CI** (không chạy lại Codex) hoặc admin **Ghi nhận kiểm tra bổ sung** sau khi thực sự kiểm tra đúng commit. Bằng chứng bổ sung gắn với hash kết quả và commit; lỗi Chrome ban đầu không bị sửa thành Passed. Kiểm tra frontend/backend không đạt không được thay thế bằng bằng chứng browser. Nghiệm thu vẫn cần thực hiện riêng; bổ sung bằng chứng không cấp quyền phát hành.

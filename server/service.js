@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { localChecksPassed, checksSatisfied, verificationPassed, resultRevision, newVerification } from "./verification.js";
 import { queueRelease, releaseFingerprint, releaseUpdate } from "./releases.js";
 import { readFileSync } from "node:fs";
 import { transaction } from "./db.js";
@@ -57,7 +58,8 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
   const publicRequest = r => {
     const { lease, ...rest } = r;
     const release = rest.release ? { ...rest.release, lease: rest.release.lease ? { owner: rest.release.lease.owner, expiresAt: rest.release.lease.expiresAt } : null } : undefined;
-    return { ...rest, ...(release ? { release } : {}), lease: lease ? { owner: lease.owner, expiresAt: lease.expiresAt } : null };
+    const verification = rest.verification ? { ...rest.verification, lease: rest.verification.lease ? {owner:rest.verification.lease.owner,expiresAt:rest.verification.lease.expiresAt} : null } : undefined;
+    return { ...rest, ...(rest.result ? {resultRevision:resultRevision(r)} : {}), ...(verification ? {verification} : {}), ...(release ? { release } : {}), lease: lease ? { owner: lease.owner, expiresAt: lease.expiresAt } : null };
   };
   function changed(r, type, actor, detail) { r.updatedAt = now(); save(r); event(r.id, type, actor, detail); return publicRequest(r); }
   function mutable(r) {
@@ -354,8 +356,11 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
         }
         const passed = result.checks.some(c => c.command === "npm run check" && c.passed) && result.checks.every(c => c.passed);
         r.result = { ...result, attestation: "agent-reported", reportedAt: now() };
-        const owner = r.lease.owner; r.status = passed ? "review" : "failed"; r.lease = null;
-        return changed(r, passed ? "ready_for_review" : "verification_failed", owner, result.summary);
+        const owner = r.lease.owner;
+        const ci = result.browserVerification === "ci" && localChecksPassed(r);
+        if (ci) r.verification = newVerification(r, owner);
+        r.status = ci ? "verifying" : passed ? "review" : "failed"; r.lease = null;
+        return changed(r, ci ? "browser_verification_queued" : passed ? "ready_for_review" : "verification_failed", owner, result.summary);
       });
     },
     release(id, actor, note) {
@@ -367,9 +372,49 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
         return changed(r, "claim_released_by_admin", actor, note);
       });
     },
+    supplementVerification(id, input, actor) {
+      return transaction(db, () => {
+        const r = get(id);
+        if (!["failed", "verifying"].includes(r.status) || !localChecksPassed(r) || r.lease || r.verification?.lease && Date.parse(r.verification.lease.expiresAt)>Date.now()) fail("Không thể bổ sung khi đang chạy hoặc có lỗi ngoài trình duyệt.");
+        if (input.expectedCommit !== r.result.commit || input.expectedResultRevision !== resultRevision(r)) fail("Kết quả đã đổi; cần kiểm tra lại đúng commit.");
+        if (typeof input.note !== "string" || input.note.trim().length < 30 || input.note.length > 4000) fail("Cần mô tả kiểm tra thực tế và bằng chứng.",400);
+        r.verification = {...r.verification,phase:"passed",resultRevision:resultRevision(r),source:"admin-attested",actor,at:now(),note:input.note.trim(),lease:null};
+        r.status="review"; return changed(r,"browser_verification_supplemented",actor,"Bổ sung kiểm tra trình duyệt đã thực hiện; giữ nguyên lịch sử lỗi Chrome. " + input.note.trim());
+      });
+    },
+    queueVerification(id, actor) {
+      return transaction(db, () => {
+        const r=get(id);if(r.status!=="failed" || !localChecksPassed(r) || r.verification?.lease && Date.parse(r.verification.lease.expiresAt)>Date.now()) fail("Chỉ thử lại kiểm tra trình duyệt sau khi worker dừng.");
+        const old=r.verification;r.verification={...newVerification(r,actor),...(old?.prNumber?{phase:"ci",prNumber:old.prNumber,prUrl:old.prUrl}: {})};r.status="verifying";
+        return changed(r,"browser_verification_queued",actor,r.verification.note);
+      });
+    },
+    verifications: () => list().filter(r=>r.status==="verifying"&&r.verification&&["queued","ci"].includes(r.verification.phase)).map(publicRequest),
+    claimVerification(id,owner) {
+      return transaction(db,()=>{
+        const r=get(id),v=r.verification;
+        if(r.status!=="verifying"||!["queued","ci"].includes(v?.phase)||v.resultRevision!==resultRevision(r)||!localChecksPassed(r))fail("Không có quyền kiểm tra kết quả này.");
+        if(v.lease&&Date.parse(v.lease.expiresAt)>Date.now())fail("Đang có worker kiểm tra.");
+        const token=crypto.randomBytes(32).toString("hex");v.lease={owner,tokenHash:hash(token),expiresAt:new Date(Date.now()+15*60000).toISOString()};save(r);return {request:publicRequest(r),verificationToken:token};
+      });
+    },
+    reportVerification(id,token,input) {
+      return transaction(db,()=>{
+        const r=get(id),v=r.verification;
+        if(r.status!=="verifying"||!v?.lease||v.lease.tokenHash!==hash(token)||Date.parse(v.lease.expiresAt)<=Date.now()||v.resultRevision!==resultRevision(r))fail("Claim kiểm tra không hợp lệ.");
+        if(!["ci","passed","failed"].includes(input.phase)||v.phase==="queued"&&input.phase==="passed")fail("Sai thứ tự kiểm tra.");
+        if(input.prNumber&&v.prNumber&&input.prNumber!==v.prNumber)fail("PR đã đổi.");
+        if(input.prUrl&&input.prUrl!==`https://github.com/${r.repository}/pull/${input.prNumber||v.prNumber}`)fail("Sai PR.");
+        if(input.phase==="passed"&&(!input.evidenceUrl||!new RegExp("^https://github.com/"+r.repository+"/actions/runs/[0-9]+(?:/job/[0-9]+)?$").test(input.evidenceUrl)))fail("Cần bằng chứng CI đúng repository.");
+        const owner=v.lease.owner,previous=v.phase;Object.assign(v,input,{lease:null,at:now(),source:input.phase==="passed"?"github-actions":"mac-worker"});
+        if(previous!==v.phase)v.phaseStartedAt=now();
+        if(input.phase==="passed")r.status="review";if(input.phase==="failed")r.status="failed";save(r);
+        return previous!==v.phase?changed(r,"browser_verification_"+v.phase,owner,v.note):publicRequest(r);
+      });
+    },
     accept(id, actor, options = {}) {
       return transaction(db, () => {
-        const r = get(id); if (r.status !== "review") fail("Request chưa có kết quả chờ nghiệm thu.");
+        const r = get(id); if (r.status !== "review" || !checksSatisfied(r) || r.result?.browserVerification === "ci" && !verificationPassed(r)) fail("Request chưa có đủ kết quả kiểm tra chờ nghiệm thu.");
         r.status = "completed"; if (r.result.localArtifact) queueRelease(r, actor, options); return changed(r, "result_accepted", actor, r.release ? "Đã nghiệm thu và cho phép phát hành qua PR/CI." : "Đã nghiệm thu artifact bên ngoài; không có commit Mac để tự phát hành.");
       });
     },
