@@ -106,9 +106,14 @@ export function createApp(config, options = {}) {
   // Publishing authority is issued by admin acceptance, never by an MCP approval/merge tool.
   app.get("/runner/releases", auth.mcp, limiter(60), (req, res) => res.json({ requests: service.releases() }));
   app.post("/runner/releases/:id/claim", auth.mcp, limiter(60), (req, res) => res.json(service.claimRelease(req.params.id, "mac-publisher")));
-  app.post("/runner/releases/:id/report", auth.mcp, limiter(60), (req, res) => {
+  app.post("/runner/releases/:id/report", auth.mcp, limiter(60), async (req, res) => {
     const { releaseToken, update } = z.object({ releaseToken: z.string().regex(/^[a-f0-9]{64}$/), update: z.record(z.unknown()) }).parse(req.body);
-    res.json(service.updateRelease(req.params.id, releaseToken, update));
+    const result = service.updateRelease(req.params.id, releaseToken, update);
+    res.json(result);
+    if (result.release.phase === "deployed") {
+      try { await syncLibrary(service, config.GITHUB_TOKEN); service.releaseLibrarySync(req.params.id, true); }
+      catch { service.releaseLibrarySync(req.params.id, false); }
+    }
   });
   app.get("/runner/status", auth.mcp, limiter(30), (req, res) => res.json(service.runnerStatus()));
   app.post("/runner/status", auth.mcp, limiter(30), (req, res) => {
