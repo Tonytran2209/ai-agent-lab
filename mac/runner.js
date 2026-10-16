@@ -1,3 +1,4 @@
+import { pollReleases } from "./release.js";
 import { spawn } from "node:child_process";
 import { mkdir, readFile, writeFile, rm, lstat, realpath } from "node:fs/promises";
 import path from "node:path";
@@ -237,6 +238,7 @@ export async function main(configPath) {
       let connection;
       try {
         connection = await connect(config, token);
+        await pollReleases(config, token, command, controller.signal);
         const { requests } = await connection.call("list_ready_requests");
         await reportStatus({ phase: "idle", requestId: null });
         if (!wasConnected) log("Đã kết nối Lab; đang kiểm tra hàng đợi.");

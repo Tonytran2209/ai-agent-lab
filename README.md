@@ -161,3 +161,7 @@ CI chạy trên Ubuntu/Node 24, không cần secret hoặc gọi AI thật. AI t
 - `server/db.js`: SQLite storage.
 - `tests/lab.test.js`: workflow + MCP integration verification.
 
+
+### Sau nghiệm thu
+
+Với Mac publisher đã bật, admin chọn **Nghiệm thu & phát hành** để đưa commit đã kiểm tra sang chuỗi push nhánh → PR → CI GitHub → merge main → xác nhận Railway deploy theo merge commit. High risk cần xác nhận phát hành riêng. Request đã nghiệm thu từ trước có nút **Phát hành**. Inbox hiển thị từng bước và lỗi; thử lại tiếp tục từ PR/merge commit hiện có. Xem cấu hình `releaseEnabled`, GitHub CLI và `releaseEnvironment` trong [Mac runner](docs/mac-runner.md).

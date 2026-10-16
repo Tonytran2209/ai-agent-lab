@@ -36,7 +36,7 @@ export function createApp(config, options = {}) {
     next();
   });
   app.get("/health", (req, res) => {
-    try { db.prepare("SELECT 1").get(); res.json({ ok: true, policyVersion: "risk-v2", runnerProtocol: "execution-failure-v1" }); } catch { res.status(503).json({ ok: false }); }
+    try { db.prepare("SELECT 1").get(); res.json({ ok: true, policyVersion: "risk-v2", runnerProtocol: "execution-failure-v1", releaseProtocol: "release-v1" }); } catch { res.status(503).json({ ok: false }); }
   });
   const limiter = (limit, windowMs = 60000) => rateLimit({ limit, windowMs, standardHeaders: "draft-8", legacyHeaders: false,
     message: { error: "Quá nhiều yêu cầu. Vui lòng thử lại sau." } });
@@ -94,13 +94,21 @@ export function createApp(config, options = {}) {
     const { note, agentStopped } = z.object({ note: z.string().min(10).max(1000), agentStopped: z.literal(true) }).parse(req.body);
     res.json(service.release(req.params.id, req.user.name, note));
   });
-  app.post("/api/requests/:id/accept", auth.admin, (req, res) => res.json(service.accept(req.params.id, req.user.name)));
+  app.post("/api/requests/:id/accept", auth.admin, (req, res) => res.json(service.accept(req.params.id, req.user.name, { confirmHighRisk: req.body?.confirmHighRisk === true })));
+  app.post("/api/requests/:id/publish", auth.admin, (req, res) => res.json(service.publish(req.params.id, req.user.name, { confirmHighRisk: req.body?.confirmHighRisk === true })));
   app.post("/api/requests/:id/rebase", auth.admin, (req, res) => res.json(service.rebase(req.params.id, req.user.name)));
   app.get("/api/library", (req, res) => res.json(service.currentLibrary()));
   let syncing = false;
   app.post("/api/library/sync", auth.admin, limiter(3, 10 * 60000), async (req, res) => {
     if (syncing) fail("Library đang đồng bộ."); syncing = true;
     try { res.json(await syncLibrary(service, config.GITHUB_TOKEN)); } finally { syncing = false; }
+  });
+  // Publishing authority is issued by admin acceptance, never by an MCP approval/merge tool.
+  app.get("/runner/releases", auth.mcp, limiter(60), (req, res) => res.json({ requests: service.releases() }));
+  app.post("/runner/releases/:id/claim", auth.mcp, limiter(60), (req, res) => res.json(service.claimRelease(req.params.id, "mac-publisher")));
+  app.post("/runner/releases/:id/report", auth.mcp, limiter(60), (req, res) => {
+    const { releaseToken, update } = z.object({ releaseToken: z.string().regex(/^[a-f0-9]{64}$/), update: z.record(z.unknown()) }).parse(req.body);
+    res.json(service.updateRelease(req.params.id, releaseToken, update));
   });
   app.get("/runner/status", auth.mcp, limiter(30), (req, res) => res.json(service.runnerStatus()));
   app.post("/runner/status", auth.mcp, limiter(30), (req, res) => {

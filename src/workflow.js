@@ -15,9 +15,10 @@ export function preparationRunning(request) {
   return request.preparation?.status === "running" && Date.now() - Date.parse(request.preparation.startedAt) < 90000;
 }
 export function requestSignal(request) {
-  return request.status + (request.preparation ? ":" + request.preparation.status : "");
+  return request.status + (request.release ? ":release:" + request.release.phase : "") + (request.preparation ? ":" + request.preparation.status : "");
 }
 export function workflowMessage(request, runner, aiConfigured = true) {
+  if (request.release) return request.release.note;
   if (!aiConfigured && ["queued", "running"].includes(request.preparation?.status)) return "Feedback đã lưu. Admin cần cấu hình AI để hệ thống tự chuẩn bị request.";
   if (request.preparation?.status === "queued") return request.preparation.retryAt ? "AI sẽ tự thử lại sau ít giây. Bạn không cần gửi lại feedback." : "Feedback đã nhận. AI sẽ tự lập kế hoạch, phân loại rủi ro và chuyển sang bước tiếp theo.";
   if (request.policyVersion === "risk-v2" && request.status === "awaiting-approval") return request.draft?.risk === "high" ? "Rủi ro cao: admin cần đọc kế hoạch và phê duyệt rõ ràng trước khi chạy." : "Admin kiểm tra kế hoạch và các giả định bên dưới, rồi nhấn Đã kiểm tra · chạy. Không cần soạn lại feedback.";

@@ -69,3 +69,13 @@ Runner chạy `npm ci` tại gốc và `backend` (nếu có lockfile) trước k
 Lỗi cài đặt, đăng nhập Codex, timeout hoặc lỗi thực thi được báo bằng `report_execution_failure`: giữ nguyên kế hoạch, mức rủi ro và fingerprint đã duyệt, giải phóng claim sau khi worker dừng. Admin chọn **Thử chạy lại**; không phải AI phân tích lại feedback. Chỉ lỗi cần mở rộng file/phạm vi mới dùng `request_scope_change`.
 
 Lần chạy lại có thể khôi phục worktree chưa commit của lần dừng trước khi request ID, branch, base commit và exact allowedPaths còn khớp. Không tự khôi phục quyền đã bị thu hồi bởi runner cũ; admin vẫn cần duyệt lại kế hoạch đó. Kết quả kiểm tra không đạt hoặc thiếu kiểm tra hành vi phải được báo trung thực, không được tự đánh dấu nghiệm thu.
+
+## Phát hành sau nghiệm thu
+
+Bật publisher trên Mac bằng `releaseEnabled: true`, `ghPath` trỏ đến GitHub CLI đã đăng nhập với quyền push/PR/merge và `releaseEnvironment` khớp chính xác môi trường deployment do Railway báo trên GitHub. Installer hỗ trợ `--enable-release --release-environment "tên môi trường"`. Không đưa GitHub credential vào Railway hoặc prompt Codex.
+
+Nút **Nghiệm thu & phát hành** tạo quyền phát hành gắn với kết quả đã kiểm tra. Request đã nghiệm thu trước khi có tính năng này cần chọn **Phát hành** một lần. High risk cần xác nhận riêng việc phát hành. Các artifact ngoài Mac vẫn có thể nghiệm thu nhưng không được publisher tự đẩy.
+
+Mac xử lý từng bước có claim riêng: xác minh commit/parent/scope, push nhánh (không force), tạo hoặc tìm lại PR, chờ `writer-check` của GitHub Actions và các check khác, merge với expected head SHA, rồi theo dõi deployment do `railway-app[bot]` tạo cho đúng merge commit và môi trường. Không xem trang health chung là bằng chứng đã deploy đúng bản. CI không có hoặc thất bại, PR xung đột, head/scope thay đổi đều ngăn merge. Không chạy migration sản xuất.
+
+Trạng thái PR, CI, merge commit và Railway hiện ngay trong inbox và thông báo. **Thử phát hành lại** tiếp tục từ PR hoặc merge commit đã có; không chạy lại Codex, không merge hai lần. Lỗi/timeout theo dõi deploy không có nghĩa main đã rollback. Mỗi lần chờ CI hoặc deploy tối đa 30 phút; mỗi poll xử lý một bước. Publisher giữ nguyên các nhánh và worktree để có thể kiểm tra/khôi phục.

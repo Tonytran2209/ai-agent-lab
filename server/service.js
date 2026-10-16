@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { queueRelease, releaseFingerprint, releaseUpdate } from "./releases.js";
 import { readFileSync } from "node:fs";
 import { transaction } from "./db.js";
 import { draftSchema, feedbackSchema, completionSchema, fail } from "./schemas.js";
@@ -55,7 +56,8 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
     .run(id, JSON.stringify({ type, actor, detail, at: now() }));
   const publicRequest = r => {
     const { lease, ...rest } = r;
-    return { ...rest, lease: lease ? { owner: lease.owner, expiresAt: lease.expiresAt } : null };
+    const release = rest.release ? { ...rest.release, lease: rest.release.lease ? { owner: rest.release.lease.owner, expiresAt: rest.release.lease.expiresAt } : null } : undefined;
+    return { ...rest, ...(release ? { release } : {}), lease: lease ? { owner: lease.owner, expiresAt: lease.expiresAt } : null };
   };
   function changed(r, type, actor, detail) { r.updatedAt = now(); save(r); event(r.id, type, actor, detail); return publicRequest(r); }
   function mutable(r) {
@@ -364,10 +366,46 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
         return changed(r, "claim_released_by_admin", actor, note);
       });
     },
-    accept(id, actor) {
+    accept(id, actor, options = {}) {
       return transaction(db, () => {
         const r = get(id); if (r.status !== "review") fail("Request chưa có kết quả chờ nghiệm thu.");
-        r.status = "completed"; return changed(r, "result_accepted", actor);
+        r.status = "completed"; if (r.result.localArtifact) queueRelease(r, actor, options); return changed(r, "result_accepted", actor, r.release ? "Đã nghiệm thu và cho phép phát hành qua PR/CI." : "Đã nghiệm thu artifact bên ngoài; không có commit Mac để tự phát hành.");
+      });
+    },
+    publish(id, actor, options = {}) {
+      return transaction(db, () => { const r = get(id); queueRelease(r, actor, options); return changed(r, "release_queued", actor); });
+    },
+    releases: () => list().filter(r => r.status === "completed" && r.release && !["deployed", "failed"].includes(r.release.phase)).map(publicRequest),
+    claimRelease(id, owner) {
+      return transaction(db, () => {
+        const r = get(id), release = r.release;
+        if (r.status !== "completed" || !release || ["deployed", "failed"].includes(release.phase) || release.requestHash !== releaseFingerprint(r)) fail("Không có quyền phát hành nội dung này.");
+        if (release.lease && Date.parse(release.lease.expiresAt) > Date.now()) fail("Tiến trình phát hành đang được giữ.");
+        const other = list().find(v => v.id !== id && v.repository === r.repository && v.release?.lease && Date.parse(v.release.lease.expiresAt) > Date.now());
+        if (other) fail("Repository đang phát hành request khác.");
+        const token = crypto.randomBytes(32).toString("hex");
+        release.lease = { owner, tokenHash: hash(token), expiresAt: new Date(Date.now() + 15 * 60000).toISOString() };
+        save(r); return { request: publicRequest(r), releaseToken: token };
+      });
+    },
+    updateRelease(id, token, input) {
+      return transaction(db, () => {
+        const r = get(id), rel = r.release, update = releaseUpdate.parse(input);
+        if (!rel?.lease || rel.lease.tokenHash !== hash(token) || Date.parse(rel.lease.expiresAt) <= Date.now() || rel.requestHash !== releaseFingerprint(r)) fail("Claim phát hành không hợp lệ.");
+        const transitions = { queued: ["ci", "failed"], ci: ["ci", "deploying", "failed"], deploying: ["deploying", "deployed", "failed"] };
+        if (!transitions[rel.phase]?.includes(update.phase)) fail("Thứ tự phát hành không hợp lệ.");
+        if (update.prUrl && update.prUrl !== `https://github.com/${r.repository}/pull/${update.prNumber || rel.prNumber}`) fail("Sai repository của PR.");
+        if (update.phase === "deploying" && !(update.mergeCommit || rel.mergeCommit)) fail("Thiếu merge commit.");
+        if (update.phase === "deployed" && !rel.mergeCommit) fail("Chưa có merge commit.");
+        if (rel.prNumber && update.prNumber && update.prNumber !== rel.prNumber) fail("Không được đổi PR của release.");
+        if (rel.mergeCommit && update.mergeCommit && update.mergeCommit !== rel.mergeCommit) fail("Không được đổi merge commit.");
+        if (update.deploymentUrl && (new URL(update.deploymentUrl).protocol !== "https:" || !/(^|\.)railway\.(com|app)$/.test(new URL(update.deploymentUrl).hostname))) fail("Sai URL Railway.");
+        const owner = rel.lease.owner, previous = rel.phase;
+        Object.assign(rel, update, { updatedAt: now(), lease: null });
+        if (previous !== rel.phase) rel.phaseStartedAt = now();
+        save(r);
+        if (previous !== rel.phase || update.phase === "failed") return changed(r, "release_" + update.phase, owner, update.note);
+        return publicRequest(r);
       });
     },
     rebase(id, actor) {
