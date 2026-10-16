@@ -284,6 +284,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
     reject(id, note, actor) {
       return transaction(db, () => {
         const r = get(id); if (["claimed", "running"].includes(r.status)) fail("Agent đang giữ claim; cần xác nhận agent dừng trước.");
+        if (r.release && !["deployed", "failed"].includes(r.release.phase)) fail("Đang phát hành; không thể thu hồi quyền bằng thao tác từ chối coding request.");
         cancelPreparation(r);
         r.status = "rejected"; r.approval = null; return changed(r, "request_rejected", actor, note);
       });
@@ -406,6 +407,14 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
         save(r);
         if (previous !== rel.phase || update.phase === "failed") return changed(r, "release_" + update.phase, owner, update.note);
         return publicRequest(r);
+      });
+    },
+    releaseLibrarySync(id, succeeded) {
+      return transaction(db, () => {
+        const r = get(id); if (r.release?.phase !== "deployed") fail("Chưa xác nhận deploy.");
+        r.release.librarySync = succeeded ? "synced" : "failed";
+        if (!succeeded) r.release.note += " Chưa đồng bộ library mới; admin cần Đồng bộ tài liệu trước feedback tiếp theo.";
+        return changed(r, succeeded ? "release_library_synced" : "release_library_sync_failed", "publisher", succeeded ? "Library cho feedback mới đã cập nhật theo main; packet cũ giữ nguyên." : "Deploy thành công nhưng chưa làm mới library. Kiểm tra quyền GitHub và đồng bộ lại.");
       });
     },
     rebase(id, actor) {

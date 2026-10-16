@@ -13,7 +13,7 @@ test('admin acceptance queues a bound release; claims are exclusive, sanitized a
  const dir=mkdtempSync(path.join(os.tmpdir(),'release-')),db=openDatabase(dir),s=createService(db);
  try{
   const r=s.create({feedback:'Thay ký tự gạch ngang trong Draft.'},'User');s.submit(r.id,draft,'Admin');const c=s.claim(r.id,'mac',r.baseCommit);s.complete(r.id,c.claimToken,report);
-  assert.equal(s.releases().length,0);const accepted=s.accept(r.id,'Admin');assert.equal(accepted.release.phase,'queued');
+  assert.equal(s.releases().length,0);const accepted=s.accept(r.id,'Admin');assert.equal(accepted.release.phase,'queued');assert.throws(()=>s.reject(r.id,'Admin','Cancel during publish'));
   assert.throws(()=>s.publish(r.id,'Admin'));const claim=s.claimRelease(r.id,'publisher');assert.throws(()=>s.claimRelease(r.id,'other'));
   assert.ok(!JSON.stringify(s.get(r.id)).includes(claim.releaseToken));assert.ok(!JSON.stringify(s.releases()).includes('tokenHash'));
   assert.throws(()=>s.updateRelease(r.id,claim.releaseToken,{phase:'deployed',note:'Fake deployment success'}));
@@ -23,7 +23,7 @@ test('admin acceptance queues a bound release; claims are exclusive, sanitized a
   const next=s.claimRelease(r.id,'publisher');s.updateRelease(r.id,next.releaseToken,{phase:'deploying',mergeCommit:merged,note:'Đã merge đúng commit.'});
   const fail=s.claimRelease(r.id,'publisher');s.updateRelease(r.id,fail.releaseToken,{phase:'failed',note:'Railway mất kết nối.'});
   const retry=s.publish(r.id,'Admin');assert.equal(retry.release.phase,'deploying');assert.equal(retry.status,'completed');assert.equal(s.ready().length,0);
-  const final=s.claimRelease(r.id,'publisher');s.updateRelease(r.id,final.releaseToken,{phase:'deployed',note:'Railway xác nhận đúng commit.'});assert.equal(s.releases().length,0);
+  const final=s.claimRelease(r.id,'publisher');s.updateRelease(r.id,final.releaseToken,{phase:'deployed',note:'Railway xác nhận đúng commit.'});assert.equal(s.releases().length,0);assert.equal(s.releaseLibrarySync(r.id,true).release.librarySync,'synced');
  }finally{db.close();rmSync(dir,{recursive:true,force:true});}
 });
 test('high risk requires separate explicit release confirmation and failed checks cannot publish',()=>{
