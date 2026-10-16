@@ -9,6 +9,12 @@ export function githubClient(run, ghPath, env, signal) {
     return r.stdout.trim() ? JSON.parse(r.stdout) : {};
   };
 }
+export function latestChecks(runs) {
+  // GitHub can return several check suites for the same head after reopening/rerunning a PR.
+  const newest=new Map();
+  for(const run of runs){const key=(run.app?.id||run.app?.slug||"unknown")+":"+run.name;const old=newest.get(key);if(!old||Number(run.id||0)>Number(old.id||0))newest.set(key,run);}
+  return [...newest.values()];
+}
 export async function publishStep({ request: r, config, run, api, signal, purpose = "release" }) {
   const repo = 'Tonytran2209/RebuildWriterStudioTool';
   if (r.repository !== repo || r.status !== (purpose === 'verification' ? 'verifying' : 'completed') || !r.release || !/^[a-f0-9]{40}$/.test(r.result?.commit)) throw new Error('Sai repository hoặc quyền phát hành.');
@@ -46,7 +52,8 @@ export async function publishStep({ request: r, config, run, api, signal, purpos
     if (purpose === 'verification' && (pr.merged || pr.state !== 'open')) throw new Error('PR kiểm tra đã bị đóng hoặc merge ngoài luồng.');
     if (pr.merged) return { phase: 'deploying', mergeCommit: pr.merge_commit_sha, note: 'PR đã merge. Đang xác nhận Railway deploy đúng commit.' };
     if (pr.state !== 'open') throw new Error('PR đã đóng mà chưa merge.');
-    const checks = await api(prefix + '/commits/' + r.result.commit + '/check-runs?per_page=100');
+    const response = await api(prefix + '/commits/' + r.result.commit + '/check-runs?per_page=100');
+    const checks = {...response,check_runs:latestChecks(response.check_runs)};
     const statuses = await api(prefix + '/commits/' + r.result.commit + '/status');
     if (checks.total_count > 100) throw new Error('Quá nhiều CI checks; cần kiểm tra thủ công.');
     const required = checks.check_runs.find(c => c.name === 'writer-check' && c.app?.slug === 'github-actions');

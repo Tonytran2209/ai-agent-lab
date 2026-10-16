@@ -1,5 +1,5 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';import {mkdtempSync,rmSync} from 'node:fs';import os from 'node:os';import path from 'node:path';
-import {openDatabase} from '../server/db.js';import {createService} from '../server/service.js';import {publishStep} from '../mac/release.js';
+import {openDatabase} from '../server/db.js';import {createService} from '../server/service.js';import {publishStep,latestChecks} from '../mac/release.js';
 const draft={title:'Giới hạn mở đầu Draft',problem:'Đoạn mở đầu hiển thị quá dài.',layer:'design',module:'draft',allowedPaths:['src/components/workspace/Step4Draft.tsx'],acceptanceCriteria:['Mở đầu hiển thị tối đa sáu dòng.'],risk:'low',questions:[]};
 const result={summary:'Đã sửa preview, giữ nguyên dữ liệu gốc.',changedPaths:draft.allowedPaths,commit:'a'.repeat(40),localArtifact:{branch:'lab/REQ-ABCDEF12-123'},checks:[{command:'npm run check',passed:true,output:'passed'},{command:'Google Chrome --headless',passed:false,output:'exit 134'}]};
 function fixture(){const dir=mkdtempSync(path.join(os.tmpdir(),'lab-browser-')),db=openDatabase(dir),s=createService(db);return {s,close(){db.close();rmSync(dir,{recursive:true,force:true});},complete(input=result){const r=s.create({feedback:'Giới hạn mở đầu Draft tối đa sáu dòng.'},'User');s.submit(r.id,draft,'Admin');const c=s.claim(r.id,'Mac',r.baseCommit);s.complete(r.id,c.claimToken,input);return s.get(r.id);}};}
@@ -25,6 +25,13 @@ test('CI verification queue blocks acceptance, sanitizes leases, and only reache
 });
 test('verification worker observes CI but never marks a draft ready or calls merge',async()=>{
  const repo='Tonytran2209/RebuildWriterStudioTool',calls=[];const r={id:'REQ-ABCDEF12',repository:repo,status:'verifying',result:{...result,checks:result.checks.slice(0,1)},draft,release:{phase:'ci',prNumber:3,authorizedAt:new Date().toISOString()}};
- const api=async(e,m)=>{calls.push([e,m]);if(e.includes('/files?'))return [{filename:draft.allowedPaths[0]}];if(e.includes('/check-runs?'))return {total_count:2,check_runs:['writer-check','browser-check'].map(name=>({name,app:{slug:'github-actions'},status:'completed',conclusion:'success',details_url:`https://github.com/${repo}/actions/runs/1/job/2`}))};if(e.endsWith('/status'))return {statuses:[]};return {head:{sha:r.result.commit},base:{ref:'main',repo:{full_name:repo}},changed_files:1,state:'open',draft:true,mergeable:true};};
+ const api=async(e,m)=>{calls.push([e,m]);if(e.includes('/files?'))return [{filename:draft.allowedPaths[0]}];if(e.includes('/check-runs?'))return {total_count:3,check_runs:[{id:1,name:'browser-check',app:{slug:'github-actions'},status:'completed',conclusion:'failure'},...['writer-check','browser-check'].map((name,index)=>({id:10+index,name,app:{slug:'github-actions'},status:'completed',conclusion:'success',details_url:`https://github.com/${repo}/actions/runs/1/job/2`}))]};if(e.endsWith('/status'))return {statuses:[]};return {head:{sha:r.result.commit},base:{ref:'main',repo:{full_name:repo}},changed_files:1,state:'open',draft:true,mergeable:true};};
  const verified=await publishStep({request:r,purpose:'verification',config:{repoPath:'/tmp/fake'},run:async()=>({code:0,stdout:`https://github.com/${repo}.git`}),api});assert.equal(verified.phase,'passed');assert.ok(!calls.some(([e,m])=>m==='PUT'||e==='graphql'));
+});
+
+test('old failed check suites do not override a newer pending or successful run of the same check',()=>{
+ const app={slug:'github-actions'},old={id:1,name:'browser-check',app,status:'completed',conclusion:'failure'},pending={id:3,name:'browser-check',app,status:'in_progress',conclusion:null};
+ assert.deepEqual(latestChecks([old,pending]),[pending]);assert.deepEqual(latestChecks([pending,old]),[pending]);
+ const passed={...pending,status:'completed',conclusion:'success'};assert.deepEqual(latestChecks([old,passed]),[passed]);
+ const other={...old,id:2,name:'writer-check'};assert.equal(latestChecks([old,passed,other]).length,2);
 });
