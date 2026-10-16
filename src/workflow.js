@@ -15,9 +15,11 @@ export function preparationRunning(request) {
   return request.preparation?.status === "running" && Date.now() - Date.parse(request.preparation.startedAt) < 90000;
 }
 export function requestSignal(request) {
-  return request.status + (request.release ? ":release:" + request.release.phase : "") + (request.preparation ? ":" + request.preparation.status : "");
+  return request.status + (request.verification ? ":browser:" + request.verification.phase : "") + (request.release ? ":release:" + request.release.phase : "") + (request.preparation ? ":" + request.preparation.status : "");
 }
 export function workflowMessage(request, runner, aiConfigured = true) {
+  if (request.status === "verifying") return request.verification?.note || "Đang chờ GitHub kiểm tra trình duyệt trước nghiệm thu. Chưa merge/deploy.";
+  if (request.status === "review" && request.verification?.phase === "passed") return "Đã có kiểm tra trình duyệt bổ sung trên đúng kết quả. Xem bằng chứng và nghiệm thu tiêu chí trước khi phát hành.";
   if (request.release) return request.release.note;
   if (!aiConfigured && ["queued", "running"].includes(request.preparation?.status)) return "Feedback đã lưu. Admin cần cấu hình AI để hệ thống tự chuẩn bị request.";
   if (request.preparation?.status === "queued") return request.preparation.retryAt ? "AI sẽ tự thử lại sau ít giây. Bạn không cần gửi lại feedback." : "Feedback đã nhận. AI sẽ tự lập kế hoạch, phân loại rủi ro và chuyển sang bước tiếp theo.";

@@ -9,9 +9,9 @@ export function githubClient(run, ghPath, env, signal) {
     return r.stdout.trim() ? JSON.parse(r.stdout) : {};
   };
 }
-export async function publishStep({ request: r, config, run, api, signal }) {
+export async function publishStep({ request: r, config, run, api, signal, purpose = "release" }) {
   const repo = 'Tonytran2209/RebuildWriterStudioTool';
-  if (r.repository !== repo || r.status !== 'completed' || !r.release || !/^[a-f0-9]{40}$/.test(r.result?.commit)) throw new Error('Sai repository hoặc quyền phát hành.');
+  if (r.repository !== repo || r.status !== (purpose === 'verification' ? 'verifying' : 'completed') || !r.release || !/^[a-f0-9]{40}$/.test(r.result?.commit)) throw new Error('Sai repository hoặc quyền phát hành.');
   const release = r.release, prefix = 'repos/' + repo;
   const git = async args => {
     const out = await run('git', ['-C', config.repoPath, ...args], { env: Object.fromEntries(Object.entries(process.env).filter(([key]) => !['AI_AGENT_LAB_MCP_TOKEN', 'MCP_TOKEN'].includes(key))), signal, timeout: 120000 });
@@ -34,7 +34,7 @@ export async function publishStep({ request: r, config, run, api, signal }) {
     if (!pr) {
       if (prs.length) throw new Error('Nhánh đã có PR bị đóng hoặc thay đổi. Cần kiểm tra thủ công.');
       pr = await api(prefix + '/pulls', 'POST', { head: branch, base: 'main', title: '[' + r.id + '] ' + r.title.slice(0, 180),
-        body: 'Admin đã nghiệm thu trong AI Agent Lab.\n\n' + r.result.summary + '\n\nPhạm vi: ' + files.join(', ') + '\n\nKiểm tra cục bộ do agent báo cáo; CI GitHub phải đạt trước khi merge.', draft: false });
+        body: (purpose === 'verification' ? 'Draft PR để CI kiểm tra trước nghiệm thu. Chưa được merge/deploy.\n\n' : 'Admin đã nghiệm thu trong AI Agent Lab.\n\n') + r.result.summary + '\n\nPhạm vi: ' + files.join(', ') + '\n\nKiểm tra cục bộ do agent báo cáo; CI GitHub phải đạt trước khi merge.', draft: purpose === "verification" });
     }
     return { phase: 'ci', prNumber: pr.number, prUrl: pr.html_url, note: 'Đã đẩy nhánh và tạo PR #' + pr.number + '. Đang chờ CI.' };
   }
@@ -43,17 +43,24 @@ export async function publishStep({ request: r, config, run, api, signal }) {
     if (pr.head?.sha !== r.result.commit || pr.base?.ref !== 'main' || pr.base?.repo?.full_name !== repo) throw new Error('PR đã đổi head/base sau nghiệm thu.');
     const prFiles = await api(prefix + '/pulls/' + release.prNumber + '/files?per_page=100');
     if (pr.changed_files !== prFiles.length || prFiles.some(f => !r.draft.allowedPaths.includes(f.filename))) throw new Error('PR chứa file ngoài phạm vi.');
+    if (purpose === 'verification' && (pr.merged || pr.state !== 'open')) throw new Error('PR kiểm tra đã bị đóng hoặc merge ngoài luồng.');
     if (pr.merged) return { phase: 'deploying', mergeCommit: pr.merge_commit_sha, note: 'PR đã merge. Đang xác nhận Railway deploy đúng commit.' };
     if (pr.state !== 'open') throw new Error('PR đã đóng mà chưa merge.');
     const checks = await api(prefix + '/commits/' + r.result.commit + '/check-runs?per_page=100');
     const statuses = await api(prefix + '/commits/' + r.result.commit + '/status');
     if (checks.total_count > 100) throw new Error('Quá nhiều CI checks; cần kiểm tra thủ công.');
     const required = checks.check_runs.find(c => c.name === 'writer-check' && c.app?.slug === 'github-actions');
+    const browser = checks.check_runs.find(c => c.name === 'browser-check' && c.app?.slug === 'github-actions');
     const failed = checks.check_runs.some(c => c.status === 'completed' && !['success', 'neutral', 'skipped'].includes(c.conclusion)) || statuses.statuses.some(s => ['failure', 'error'].includes(s.state));
-    if (failed || required?.status === 'completed' && required.conclusion !== 'success') throw new Error('CI không đạt. Giữ PR để kiểm tra, không merge.');
-    if (!required || checks.check_runs.some(c => c.status !== 'completed') || statuses.statuses.some(s => s.state === 'pending') || pr.mergeable === null) {
-      if (Date.now() - Date.parse(release.authorizedAt) > 30 * 60000) throw new Error('Hết thời gian chờ CI. Kiểm tra PR rồi thử phát hành lại.');
+    if (failed || browser?.status === 'completed' && browser.conclusion !== 'success' || required?.status === 'completed' && required.conclusion !== 'success') throw new Error('CI không đạt. Giữ PR để kiểm tra, không merge.');
+    if (!required || !browser || browser.status !== 'completed' || browser.conclusion !== 'success' || checks.check_runs.some(c => c.status !== 'completed') || statuses.statuses.some(s => s.state === 'pending') || pr.mergeable === null) {
+      if (Date.now() - Date.parse(release.phaseStartedAt || release.authorizedAt) > 30 * 60000) throw new Error('Hết thời gian chờ CI. Kiểm tra PR rồi thử phát hành lại.');
       return { phase: 'ci', note: 'Đang chờ writer-check và các kiểm tra GitHub hoàn tất.' };
+    }
+    if (purpose === 'verification') return {phase:'passed',evidenceUrl:browser.details_url,note:'writer-check và browser-check đã đạt trên đúng commit. Chờ admin nghiệm thu tiêu chí của request; chưa merge/deploy.'};
+    if (pr.draft) {
+      await api('graphql','POST',{query:'mutation($id:ID!){markPullRequestReadyForReview(input:{pullRequestId:$id}){pullRequest{id}}}',variables:{id:pr.node_id}});
+      return {phase:'ci',note:'Admin đã nghiệm thu; draft PR đã chuyển sang ready. Đang chờ GitHub xác nhận điều kiện merge.'};
     }
     if (!pr.mergeable || pr.mergeable_state === 'blocked' || pr.mergeable_state === 'behind') throw new Error('PR xung đột, chưa đủ điều kiện hoặc cần cập nhật main. Không tự xử lý xung đột.');
     const merged = await api(prefix + '/pulls/' + release.prNumber + '/merge', 'PUT', { sha: r.result.commit, merge_method: 'squash' });

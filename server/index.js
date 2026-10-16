@@ -36,7 +36,7 @@ export function createApp(config, options = {}) {
     next();
   });
   app.get("/health", (req, res) => {
-    try { db.prepare("SELECT 1").get(); res.json({ ok: true, policyVersion: "risk-v2", runnerProtocol: "execution-failure-v1", releaseProtocol: "release-v1" }); } catch { res.status(503).json({ ok: false }); }
+    try { db.prepare("SELECT 1").get(); res.json({ ok: true, policyVersion: "risk-v2", runnerProtocol: "execution-failure-v1", releaseProtocol: "release-v1", browserProtocol: "github-browser-v1" }); } catch { res.status(503).json({ ok: false }); }
   });
   const limiter = (limit, windowMs = 60000) => rateLimit({ limit, windowMs, standardHeaders: "draft-8", legacyHeaders: false,
     message: { error: "Quá nhiều yêu cầu. Vui lòng thử lại sau." } });
@@ -94,6 +94,8 @@ export function createApp(config, options = {}) {
     const { note, agentStopped } = z.object({ note: z.string().min(10).max(1000), agentStopped: z.literal(true) }).parse(req.body);
     res.json(service.release(req.params.id, req.user.name, note));
   });
+  app.post("/api/requests/:id/verification/manual",auth.admin,(req,res)=>res.json(service.supplementVerification(req.params.id,req.body,req.user.name)));
+  app.post("/api/requests/:id/verification/retry",auth.admin,(req,res)=>res.json(service.queueVerification(req.params.id,req.user.name)));
   app.post("/api/requests/:id/accept", auth.admin, (req, res) => res.json(service.accept(req.params.id, req.user.name, { confirmHighRisk: req.body?.confirmHighRisk === true })));
   app.post("/api/requests/:id/publish", auth.admin, (req, res) => res.json(service.publish(req.params.id, req.user.name, { confirmHighRisk: req.body?.confirmHighRisk === true })));
   app.post("/api/requests/:id/rebase", auth.admin, (req, res) => res.json(service.rebase(req.params.id, req.user.name)));
@@ -104,6 +106,12 @@ export function createApp(config, options = {}) {
     try { res.json(await syncLibrary(service, config.GITHUB_TOKEN)); } finally { syncing = false; }
   });
   // Publishing authority is issued by admin acceptance, never by an MCP approval/merge tool.
+  app.get("/runner/verifications",auth.mcp,limiter(60),(req,res)=>res.json({requests:service.verifications()}));
+  app.post("/runner/verifications/:id/claim",auth.mcp,limiter(60),(req,res)=>res.json(service.claimVerification(req.params.id,"mac-browser-ci")));
+  app.post("/runner/verifications/:id/report",auth.mcp,limiter(60),(req,res)=>{
+    const {verificationToken,update}=z.object({verificationToken:z.string().regex(/^[a-f0-9]{64}$/),update:z.object({phase:z.enum(["ci","passed","failed"]),note:z.string().min(5).max(2000),prNumber:z.number().int().positive().optional(),prUrl:z.string().url().optional(),evidenceUrl:z.string().url().optional()})}).parse(req.body);
+    res.json(service.reportVerification(req.params.id,verificationToken,update));
+  });
   app.get("/runner/releases", auth.mcp, limiter(60), (req, res) => res.json({ requests: service.releases() }));
   app.post("/runner/releases/:id/claim", auth.mcp, limiter(60), (req, res) => res.json(service.claimRelease(req.params.id, "mac-publisher")));
   app.post("/runner/releases/:id/report", auth.mcp, limiter(60), async (req, res) => {

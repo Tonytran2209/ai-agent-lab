@@ -24,6 +24,7 @@ export const feedbackSchema = z.object({
   expected: z.string().max(3000).default(""),
 });
 export const completionSchema = z.object({
+  browserVerification: z.enum(["ci"]).optional(),
   summary: z.string().min(10).max(6000),
   changedPaths: z.array(relativePath).min(1).max(20),
   commit: z.string().regex(/^[a-f0-9]{40}$/),
