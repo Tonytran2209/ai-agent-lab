@@ -32,6 +32,9 @@ export function workflowMessage(request, runner) {
   if (request.status === "failed") return "Có kiểm tra không đạt. Xem tab Kết quả trước khi chuẩn bị lại request.";
   return "Xem Hoạt động và Kết quả để kiểm tra lịch sử xử lý.";
 }
+export function inRequestQueue(request) {
+  return Boolean(request.draft) && request.status !== "rejected";
+}
 export function requestChanges(previous, current) {
   if (!previous) return [];
   return current.filter(r => !previous.has(r.id) || previous.get(r.id) !== requestSignal(r));

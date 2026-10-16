@@ -128,6 +128,10 @@ test("HTTP authentication, CSRF, member permissions and actual MCP pull lifecycl
     const member = await login(config.USER_PASSWORD), admin = await login(config.ADMIN_PASSWORD);
     const statusResponse = await fetch(base + "/runner/status", { method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer " + config.MCP_TOKEN }, body: JSON.stringify({ phase: "idle", requestId: null }) });
     assert.equal(statusResponse.status, 200);
+    assert.equal((await fetch(base + "/runner/status")).status, 401);
+    const runnerState = await (await fetch(base + "/runner/status", { headers: { Authorization: "Bearer " + config.MCP_TOKEN } })).json();
+    assert.equal(runnerState.connected, true);
+    assert.equal(runnerState.phase, "idle");
     const appConfig = await (await fetch(base + "/api/config", { headers: admin })).json();
     assert.equal(appConfig.runner.connected, true);
     assert.equal((await fetch(base + "/runner/status", { method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer " + config.MCP_TOKEN }, body: JSON.stringify({ phase: "running" }) })).status, 400);

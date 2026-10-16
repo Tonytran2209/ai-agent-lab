@@ -101,6 +101,7 @@ export function createApp(config, options = {}) {
     if (syncing) fail("Library đang đồng bộ."); syncing = true;
     try { res.json(await syncLibrary(service, config.GITHUB_TOKEN)); } finally { syncing = false; }
   });
+  app.get("/runner/status", auth.mcp, limiter(30), (req, res) => res.json(service.runnerStatus()));
   app.post("/runner/status", auth.mcp, limiter(30), (req, res) => {
     const input = z.object({ phase: z.enum(["idle", "running"]), requestId: z.string().regex(/^REQ-[A-F0-9]{8}$/).nullable().default(null) }).parse(req.body);
     if (input.phase === "running" && !input.requestId) fail("Running status requires a request.", 400);
