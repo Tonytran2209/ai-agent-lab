@@ -17,7 +17,10 @@ export function preparationRunning(request) {
 export function requestSignal(request) {
   return request.status + (request.preparation ? ":" + request.preparation.status : "");
 }
-export function workflowMessage(request, runner) {
+export function workflowMessage(request, runner, aiConfigured = true) {
+  if (!aiConfigured && ["queued", "running"].includes(request.preparation?.status)) return "Feedback đã lưu. Admin cần cấu hình AI để hệ thống tự chuẩn bị request.";
+  if (request.preparation?.status === "queued") return request.preparation.retryAt ? "AI sẽ tự thử lại sau ít giây. Bạn không cần gửi lại feedback." : "Feedback đã nhận. AI sẽ tự lập kế hoạch, phân loại rủi ro và chuyển sang bước tiếp theo.";
+  if (request.policyVersion === "risk-v2" && request.status === "awaiting-approval") return request.draft?.risk === "high" ? "Rủi ro cao: admin cần đọc kế hoạch và phê duyệt rõ ràng trước khi chạy." : "Admin kiểm tra kế hoạch và các giả định bên dưới, rồi nhấn Đã kiểm tra · chạy. Không cần soạn lại feedback.";
   if (preparationRunning(request)) return "AI đang đọc feedback và chuẩn bị phạm vi, tiêu chí nghiệm thu. Chưa gửi công việc sang Codex.";
   if (request.preparation?.status === "running") return "Lần chuẩn bị trước có thể bị gián đoạn. Feedback vẫn được giữ; hãy nhấn Chuẩn bị để thử lại.";
   if (request.preparation?.status === "failed") return "Chuẩn bị request chưa thành công. Feedback vẫn được giữ; thử lại hoặc soạn thủ công. Chưa gửi công việc sang Codex.";

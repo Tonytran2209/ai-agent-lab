@@ -2,13 +2,11 @@
 
 ## Luồng mới
 
-Admin gửi feedback, chọn **Tự soạn và chạy nếu UI rủi ro thấp** (mặc định) hoặc **Tự soạn request, tôi duyệt trước khi chạy**. Feedback được lưu trước khi AI chạy; lỗi AI không làm mất feedback. Member chỉ gửi feedback; admin chuẩn bị và cấp quyền thực thi.
+User/admin gửi feedback một lần. Backend tự chuẩn bị kế hoạch và áp dụng risk policy v2: low tự sang Mac; medium admin kiểm tra một lần; high cần phê duyệt rõ ràng. Không yêu cầu câu hỏi làm rõ cho low. Backend nâng risk nếu scope mới/rộng/nhạy cảm, không chỉ dựa vào nhãn model.
 
-Tự duyệt là quyền admin lựa chọn cho lần chuẩn bị, không phải quyết định tự do của model. Server yêu cầu: design/low, không câu hỏi, không file mới, tối đa 5 file component JSX/TSX hoặc CSS trực tiếp dưới src, tránh tên file liên quan auth/login/session/payment/billing/permission/storage/provider, đủ cách tái hiện và kết quả mong muốn. Các request khác chờ admin. Bộ lọc này giảm phạm vi, không chứng minh một thay đổi an toàn về ngữ nghĩa.
+Inbox hiển thị trạng thái, kế hoạch ngắn, hành động chính và log gần nhất; thông báo là drawer trượt bên phải. Các quyết định đã nghiệm thu/từ chối được truy xuất làm ví dụ cho AI, không tự thay đổi policy.
 
-**Duyệt & chạy** lưu nội dung đang sửa và duyệt trong một transaction; không cần lưu rồi duyệt lần nữa. Request đã duyệt chờ Mac nhận (poll 15 giây khi rảnh, từng request một). Khi Mac ngủ/tắt hoặc runner chưa bật, request giữ trong hàng đợi.
-
-Mac runner chạy **Codex CLI non-interactive**, không tự mở hoặc gửi tin nhắn vào chat GUI. Mỗi request có worktree/branch riêng, claim nguyên tử trên server, heartbeat mỗi phút. Runner chạy npm ci, Codex, kiểm tra diff và npm run check rồi tạo commit cục bộ. Nó gửi báo cáo về Lab và giữ worktree để bạn xem. Không push/merge/deploy. Kết quả vẫn là runner/agent-reported, không thay thế CI và nghiệm thu của người dùng.
+Mac runner chạy Codex CLI nền, từng request trong worktree riêng, claim nguyên tử và heartbeat. Nó chạy npm ci, Codex, kiểm tra diff và npm run check rồi tạo commit cục bộ và báo kết quả. Không tự push/merge/deploy. Khi Mac ngủ hoặc không có mạng, công việc đã sẵn sàng vẫn giữ trong hàng đợi.
 
 ## Cài một lần
 

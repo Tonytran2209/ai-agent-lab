@@ -12,6 +12,7 @@ export const draftSchema = z.object({
   module: z.string().min(2).max(100),
   allowedPaths: z.array(relativePath).min(1).max(20),
   acceptanceCriteria: z.array(z.string().min(5).max(1000)).min(1).max(12),
+  assumptions: z.array(z.string().min(3).max(1000)).max(8).default([]),
   questions: z.array(z.string().min(3).max(500)).max(8).default([]),
   risk: z.enum(["low", "medium", "high"]),
   migrationNotes: z.string().max(4000).default(""),
