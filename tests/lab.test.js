@@ -156,7 +156,7 @@ test("HTTP authentication, CSRF, member permissions and actual MCP pull lifecycl
     service.reject(manualRequest.id, "Admin", "Test done.");
     client = new Client({ name: "test-codex-client", version: "1.0.0" });
     await client.connect(new StreamableHTTPClientTransport(new URL(base + "/mcp"), { requestInit: { headers: { Authorization: "Bearer " + config.MCP_TOKEN } } }));
-    const tools = await client.listTools(); assert.equal(tools.tools.length, 6);
+    const tools = await client.listTools(); assert.equal(tools.tools.length, 7);
     assert.ok(!tools.tools.some(t => t.name.includes("approve")));
     const ready = await client.callTool({ name: "list_ready_requests", arguments: {} });
     assert.equal(ready.structuredContent.requests[0].id, r.id);

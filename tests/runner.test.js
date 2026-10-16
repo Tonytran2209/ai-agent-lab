@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm, writeFile, mkdir, readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { repositoryMatches, safePacket, checkScope, childEnvironment, executeRequest, command } from "../mac/runner.js";
+import { repositoryMatches, safePacket, checkScope, childEnvironment, executeRequest, command, prepareDependencies } from "../mac/runner.js";
 import { openDatabase } from "../server/db.js";
 import { createService, hash } from "../server/service.js";
 
@@ -46,6 +46,7 @@ test("Mac runner claims once, runs checks, commits locally, reports and preserve
   const git = async (...args) => { const r = await command("git", args, { cwd: repo }); assert.equal(r.code, 0, r.stderr); return r.stdout.trim(); };
   try {
     await git("init"); await git("config", "user.name", "Test"); await git("config", "user.email", "test@example.test");
+    await writeFile(path.join(repo, "package-lock.json"), "{}");
     await writeFile(path.join(repo, "file.txt"), "before\n"); await git("add", "."); await git("commit", "-m", "seed");
     const baseCommit = await git("rev-parse", "HEAD");
     // An exact allow-listed remote identity, with a local transport rewrite for this offline test.
@@ -83,5 +84,44 @@ test("Mac runner claims once, runs checks, commits locally, reports and preserve
     assert.equal(blockedCalls.at(-1), "request_scope_change");
     assert.ok(!blockedCalls.includes("complete_request"));
     assert.ok(!(await readFile(path.join(stateDir, request.id + ".json"), "utf8")).includes("test-private-token"));
+    const operationalRequest = { ...request, id: "REQ-ABCDEF15" }, operationalCalls = [];
+    const operationalCall = async (name, args) => { operationalCalls.push({ name, args }); return name === "claim_request" ? { ...packet, request: operationalRequest, claimToken: "private" } : {}; };
+    await assert.rejects(executeRequest({ packet: { ...packet, request: operationalRequest }, call: operationalCall, config: { repoPath: repo, stateDir, codexPath: "fake-codex" }, run: async () => ({ code: 1 }) }), /dependency/);
+    assert.equal(operationalCalls.at(-1).name, "report_execution_failure");
+    assert.ok(!operationalCalls.some(c => c.name === "request_scope_change"));
+    const stopped = JSON.parse(await readFile(path.join(stateDir, operationalRequest.id + ".json"), "utf8"));
+    const resumed = await executeRequest({ packet: { ...packet, request: operationalRequest }, call: operationalCall, config: { repoPath: repo, stateDir, codexPath: "fake-codex" }, run });
+    assert.equal(resumed.worktree, stopped.worktree);
+
   } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test("dependency preparation installs frontend and backend and stops on backend install failure", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "lab-deps-"));
+  try {
+    await mkdir(path.join(dir, "backend"));
+    for (const root of [dir, path.join(dir, "backend")]) await writeFile(path.join(root, "package-lock.json"), "{}");
+    const installed = [];
+    await prepareDependencies(dir, async (exe, args, opts) => { installed.push(opts.cwd); assert.equal(exe, "npm"); assert.deepEqual(args, ["ci"]); return { code: 0 }; });
+    assert.deepEqual(installed, [dir, path.join(dir, "backend")]);
+    await assert.rejects(prepareDependencies(dir, async (_, __, opts) => ({ code: opts.cwd.endsWith("backend") ? 1 : 0 })), /backend/);
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
+test("operational failure preserves approval and questions, retries without changing risk, and rejects stale authority", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "lab-failure-"));
+  const db = openDatabase(dir), service = createService(db);
+  try {
+    const r = service.create(feedback, "Admin"); service.submit(r.id, draft, "Admin");
+    const approved = service.get(r.id), c = service.claim(r.id, "mac", approved.baseCommit);
+    assert.throws(() => service.executionFailure(r.id, "invalid", "Install failed"));
+    const failed = service.executionFailure(r.id, c.claimToken, "Backend dependency installation failed");
+    assert.equal(failed.status, "failed"); assert.equal(failed.lease, null);
+    assert.deepEqual(failed.draft.questions, []); assert.deepEqual(failed.approval, approved.approval);
+    assert.equal(service.retryExecution(r.id, "Admin").status, "approved");
+    assert.throws(() => service.retryExecution(r.id, "Admin"));
+    assert.throws(() => service.progress(r.id, c.claimToken, "Stale worker"));
+    const fresh = service.claim(r.id, "mac", approved.baseCommit);
+    service.scopeChange(r.id, fresh.claimToken, "Need another source file");
+    assert.throws(() => service.retryExecution(r.id, "Admin"));
+  } finally { db.close(); await rm(dir, { recursive: true, force: true }); }
 });

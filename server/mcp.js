@@ -26,6 +26,8 @@ export function createMcpServer(service) {
     ({ requestId, agentName, observedBaseCommit }) => service.claim(requestId, agentName, observedBaseCommit));
   tool("report_progress", "Report progress and renew the 15-minute claim. Call at least every 5 minutes.",
     { requestId, claimToken, note }, false, ({ requestId, claimToken, note }) => service.progress(requestId, claimToken, note));
+  tool("report_execution_failure", "Report a stopped operational failure. Preserves the approved plan; does not approve or retry execution. Call only after the worker has stopped editing.",
+    { requestId, claimToken, note }, false, ({ requestId, claimToken, note }) => service.executionFailure(requestId, claimToken, note));
   tool("request_scope_change", "Stop work and request human re-triage. Invalidates approval and claim. Never edit new paths before reapproval.",
     { requestId, claimToken, note }, false, ({ requestId, claimToken, note }) => service.scopeChange(requestId, claimToken, note));
   tool("complete_request", "Submit agent-attested diff/check results with a repository PR/commit URL or an explicitly labelled local commit. Passing reports await human review; no merge or deployment.",

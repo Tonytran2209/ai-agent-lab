@@ -61,3 +61,11 @@ Trong **Kết quả**, commit cục bộ được ghi rõ **chưa push** và bra
 Codex chạy workspace-write, vẫn chịu sandbox; hành động cần quyền bổ sung có thể thất bại và đưa request về cần xử lý. Không dùng bypass sandbox. Runner dùng `--ignore-user-config` (giữ auth Codex, bỏ cấu hình model/MCP tùy chỉnh) để worker không tự gọi lại Lab hay thừa hưởng MCP khác; token Lab không được chuyển cho child. Các quyền file không được cưỡng chế theo từng allowedPath: đây là kiểm tra diff sau thực thi, vẫn cần review.
 
 Tài liệu Codex: https://learn.chatgpt.com/docs/non-interactive-mode
+
+## Lỗi môi trường và chạy lại
+
+Runner chạy `npm ci` tại gốc và `backend` (nếu có lockfile) trước khi gọi Codex, sau đó kiểm tra toàn bộ bằng `npm run check`. Không sửa package manifest để né lỗi.
+
+Lỗi cài đặt, đăng nhập Codex, timeout hoặc lỗi thực thi được báo bằng `report_execution_failure`: giữ nguyên kế hoạch, mức rủi ro và fingerprint đã duyệt, giải phóng claim sau khi worker dừng. Admin chọn **Thử chạy lại**; không phải AI phân tích lại feedback. Chỉ lỗi cần mở rộng file/phạm vi mới dùng `request_scope_change`.
+
+Lần chạy lại có thể khôi phục worktree chưa commit của lần dừng trước khi request ID, branch, base commit và exact allowedPaths còn khớp. Không tự khôi phục quyền đã bị thu hồi bởi runner cũ; admin vẫn cần duyệt lại kế hoạch đó. Kết quả kiểm tra không đạt hoặc thiếu kiểm tra hành vi phải được báo trung thực, không được tự đánh dấu nghiệm thu.
