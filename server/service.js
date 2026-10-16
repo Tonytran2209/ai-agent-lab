@@ -311,6 +311,24 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
         return changed(r, "progress", r.lease.owner, note);
       });
     },
+    executionFailure(id, token, note) {
+      return transaction(db, () => {
+        const r = get(id); verifyLease(r, token); const owner = r.lease.owner;
+        r.status = "failed"; r.lease = null;
+        r.executionFailure = { note, at: now() };
+        return changed(r, "execution_failed", owner, note);
+      });
+    },
+    retryExecution(id, actor) {
+      return transaction(db, () => {
+        const r = get(id);
+        if (r.status !== "failed" || !r.executionFailure || r.lease) fail("Chỉ thử lại lỗi thực thi đã dừng.");
+        const fingerprint = hash(JSON.stringify({ draft: r.draft, baseCommit: r.baseCommit, libraryVersionId: r.libraryVersionId }));
+        if (!r.approval || r.approval.requestHash !== fingerprint) fail("Kế hoạch đã đổi; cần duyệt lại.");
+        r.status = "approved"; r.executionFailure = null; r.result = null;
+        return changed(r, "execution_retry_queued", actor, "Thử lại thực thi với kế hoạch và quyền đã duyệt, không phân tích lại feedback.");
+      });
+    },
     scopeChange(id, token, note) {
       return transaction(db, () => {
         const r = get(id); verifyLease(r, token); const owner = r.lease.owner;

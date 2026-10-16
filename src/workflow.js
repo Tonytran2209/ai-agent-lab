@@ -32,6 +32,7 @@ export function workflowMessage(request, runner, aiConfigured = true) {
   if (request.status === "needs-triage") return "Chưa vào hàng đợi Codex: còn " + (request.draft?.questions?.length || 0) + " câu hỏi cần giải quyết. Xem các câu hỏi bên dưới hoặc Hoạt động nếu runner đã dừng. Nhãn low risk không bỏ qua bước làm rõ và duyệt.";
   if (["claimed", "running"].includes(request.status)) return "Mac đã claim request. Xem Hoạt động để theo dõi tiến trình; kết quả sẽ được gửi về Lab sau khi kiểm tra.";
   if (request.status === "review") return "Codex đã gửi kết quả. Mở tab Kết quả để xem checks và commit; admin vẫn cần nghiệm thu.";
+  if (request.status === "failed" && request.executionFailure) return "Mac đã dừng do lỗi thực thi. Kế hoạch và quyền đã duyệt vẫn được giữ; admin có thể Thử chạy lại sau khi xử lý môi trường. Không cần bổ sung feedback.";
   if (request.status === "failed") return "Có kiểm tra không đạt. Xem tab Kết quả trước khi chuẩn bị lại request.";
   return "Xem Hoạt động và Kết quả để kiểm tra lịch sử xử lý.";
 }

@@ -36,7 +36,7 @@ export function createApp(config, options = {}) {
     next();
   });
   app.get("/health", (req, res) => {
-    try { db.prepare("SELECT 1").get(); res.json({ ok: true, policyVersion: "risk-v2" }); } catch { res.status(503).json({ ok: false }); }
+    try { db.prepare("SELECT 1").get(); res.json({ ok: true, policyVersion: "risk-v2", runnerProtocol: "execution-failure-v1" }); } catch { res.status(503).json({ ok: false }); }
   });
   const limiter = (limit, windowMs = 60000) => rateLimit({ limit, windowMs, standardHeaders: "draft-8", legacyHeaders: false,
     message: { error: "Quá nhiều yêu cầu. Vui lòng thử lại sau." } });
@@ -82,6 +82,7 @@ export function createApp(config, options = {}) {
     if (req.user.role !== "admin" && r.draft) fail("Kế hoạch đã phân loại; admin cần kiểm tra trước khi xử lý lại.", 403);
     res.status(202).json(pipeline.enqueue(r.id, req.user.name));
   });
+  app.post("/api/requests/:id/retry-execution", auth.admin, (req, res) => res.json(service.retryExecution(req.params.id, req.user.name)));
   app.post("/api/requests/:id/approve", auth.admin, (req, res) => {
     const options = z.object({ confirmHighRisk: z.boolean().default(false), expectedRevision: z.string().optional() }).parse(req.body ?? {});
     res.json(service.approve(req.params.id, req.user.name, options));
