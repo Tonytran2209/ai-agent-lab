@@ -6,9 +6,9 @@ import { z, ZodError } from "zod";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { openDatabase } from "./db.js";
-import { hash, createService } from "./service.js";
+import { createService } from "./service.js";
 import { createAuth } from "./auth.js";
-import { analyzeFeedback } from "./ai.js";
+import { createPipeline } from "./pipeline.js";
 import { syncLibrary } from "./library.js";
 import { mcpHandler } from "./mcp.js";
 import { fail } from "./schemas.js";
@@ -18,6 +18,7 @@ export function createApp(config, options = {}) {
   const auth = createAuth(config);
   const db = options.db ?? openDatabase(config.DATA_DIR || path.join(root, "data"));
   const service = createService(db, options);
+  const pipeline = createPipeline(service, config, { analyze: options.analyze });
   const app = express();
   // Railway edge proxy adds one trusted hop; app is designed for one replica.
   app.set("trust proxy", 1);
@@ -35,7 +36,7 @@ export function createApp(config, options = {}) {
     next();
   });
   app.get("/health", (req, res) => {
-    try { db.prepare("SELECT 1").get(); res.json({ ok: true }); } catch { res.status(503).json({ ok: false }); }
+    try { db.prepare("SELECT 1").get(); res.json({ ok: true, policyVersion: "risk-v2" }); } catch { res.status(503).json({ ok: false }); }
   });
   const limiter = (limit, windowMs = 60000) => rateLimit({ limit, windowMs, standardHeaders: "draft-8", legacyHeaders: false,
     message: { error: "Quá nhiều yêu cầu. Vui lòng thử lại sau." } });
@@ -47,9 +48,12 @@ export function createApp(config, options = {}) {
   app.use("/api", auth.require, limiter(180));
   app.post("/api/auth/logout", (req, res) => { auth.logout(res); res.json({ ok: true }); });
   app.get("/api/config", (req, res) => res.json({ aiConfigured: Boolean(config.OPENAI_API_KEY), model: config.OPENAI_MODEL || "gpt-4.1-mini",
-    runner: service.runnerStatus(), mcpUrl: (config.APP_URL || "http://localhost:3000").replace(/\/$/, "") + "/mcp", project: { id: "writer-studio", name: "Writer Studio", repository: "Tonytran2209/RebuildWriterStudioTool" } }));
+    policyVersion: "risk-v2", runner: service.runnerStatus(), mcpUrl: (config.APP_URL || "http://localhost:3000").replace(/\/$/, "") + "/mcp", project: { id: "writer-studio", name: "Writer Studio", repository: "Tonytran2209/RebuildWriterStudioTool" } }));
   app.get("/api/requests", (req, res) => res.json({ requests: service.list() }));
-  app.post("/api/requests", limiter(20), (req, res) => res.status(201).json(service.create(req.body, req.user.name)));
+  app.post("/api/requests", limiter(20), (req, res) => {
+    const created = service.create(req.body, req.user.name);
+    res.status(201).json(pipeline.enqueue(created.id, req.user.name));
+  });
   app.get("/api/requests/:id", (req, res) => res.json({ request: service.get(req.params.id), events: service.events(req.params.id) }));
   const editable = (req, res, next) => {
     // Members can submit feedback; contract preparation and execution authority remain admin-only.
@@ -57,35 +61,31 @@ export function createApp(config, options = {}) {
     next();
   };
   app.put("/api/requests/:id/draft", editable, (req, res) => res.json(service.edit(req.params.id, req.body, req.user.name)));
-  app.post("/api/requests/:id/submit", editable, (req, res) => res.json(service.submit(req.params.id, req.body, req.user.name)));
+  app.post("/api/requests/:id/submit", editable, (req, res) => res.json(service.submit(req.params.id, req.body, req.user.name, { confirmHighRisk: req.body.confirmHighRisk === true })));
   app.post("/api/requests/:id/clarify", (req, res) => {
     const r = service.get(req.params.id);
     if (req.user.role !== "admin" && r.author !== req.user.name) fail("Chỉ tác giả/admin được bổ sung feedback.", 403);
     const { note } = z.object({ note: z.string().trim().min(5).max(4000) }).parse(req.body);
-    res.json(service.clarify(req.params.id, note, req.user.name));
+    service.clarify(req.params.id, note, req.user.name);
+    res.json(pipeline.enqueue(req.params.id, req.user.name));
   });
-  const analyzing = new Set();
-  app.post(["/api/requests/:id/analyze", "/api/requests/:id/prepare"], editable, limiter(6), async (req, res) => {
-    const { autoApprove } = z.object({ autoApprove: z.boolean().default(false) }).parse(req.body ?? {});
-    if (analyzing.has(req.params.id)) fail("AI đang phân tích request này.");
-    if (analyzing.size >= 3) fail("AI đang xử lý đủ số request đồng thời. Thử lại sau.", 429);
-    analyzing.add(req.params.id);
-    let success = false, started = false;
-    try {
-      service.beginPreparation(req.params.id, req.user.name);
-      started = true;
-      const prepared = await analyzeFeedback(service, req.params.id, req.user.name, config);
-      const result = autoApprove ? service.autoApprove(req.params.id, req.user.name, hash(JSON.stringify(prepared))) : prepared;
-      success = true;
-      service.endPreparation(req.params.id, req.user.name, true);
-      res.json({ ...result, preparation: service.get(req.params.id).preparation });
+  app.post(["/api/requests/:id/analyze", "/api/requests/:id/prepare"], editable, limiter(6), (req, res) => {
+    if (!config.OPENAI_API_KEY && !options.analyze) {
+      service.beginPreparation(req.params.id, req.user.name); service.endPreparation(req.params.id, req.user.name, false);
+      fail("Chưa cấu hình AI. Feedback vẫn được giữ.", 503);
     }
-    finally {
-      try { if (started && !success) service.endPreparation(req.params.id, req.user.name, false); }
-      finally { analyzing.delete(req.params.id); }
-    }
+    res.status(202).json(pipeline.enqueue(req.params.id, req.user.name));
   });
-  app.post("/api/requests/:id/approve", auth.admin, (req, res) => res.json(service.approve(req.params.id, req.user.name)));
+  app.post("/api/requests/:id/retry", limiter(6), (req, res) => {
+    const r = service.get(req.params.id);
+    if (req.user.role !== "admin" && r.author !== req.user.name) fail("Chỉ tác giả/admin được thử lại.", 403);
+    if (req.user.role !== "admin" && r.draft) fail("Kế hoạch đã phân loại; admin cần kiểm tra trước khi xử lý lại.", 403);
+    res.status(202).json(pipeline.enqueue(r.id, req.user.name));
+  });
+  app.post("/api/requests/:id/approve", auth.admin, (req, res) => {
+    const options = z.object({ confirmHighRisk: z.boolean().default(false), expectedRevision: z.string().optional() }).parse(req.body ?? {});
+    res.json(service.approve(req.params.id, req.user.name, options));
+  });
   app.post("/api/requests/:id/reject", auth.admin, (req, res) => {
     const { note } = z.object({ note: z.string().min(5).max(1000) }).parse(req.body); res.json(service.reject(req.params.id, note, req.user.name));
   });
@@ -119,11 +119,13 @@ export function createApp(config, options = {}) {
       status >= 500 && e.status === undefined ? "Không xử lý được yêu cầu. Dữ liệu đã lưu vẫn được giữ." : e.message;
     res.status(status).json({ error });
   });
-  return { app, db, service };
+  return { app, db, service, pipeline };
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const { app } = createApp(process.env);
+  const { app, db, pipeline } = createApp(process.env);
   const port = Number(process.env.PORT || 3000);
-  app.listen(port, "0.0.0.0", () => console.log("AI Agent Lab listening on port " + port));
+  const server = app.listen(port, "0.0.0.0", () => { pipeline.start(); console.log("AI Agent Lab listening on port " + port); });
+  const stop = async () => { await pipeline.stop(); server.close(() => db.close()); };
+  process.once("SIGTERM", stop); process.once("SIGINT", stop);
 }
 

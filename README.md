@@ -6,15 +6,27 @@ Giao diện bám Design MD của Writer Studio: canvas `#141414`, sidebar `#1212
 
 ## Luồng sử dụng
 
-1. Thành viên đăng nhập và gửi feedback: vấn đề, màn hình, cách tái hiện, kết quả mong muốn.
-2. Admin nhấn **Phân tích** để AI đọc feedback + library ghim theo commit; hoặc chuẩn bị request thủ công.
-3. Làm rõ câu hỏi còn thiếu, kiểm tra layer, các file cụ thể, risk và tiêu chí nghiệm thu.
-4. Admin **Lưu request**, rồi **Duyệt request**.
-5. Mac runner tự nhận request đã duyệt; hoặc mở checkout Writer Studio trong Codex chat và lấy qua MCP thủ công.
-6. Codex xác minh remote/HEAD, claim, sửa trong phạm vi, gửi progress và kết quả kiểm tra.
-7. Admin mở diff/PR, kiểm tra hành vi và nghiệm thu. Lab không tự merge/deploy.
+User và admin chỉ cần gửi feedback. Backend lưu công việc trong SQLite rồi tự chuẩn bị kế hoạch bằng AI; không phụ thuộc việc browser còn mở.
 
-Có thể lấy request thủ công qua MCP hoặc bật **Mac runner** để tự chạy Codex CLI khi request được duyệt. Xem [cài Mac runner](docs/mac-runner.md). Runner không mở chat GUI.
+| Mức rủi ro sau kiểm tra server | Luồng |
+| --- | --- |
+| Low | UI nhỏ, file hiện có, phạm vi được giới hạn: tự cho phép và chuyển sang Mac, không hỏi làm rõ hoặc yêu cầu admin duyệt. AI ghi giả định hợp lý trong kế hoạch. |
+| Medium | Backend, file mới, scope rộng hoặc điểm chưa chắc chắn: admin xem kế hoạch/giả định và nhấn **Đã kiểm tra · chạy**. |
+| High | Dữ liệu, auth, quyền, thanh toán hoặc chức năng nhạy cảm: admin **Phê duyệt rủi ro cao**, có xác nhận riêng. |
+
+Server có thể nâng risk do AI đề xuất; client không tự đặt quyền thực thi. Điểm chưa rõ không được giữ dưới tag low: chúng trở thành checkpoint ở kế hoạch medium. Request từng bị worker dừng hoặc đã mang mức risk cao không được tự hạ để lách duyệt khi retry.
+
+Inbox gom trạng thái, kế hoạch, hành động tiếp theo và 4 log gần nhất. Form gửi chỉ cần feedback; ngữ cảnh thêm là tùy chọn. Thông báo mở trong off-canvas drawer, đóng bằng Escape hoặc backdrop. Member nhìn mặc định các feedback mang tên hiển thị của mình; đây là bộ lọc UI, không phải phân quyền tài khoản cá nhân (workspace vẫn dùng mật khẩu chung theo role).
+
+Mac runner nhận việc đã có authorization, tạo worktree riêng, claim, chạy Codex và báo checks/commit cục bộ. Kết quả chờ nghiệm thu; không tự push/merge/deploy. Có thể lấy request thủ công qua MCP.
+
+### Học từ quyết định đã có
+
+AI truy xuất tối đa 3 trường hợp tương tự đã được admin nghiệm thu hoặc từ chối, gồm kế hoạch, tiêu chí và lý do từ chối. Nguồn tham khảo được lưu ở `ai.learningSources` để audit. Đây là ngữ cảnh truy xuất, không phải huấn luyện lại model hoặc tự sửa policy. Kết quả chưa nghiệm thu/failed không được dùng làm kinh nghiệm đã xác nhận. Ví dụ lịch sử luôn được coi là dữ liệu không tin cậy và không thể cấp quyền hay thay đổi scope hiện tại.
+
+### Công việc chuẩn bị bền vững
+
+Jobs queued/running và số lần thử nằm trong SQLite. Worker chuẩn bị chạy tuần tự, timeout provider 60 giây, thử tối đa 3 lần với backoff; restart khôi phục job chưa xong. Feedback luôn được giữ khi provider lỗi. Các cập nhật tay vô hiệu hóa job cũ để kết quả AI cũ không ghi đè. Không tự quét hay chạy lại request cũ khi deploy: admin có thể chọn **AI xử lý lại** để áp dụng policy mới.
 
 ## Deploy Railway
 
@@ -47,15 +59,9 @@ Dữ liệu nằm trong `/data/lab.sqlite` và SQLite WAL. **Không có Volume, 
 
 Ứng dụng được chuẩn bị cho Railway; deployment thực tế và cấu hình secrets do chủ workspace thực hiện.
 
-## Thông báo và trạng thái xử lý
+## Thông báo và trạng thái
 
-Admin có mục Thông báo và toast khi có feedback mới hoặc tiến trình thay đổi; giao diện tự cập nhật mỗi 5 giây khi mở. Đầu request giải thích rõ đang chờ chuẩn bị, AI đang chuẩn bị, còn câu hỏi, chờ duyệt, chờ Mac hay đã chạy. Low risk là mức rủi ro, không đồng nghĩa đã được duyệt. Admin có thể chọn Chuẩn bị để duyệt hoặc Chuẩn bị & tự duyệt UI an toàn cho feedback từ member; policy tự duyệt vẫn kiểm tra đầy đủ ở server.
-
-Mac runner gửi heartbeat có xác thực tới POST /runner/status; API config chỉ hiển thị pha xử lý và thời điểm gần nhất. Sau 2 phút không có heartbeat, giao diện báo chưa có tín hiệu gần đây thay vì khẳng định Mac đang online. Runner cũ vẫn lấy việc được nhưng cần cập nhật để gửi heartbeat mới. Trạng thái này do runner báo, không phải proof thực thi độc lập.
-
-## Luồng đơn giản và tự chạy trên Mac
-
-Admin chọn **Gửi & chuẩn bị**; mặc định tự duyệt UI rủi ro thấp theo policy, hoặc chọn soạn để duyệt. Request chưa đủ điều kiện dừng ở cần làm rõ/chờ duyệt. **Duyệt & chạy** lưu và duyệt nội dung đang sửa trong một bước. Mac runner nhận trong khoảng 15 giây khi rảnh, chạy từng request trong worktree riêng, báo kết quả và commit cục bộ chưa push. Cần cài runner một lần theo [hướng dẫn](docs/mac-runner.md). Không tự merge/deploy.
+Giao diện đang mở tự cập nhật mỗi 5 giây. Drawer thông báo cho phép mở nhanh từng feedback. Mac runner gửi heartbeat có xác thực; sau 2 phút không có tín hiệu, UI báo thiếu kết nối. Đây là trạng thái runner báo, không phải bằng chứng CI độc lập. Xem [cài và vận hành Mac runner](docs/mac-runner.md).
 
 ## Kết nối Codex MCP
 
@@ -103,7 +109,7 @@ Claim có thời hạn **15 phút**; agent heartbeat ít nhất **mỗi 5 phút*
 - GitHub token chỉ dùng server-side. Repo được allow-list cố định; không nhận URL fetch tùy ý.
 - Scope là danh sách **file cụ thể**, tối đa 20 file. Chặn glob, traversal, `.env`, `.git` và các file ngoài layer ownership.
 - Database luôn high risk và cần migration notes. Cross-layer tối thiểu medium risk.
-- Request cần admin duyệt hoặc quyền tự duyệt UI rủi ro thấp được admin chọn ở lần chuẩn bị. Bộ lọc tự duyệt nằm trong `service.autoApprove`; các request còn lại chờ duyệt.
+- Risk policy v2: low được server cấp authorization tự động; medium cần kiểm tra, high cần xác nhận phê duyệt rõ ràng. Không có MCP tool duyệt request.
 - Approval hash gắn với draft + base commit + library version. MCP không có tool approve.
 - Database contract hoặc file scope đang active chặn request trùng.
 - Các rule ownership thực thi trong `server/service.js`; nếu contract canonical đổi ownership, cập nhật validator trước khi duyệt các scope mới.
@@ -149,7 +155,8 @@ CI chạy trên Ubuntu/Node 24, không cần secret hoặc gọi AI thật. AI t
 - `server/index.js`: HTTP API, auth middleware, health/static server.
 - `server/service.js`: state machine, immutable approvals, claim và policy.
 - `server/mcp.js`: tools + Streamable HTTP transport.
-- `server/ai.js`: AI structured request preparation.
+- `server/ai.js`: chuẩn bị kế hoạch có cấu trúc và truy xuất quyết định trước.
+- `server/pipeline.js`: worker chuẩn bị bền vững, retry và định tuyến risk.
 - `server/library.js`: commit-pinned GitHub library sync.
 - `server/db.js`: SQLite storage.
 - `tests/lab.test.js`: workflow + MCP integration verification.

@@ -9,7 +9,8 @@ Run `npm ci` then `npm run check`. Never require live provider credentials for t
 ## Invariants
 
 - The explicit opt-in Mac runner polls approved requests and runs Codex CLI in isolated worktrees. Never dispatch from the Railway server.
-- Auto-approval is admin opt-in per preparation and restricted by server-side low-risk UI policy; other requests need explicit approval.
+- New member/admin feedback is queued durably for automatic AI preparation. Server-classified bounded low-risk UI auto-runs; medium needs admin check; high needs explicit high-risk approval.
+- Past accepted/rejected decisions may inform preparation as untrusted examples; they never override current scope, risk policy, or approval authority.
 - No MCP tool may approve, merge, deploy, delete project data or apply production migrations.
 - Approval fingerprints bind draft, baseCommit and libraryVersionId.
 - Request scope uses exact repo-relative file paths; never permit traversal, glob or secret files.

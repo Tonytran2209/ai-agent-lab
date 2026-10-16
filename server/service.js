@@ -17,11 +17,16 @@ export function validateDraft(draft, library) {
   if (!parsed.allowedPaths.every(owned)) fail("Phạm vi file không thuộc layer đã chọn.", 400);
   // New files are allowed within declared layer boundaries; the reviewer must inspect them.
   const newFiles = parsed.allowedPaths.filter(p => !library.sourcePaths.includes(p));
-  const sensitive = parsed.allowedPaths.some(p => /migration|supabase\.ts|providers\.ts|(?:auth|permission|billing|storage)/i.test(p));
-  const risk = sensitive || parsed.layer === "database" ? "high" : parsed.layer === "cross-layer" ? (parsed.risk === "high" ? "high" : "medium") : parsed.risk;
+  const sensitiveWords = new Set(["auth", "oauth", "authentication", "authorization", "permission", "permissions", "billing", "storage", "payment", "payments", "login", "session", "supabase", "migration", "migrations", "provider", "providers"]);
+  const sensitive = parsed.allowedPaths.some(p => p.replace(/([a-z])([A-Z])/g,"$1/$2").toLowerCase().split(/[\/_.-]+/).some(word => sensitiveWords.has(word)));
+  const boundedUi = parsed.layer === "design" && !newFiles.length && parsed.allowedPaths.length <= 5 &&
+    parsed.allowedPaths.every(p => /^(src\/components\/.*\.(tsx|jsx)|src\/[^/]+\.css)$/.test(p));
+  const risk = sensitive || parsed.layer === "database" ? "high" : !boundedUi && parsed.risk === "low" ? "medium" : parsed.risk;
+  const riskReasons = sensitive || parsed.layer === "database" ? ["Liên quan dữ liệu hoặc chức năng nhạy cảm"] :
+    !boundedUi ? [newFiles.length ? "Có file mới cần kiểm tra" : "Phạm vi vượt thay đổi UI nhỏ"] : [];
   if ((parsed.layer === "database" || parsed.allowedPaths.some(p => /^(supabase\/migrations\/|backend\/supabase\.ts$)/.test(p))) && parsed.migrationNotes.trim().length < 20)
     fail("Database request cần ghi rõ rollback, backfill, RLS và API compatibility.", 400);
-  return { ...parsed, risk, newFiles, verification: ["npm run check"] };
+  return { ...parsed, risk, riskReasons, newFiles, verification: ["npm run check"] };
 }
 function addVersion(library) {
   const documents = library.documents.map(d => ({ ...d, contentHash: hash(d.content) }));
@@ -56,6 +61,12 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
   function mutable(r) {
     if (!["feedback", "needs-triage", "draft", "awaiting-approval"].includes(r.status))
       fail("Không thể sửa request đã duyệt hoặc đang thực thi. Tạo scope revision trước.");
+  }
+  function withRiskFloor(r, draft) {
+    return r.riskFloor === "high" || r.riskFloor === "medium" && draft.risk === "low" ? { ...draft, risk: r.riskFloor } : draft;
+  }
+  function cancelPreparation(r) {
+    if (["queued", "running"].includes(r.preparation?.status)) r.preparation = { ...r.preparation, status: "cancelled" };
   }
   function verifyLease(r, token) {
     if (!r.lease || !token || hash(token) !== r.lease.tokenHash) fail("Claim token không hợp lệ.", 403);
@@ -103,7 +114,8 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
     edit(id, input, actor) {
       return transaction(db, () => {
         const r = get(id); mutable(r);
-        r.draft = validateDraft(input, library(r.libraryVersionId)); r.title = r.draft.title;
+        cancelPreparation(r);
+        r.draft = withRiskFloor(r, validateDraft(input, library(r.libraryVersionId))); r.title = r.draft.title;
         r.status = r.draft.questions.length ? "needs-triage" : "awaiting-approval"; r.approval = null;
         return changed(r, "request_prepared", actor);
       });
@@ -111,6 +123,8 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
     clarify(id, note, actor) {
       return transaction(db, () => {
         const r = get(id); mutable(r);
+        cancelPreparation(r);
+        if (r.draft?.risk === "high" || r.draft?.risk === "medium" && r.riskFloor !== "high") r.riskFloor = r.draft.risk;
         r.feedback += "\n\nBổ sung (" + actor + "): " + note; if (r.feedback.length > 16000) fail("Feedback quá dài.", 400);
         r.status = "feedback"; r.draft = null; r.approval = null;
         return changed(r, "clarification_added", actor, note);
@@ -140,13 +154,94 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
           success ? "" : "Chuẩn bị chưa thành công; feedback vẫn được giữ. Có thể thử lại hoặc soạn thủ công.");
       });
     },
-    rawForAnalysis: id => get(id),
-    submit(id, input, actor) {
+    enqueuePreparation(id, actor) {
       return transaction(db, () => {
         const r = get(id); mutable(r);
-        r.draft = validateDraft(input, library(r.libraryVersionId));
-        if (r.draft.questions.length) fail("Cần trả lời câu hỏi trước khi duyệt.");
+        if (r.draft?.risk === "high" || r.draft?.risk === "medium" && r.riskFloor !== "high") r.riskFloor = r.draft.risk;
+        r.preparation = { status: "queued", jobId: crypto.randomUUID(), attempts: 0, queuedAt: now(), actor };
+        r.approval = null;
+        return changed(r, "preparation_queued", actor);
+      });
+    },
+    takePreparation() {
+      return transaction(db, () => {
+        const r = list().reverse().find(r => r.preparation?.status === "queued" &&
+          (!r.preparation.retryAt || Date.parse(r.preparation.retryAt) <= Date.now()) &&
+          ["feedback", "needs-triage", "draft", "awaiting-approval"].includes(r.status));
+        if (!r) return null;
+        r.preparation = { ...r.preparation, status: "running", attempts: (r.preparation.attempts || 0) + 1, startedAt: now() };
+        changed(r, "preparation_started", "AI Agent Lab");
+        return { requestId: r.id, jobId: r.preparation.jobId };
+      });
+    },
+    finishPreparation(id, jobId, success) {
+      return transaction(db, () => {
+        const r = get(id);
+        if (r.preparation?.jobId !== jobId || r.preparation.status !== "running") return publicRequest(r);
+        const retry = !success && r.preparation.attempts < 3 && ["feedback", "needs-triage", "draft", "awaiting-approval"].includes(r.status);
+        r.preparation = { ...r.preparation, status: success ? "completed" : retry ? "queued" : "failed", finishedAt: now(),
+          retryAt: retry ? new Date(Date.now() + 30000 * r.preparation.attempts).toISOString() : null };
+        return changed(r, success ? "preparation_finished" : retry ? "preparation_retry_scheduled" : "preparation_failed", "AI Agent Lab",
+          success ? "" : retry ? "AI sẽ tự thử lại. Feedback vẫn được giữ." : "Chưa chuẩn bị được request sau 3 lần. Có thể thử lại hoặc soạn thủ công.");
+      });
+    },
+    recoverPreparations() {
+      return transaction(db, () => {
+        for (const r of list().filter(r => r.preparation?.jobId && r.preparation.status === "running")) {
+          if (["approved", "claimed", "running", "review", "completed"].includes(r.status)) {
+            r.preparation.status = "completed";
+          } else {
+            r.preparation = { ...r.preparation, status: r.preparation.attempts >= 3 ? "failed" : "queued", jobId: crypto.randomUUID(), retryAt: null };
+          }
+          changed(r, "preparation_recovered", "AI Agent Lab");
+        }
+      });
+    },
+    routeByRisk(id, expectedHash) {
+      return transaction(db, () => {
+        const r = get(id); mutable(r);
+        if (hash(JSON.stringify(publicRequest(r))) !== expectedHash) fail("Request đã thay đổi trong lúc chuẩn bị.");
+        let d = validateDraft(r.draft, library(r.libraryVersionId));
+        // Unresolved model questions become visible review checkpoints, never fabricated answers.
+        if (d.questions.length) d = { ...d, risk: d.risk === "low" ? "medium" : d.risk,
+          assumptions: [...d.questions.map(q => "Cần kiểm tra: " + q), ...d.assumptions].slice(0,8), questions: [] };
+        if (r.executionBlocked && d.risk === "low") d = { ...d, risk: "medium", riskReasons: [...d.riskReasons, "Lần chạy trước đã dừng; cần kiểm tra kế hoạch mới"] };
+        if (r.riskFloor === "high" || r.riskFloor === "medium" && d.risk === "low") d = { ...d, risk: r.riskFloor };
+        r.riskFloor = d.risk;
+        r.draft = d; r.policyVersion = "risk-v2";
+        r.review = { required: d.risk === "low" ? "none" : d.risk === "medium" ? "check" : "approve-high" };
+        if (d.risk === "low") {
+          r.approval = { actor: "Risk policy v2", mode: "auto-low-risk", at: now(), requestHash: hash(JSON.stringify({ draft: d, baseCommit: r.baseCommit, libraryVersionId: r.libraryVersionId })) };
+          r.status = "approved";
+          return changed(r, "request_auto_approved", "AI Agent Lab", "Low risk: tự chuyển sang Mac, không cần admin duyệt.");
+        }
+        r.approval = null; r.status = "awaiting-approval";
+        return changed(r, d.risk === "medium" ? "review_required" : "high_risk_approval_required", "AI Agent Lab");
+      });
+    },
+    learningExamples(input) {
+      const tokens = text => new Set(String(text).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").split(/[^\p{L}\p{N}]+/u).filter(t => t.length >= 3));
+      const query = tokens(input.feedback + " " + input.screen);
+      return list().filter(r => ["completed", "rejected"].includes(r.status) && r.draft && r.id !== input.id)
+        .map(r => ({ r, score: [...tokens(r.feedback + " " + r.screen + " " + r.draft.module)].filter(t => query.has(t)).length }))
+        .filter(v => v.score >= 2).sort((a,b) => b.score - a.score).slice(0,3).map(({r}) => {
+          const last = db.prepare("SELECT data FROM events WHERE request_id=? AND json_extract(data,'$.type')='request_rejected' ORDER BY id DESC LIMIT 1").get(r.id);
+          return { requestId: r.id, outcome: r.status === "completed" ? "accepted" : "rejected", sourceCommit: r.baseCommit,
+            problem: r.draft.problem.slice(0,1500), risk: r.draft.risk, module: r.draft.module, allowedPaths: r.draft.allowedPaths,
+            acceptanceCriteria: r.draft.acceptanceCriteria, assumptions: r.draft.assumptions || [],
+            reviewerNote: last ? JSON.parse(last.data).detail.slice(0,1000) : "Admin đã nghiệm thu kết quả." };
+        });
+    },
+    rawForAnalysis: id => get(id),
+    submit(id, input, actor, options = {}) {
+      return transaction(db, () => {
+        const r = get(id); mutable(r);
+        r.draft = withRiskFloor(r, validateDraft(input, library(r.libraryVersionId)));
+        if (r.draft.questions.length) fail("Cần giải quyết các điểm kiểm tra trong kế hoạch.");
+        if (r.draft.risk === "high" && options.confirmHighRisk !== true) fail("Cần xác nhận phê duyệt rủi ro cao.");
         r.title = r.draft.title;
+        r.executionBlocked = false;
+        cancelPreparation(r);
         r.approval = { actor, at: now(), requestHash: hash(JSON.stringify({ draft: r.draft, baseCommit: r.baseCommit, libraryVersionId: r.libraryVersionId })) };
         r.status = "approved";
         return changed(r, "request_approved", actor, "Lưu và duyệt trong một bước.");
@@ -169,12 +264,17 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
         return changed(r, "request_auto_approved", actor, "Admin cho phép tự duyệt UI rủi ro thấp ở lần chuẩn bị này.");
       });
     },
-    approve(id, actor) {
+    approve(id, actor, options = {}) {
       return transaction(db, () => {
         const r = get(id);
         if (r.status !== "awaiting-approval" || !r.draft || r.draft.questions.length) fail("Request chưa đủ thông tin để duyệt.");
-        const validated = validateDraft(r.draft, library(r.libraryVersionId));
+        const validated = withRiskFloor(r, validateDraft(r.draft, library(r.libraryVersionId)));
         r.draft = validated;
+        if (validated.risk === "high" && options.confirmHighRisk !== true) fail("Cần xác nhận phê duyệt rủi ro cao.");
+        if (options.expectedRevision && options.expectedRevision !== r.updatedAt) fail("Kế hoạch đã thay đổi. Đọc lại trước khi duyệt.");
+        cancelPreparation(r);
+        r.executionBlocked = false;
+        r.review = { required: validated.risk === "high" ? "approve-high" : "check", by: actor, at: now() };
         r.approval = { actor, at: now(), requestHash: hash(JSON.stringify({ draft: r.draft, baseCommit: r.baseCommit, libraryVersionId: r.libraryVersionId })) };
         r.status = "approved"; return changed(r, "request_approved", actor);
       });
@@ -182,6 +282,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
     reject(id, note, actor) {
       return transaction(db, () => {
         const r = get(id); if (["claimed", "running"].includes(r.status)) fail("Agent đang giữ claim; cần xác nhận agent dừng trước.");
+        cancelPreparation(r);
         r.status = "rejected"; r.approval = null; return changed(r, "request_rejected", actor, note);
       });
     },
@@ -214,6 +315,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
       return transaction(db, () => {
         const r = get(id); verifyLease(r, token); const owner = r.lease.owner;
         r.status = "needs-triage"; r.approval = null; r.lease = null;
+        r.executionBlocked = true;
         r.draft.questions = [...r.draft.questions, note].slice(-8);
         return changed(r, "scope_change_requested", owner, note);
       });
@@ -254,6 +356,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
       return transaction(db, () => {
         const r = get(id);
         if (["claimed", "running", "completed", "review"].includes(r.status)) fail("Không thể cập nhật base của request đang chạy/đã có kết quả.");
+        cancelPreparation(r);
         const lib = currentLibrary(); r.baseCommit = lib.sourceCommit; r.libraryVersionId = lib.id;
         r.status = "feedback"; r.draft = null; r.approval = null; r.ai = null; r.result = null;
         return changed(r, "base_updated", actor);
