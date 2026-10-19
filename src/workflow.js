@@ -26,7 +26,7 @@ export function workflowMessage(request, runner, aiConfigured = true) {
   if (request.policyVersion === "risk-v2" && request.status === "awaiting-approval") return request.draft?.risk === "high" ? "Rủi ro cao: admin cần đọc kế hoạch và phê duyệt rõ ràng trước khi chạy." : "Admin kiểm tra kế hoạch và các giả định bên dưới, rồi nhấn Đã kiểm tra · chạy. Không cần soạn lại feedback.";
   if (preparationRunning(request)) return "AI đang đọc feedback và chuẩn bị phạm vi, tiêu chí nghiệm thu. Chưa gửi công việc sang Codex.";
   if (request.preparation?.status === "running") return "Lần chuẩn bị trước có thể bị gián đoạn. Feedback vẫn được giữ; hãy nhấn Chuẩn bị để thử lại.";
-  if (request.preparation?.status === "failed") return "Chuẩn bị request chưa thành công. Feedback vẫn được giữ; thử lại hoặc soạn thủ công. Chưa gửi công việc sang Codex.";
+  if (request.preparation?.status === "failed") return (request.preparation.error ? request.preparation.error + " " : "") + "Chuẩn bị request chưa thành công. Feedback vẫn được giữ; thử lại hoặc soạn thủ công. Chưa gửi công việc sang Codex.";
   if (request.status === "feedback") return "Feedback đã lưu. Admin cần nhấn Chuẩn bị để AI tạo request; chưa có tác vụ nào được gửi sang Mac.";
   if (request.status === "awaiting-approval") return "Nhãn low risk chỉ là mức rủi ro, chưa phải quyền thực thi. Kiểm tra phạm vi bên dưới và nhấn Duyệt & chạy để đưa request vào hàng đợi.";
   if (request.status === "approved") return runner?.connected

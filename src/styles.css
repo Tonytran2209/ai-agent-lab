@@ -21,3 +21,8 @@
 .high-risk-notes{margin-top:18px;padding:14px;border:1px solid #644444;border-radius:8px}.high-risk-notes p{font-size:11px;color:#c5b6b6;line-height:1.8;white-space:pre-wrap}
 
 .quick-log-row p{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+
+.ai-usage-panel { padding:20px; margin:24px 0; border:1px solid var(--border, #d8d8d5); border-radius:12px; }
+.ai-usage-panel h3 { margin:0 0 12px; font-size:15px; }
+.ai-usage-panel p { margin:6px 0; }
+.ai-usage-panel small { display:block; margin-top:12px; line-height:1.6; color:var(--text-muted, #73736d); }

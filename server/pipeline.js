@@ -6,7 +6,7 @@ export function createPipeline(service, config, options = {}) {
   const analyze = options.analyze ?? analyzeFeedback;
   let stopped = true, active = null, timer;
   const tick = () => {
-    if (stopped || active || (!config.OPENAI_API_KEY && !options.analyze)) return active ?? Promise.resolve();
+    if (stopped || active) return active ?? Promise.resolve();
     active = (async () => {
       while (!stopped) {
         const job = service.takePreparation();
@@ -15,8 +15,8 @@ export function createPipeline(service, config, options = {}) {
           const prepared = await analyze(service, job.requestId, 'AI Agent Lab', config);
           service.routeByRisk(job.requestId, hash(JSON.stringify(prepared)));
           service.finishPreparation(job.requestId, job.jobId, true);
-        } catch {
-          service.finishPreparation(job.requestId, job.jobId, false);
+        } catch (error) {
+          service.finishPreparation(job.requestId, job.jobId, false, {retryable: error.retryable === true, message: error.status ? error.message : "Không xử lý được kết quả AI. Feedback vẫn được giữ; có thể soạn thủ công."});
         }
       }
     })().finally(() => { active = null; });

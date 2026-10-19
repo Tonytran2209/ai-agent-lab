@@ -1,3 +1,4 @@
+import { codingPacket } from "../server/ai-context.js";
 import { pollVerifications } from "./verify.js";
 import { pollReleases } from "./release.js";
 import { spawn } from "node:child_process";
@@ -149,7 +150,7 @@ export async function executeRequest({ packet, call, config, signal, run = comma
       "Run non-browser acceptance checks. Do NOT launch Chrome/Chromium/headless browsers from this LaunchAgent. UI visual regression is performed separately by GitHub browser-check on a draft PR before admin review. Do not report browser verification as passed or failed if you did not perform it; describe it as pending CI in the summary.",
       "Frontend AND backend dependencies are already installed. The runner independently runs npm run check. Report failed checks honestly; a check failure alone is not a scope change. Set blocked=true only when implementation requires additional paths or policy changes.",
       "Return JSON matching the supplied schema. Checks must describe commands actually executed.",
-      JSON.stringify({ request: claimed.request, library: claimed.library }),
+      JSON.stringify(codingPacket(claimed.request, claimed.library)),
     ].join("\n");
     const env = childEnvironment(process.env);
     await prepareDependencies(worktree, run, { env, signal: controller.signal });

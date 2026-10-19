@@ -1,3 +1,4 @@
+import { AI_POLICY_VERSION, compactLibrary, feedbackLayer, displayRecipe } from "./ai-context.js";
 import { hash } from "./service.js";
 import { draftSchema, fail } from "./schemas.js";
 
@@ -16,13 +17,23 @@ const schema = {
   required: ["title", "problem", "layer", "module", "allowedPaths", "acceptanceCriteria", "questions", "assumptions", "risk", "migrationNotes"],
 };
 export async function analyzeFeedback(service, id, actor, config) {
-  if (!config.OPENAI_API_KEY) fail("Chưa cấu hình OPENAI_API_KEY. Bạn có thể chuẩn bị request thủ công.", 503);
   const request = service.rawForAnalysis(id);
   if (!["feedback", "needs-triage", "draft", "awaiting-approval"].includes(request.status)) fail("Không thể phân tích request đã duyệt/đang chạy.");
   const fingerprint = hash(JSON.stringify(request));
   const library = service.library(request.libraryVersionId);
-  const learning = service.learningExamples(request);
+  const learning = service.learningExamples(request).slice(0, 1).map(v => ({requestId:v.requestId,outcome:v.outcome,problem:v.problem?.slice(0,400),module:v.module,allowedPaths:v.allowedPaths}));
   const model = config.OPENAI_MODEL || "gpt-4.1-mini";
+  const key = hash(JSON.stringify({ version: AI_POLICY_VERSION, model, library: library.id, feedback: request.feedback.trim(), screen:request.screen, reproduction:request.reproduction, expected:request.expected, draft:request.draft, result:request.result, learning }));
+  const cached = service.aiLedger.cached(key);
+  const recipe = displayRecipe(request, library);
+  if (cached || recipe) return service.saveAnalysis(id, cached || recipe, {model, source:cached ? 'cache' : 'template', at:new Date().toISOString(), usage:null}, actor, fingerprint);
+  if (!config.OPENAI_API_KEY) fail("Chưa cấu hình OPENAI_API_KEY. Bạn có thể chuẩn bị request thủ công.", 503);
+  const input = JSON.stringify({ library: compactLibrary(library, feedbackLayer(request)), learningExamples:learning,
+    previousAttempt: request.draft ? {draft:request.draft} : undefined, feedback:request.feedback, screen:request.screen, reproduction:request.reproduction, expected:request.expected });
+  // UTF-8 bytes are a conservative input reservation, not a tokenizer or bill estimate.
+  const attempt = service.aiLedger.reserve(id, model, Buffer.byteLength(input + JSON.stringify(schema), 'utf8') + 7000, config);
+  let usage = null;
+  try {
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST", signal: AbortSignal.timeout(60000),
     headers: { "Authorization": "Bearer " + config.OPENAI_API_KEY, "Content-Type": "application/json" },
@@ -45,22 +56,37 @@ export async function analyzeFeedback(service, id, actor, config) {
         "Do not invent a confirmed root cause: distinguish reported symptoms from hypotheses in problem.",
         "Return a bounded plan. The server applies low=automatic, medium=admin check, high=explicit approval. Never assert approval yourself.",
       ].join("\n"),
-      input: JSON.stringify({ previousAttempt: { draft: request.draft, result: request.result }, learningExamples: learning, feedback: request.feedback, screen: request.screen, reproduction: request.reproduction, expected: request.expected,
-        library: { projectId: library.projectId, sourceCommit: library.sourceCommit, documents: library.documents, sourcePaths: library.sourcePaths } }),
+      input,
       text: { format: { type: "json_schema", name: "change_request", strict: true, schema } },
     }),
+  }).catch(() => {
+    const error = new Error('Kết nối AI tạm gián đoạn. Feedback vẫn được giữ.');
+    error.status = 502; error.retryable = true; throw error;
   });
   if (!response.ok) {
     // Do not forward raw provider bodies, credentials, or feedback into client errors.
-    fail(response.status === 429 ? "AI đang giới hạn tốc độ/quota. Hãy thử lại sau." : "AI provider không xử lý được yêu cầu (HTTP " + response.status + "). Kiểm tra cấu hình model/key.", 502);
+    const error = new Error(response.status === 429 ? "AI đang giới hạn tốc độ/quota. Hãy thử lại sau." : "AI provider không xử lý được yêu cầu (HTTP " + response.status + "). Kiểm tra cấu hình model/key.");
+    let code = null;
+    if (response.status === 429) { try { code = (await response.json()).error?.code; } catch {} }
+    error.status = 502; error.retryable = response.status >= 500 || response.status === 429 && code !== 'insufficient_quota'; throw error;
   }
   const body = await response.json();
+  usage = body.usage ?? null;
   if (body.status !== "completed") fail("AI chưa trả về kết quả hoàn chỉnh. Feedback vẫn được giữ.", 502);
   const text = body.output?.flatMap(item => item.content ?? []).filter(c => c.type === "output_text").map(c => c.text).join("");
   if (!text) fail("AI không trả về request hợp lệ. Hãy bổ sung feedback hoặc chuẩn bị thủ công.", 502);
   let draft;
   try { draft = draftSchema.parse(JSON.parse(text)); }
   catch { fail("AI trả về request không hợp lệ; chưa có thay đổi nào được duyệt.", 502); }
-  return service.saveAnalysis(id, draft, { model, learningSources: learning.map(v => ({ requestId: v.requestId, outcome: v.outcome })), at: new Date().toISOString(), usage: body.usage ?? null }, actor, fingerprint);
+  const saved = service.saveAnalysis(id, draft, { model, source:'provider', learningSources: learning.map(v => ({ requestId: v.requestId, outcome: v.outcome })), at: new Date().toISOString(), usage }, actor, fingerprint);
+  service.aiLedger.cache(key, draft);
+  service.aiLedger.finish(attempt, 'completed', usage);
+  return saved;
+  } catch (error) {
+    service.aiLedger.finish(attempt, 'failed', usage);
+    if (error.name === 'TimeoutError' || error.name === 'AbortError') {
+      const safe = new Error('Kết nối AI tạm gián đoạn. Feedback vẫn được giữ.'); safe.status=502; safe.retryable=true; throw safe;
+    }
+    throw error;
+  }
 }
-
