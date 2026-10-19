@@ -26,3 +26,31 @@
 .ai-usage-panel h3 { margin:0 0 12px; font-size:15px; }
 .ai-usage-panel p { margin:6px 0; }
 .ai-usage-panel small { display:block; margin-top:12px; line-height:1.6; color:var(--text-muted, #73736d); }
+.project-switch { width:100%; min-width:0; }
+.project-switch label { font-size:11px; color:var(--text-muted,#999); display:block; margin-bottom:7px; }
+.project-switch select { width:100%; min-width:0; background:transparent; color:inherit; border:1px solid #555; border-radius:8px; padding:8px; }
+.project-switch option { color:#222; background:#fff; }
+.project-settings { display:grid; gap:24px; max-width:1100px; margin:auto; }
+.project-settings h1 { font-size:26px; margin:10px 0; }
+.project-cards { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:20px; }
+.project-add { display:grid; gap:16px; margin-top:24px; }
+.project-add label,.project-card label { display:grid; gap:7px; font-size:13px; }
+.project-add input:not([type=checkbox]),.project-card input:not([type=checkbox]) { width:100%; padding:11px; border:1px solid #aaa; border-radius:8px; background:transparent; color:inherit; }
+.project-settings .check-label { display:flex; flex-direction:row; align-items:center; gap:9px; }
+.project-options { display:grid; gap:14px; margin:24px 0; }
+.project-card { min-width:0; }
+.project-card h2 { font-size:18px; margin:0; }
+.project-card a,.project-card .mono { overflow-wrap:anywhere; }
+.project-card details { border-top:1px solid #aaa; margin-top:24px; padding-top:18px; }
+.project-card summary { cursor:pointer; }
+.project-note { padding:12px; border-left:3px solid #b68b31; font-size:13px; }
+.project-card .section-heading { flex-wrap:wrap; gap:12px; }
+@media(max-width:900px) { .project-cards { grid-template-columns:1fr; } }
+.project-picker { width:100%; min-width:0; }
+.project-settings label { color:#50504c; }
+.project-settings .check-label { justify-content:flex-start; line-height:1.6; }
+.project-settings input[type=checkbox] { width:16px; height:16px; flex:0 0 16px; padding:0; margin:0; }
+.project-settings .button { background:#fff; color:#262626; border-color:#aaa; }
+.project-settings .button:hover:not(:disabled) { background:#e6e6e1; }
+.project-settings .button.primary { background:#262626; color:#fff; border-color:#262626; }
+.project-settings .button.primary:hover:not(:disabled) { background:#444; }

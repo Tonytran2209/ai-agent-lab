@@ -9,9 +9,10 @@ import { openDatabase } from "./db.js";
 import { createService } from "./service.js";
 import { createAuth } from "./auth.js";
 import { createPipeline } from "./pipeline.js";
-import { syncLibrary } from "./library.js";
+import { readRepositoryLibrary, syncLibrary } from "./library.js";
 import { mcpHandler } from "./mcp.js";
 import { fail } from "./schemas.js";
+import { repositorySchema, branchSchema } from "./projects.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 export function createApp(config, options = {}) {
@@ -36,7 +37,7 @@ export function createApp(config, options = {}) {
     next();
   });
   app.get("/health", (req, res) => {
-    try { db.prepare("SELECT 1").get(); res.json({ ok: true, policyVersion: "risk-v2", runnerProtocol: "execution-failure-v1", releaseProtocol: "release-v1", browserProtocol: "github-browser-v1", aiPolicyVersion: "economy-v1" }); } catch { res.status(503).json({ ok: false }); }
+    try { db.prepare("SELECT 1").get(); res.json({ ok: true, policyVersion: "risk-v2", runnerProtocol: "execution-failure-v1", releaseProtocol: "release-v1", browserProtocol: "github-browser-v1", aiPolicyVersion: "economy-v1", projectProtocol:"multi-project-v1" }); } catch { res.status(503).json({ ok: false }); }
   });
   const limiter = (limit, windowMs = 60000) => rateLimit({ limit, windowMs, standardHeaders: "draft-8", legacyHeaders: false,
     message: { error: "Quá nhiều yêu cầu. Vui lòng thử lại sau." } });
@@ -48,7 +49,7 @@ export function createApp(config, options = {}) {
   app.use("/api", auth.require, limiter(180));
   app.post("/api/auth/logout", (req, res) => { auth.logout(res); res.json({ ok: true }); });
   app.get("/api/config", (req, res) => res.json({ aiConfigured: Boolean(config.OPENAI_API_KEY), model: config.OPENAI_MODEL || "gpt-4.1-mini",
-    aiUsage: req.user.role === "admin" ? service.aiLedger.summary(config) : undefined, policyVersion: "risk-v2", runner: service.runnerStatus(), mcpUrl: (config.APP_URL || "http://localhost:3000").replace(/\/$/, "") + "/mcp", project: { id: "writer-studio", name: "Writer Studio", repository: "Tonytran2209/RebuildWriterStudioTool" } }));
+    aiUsage: req.user.role === "admin" ? service.aiLedger.summary(config) : undefined, policyVersion: "risk-v2", runner: service.runnerStatus(), mcpUrl: (config.APP_URL || "http://localhost:3000").replace(/\/$/, "") + "/mcp", project: service.project("writer-studio") }));
   app.get("/api/ai/usage", auth.admin, (req, res) => res.json(service.aiLedger.summary(config)));
   app.get("/api/requests", (req, res) => res.json({ requests: service.list() }));
   app.post("/api/requests", limiter(20), (req, res) => {
@@ -97,13 +98,24 @@ export function createApp(config, options = {}) {
   app.post("/api/requests/:id/accept", auth.admin, (req, res) => res.json(service.accept(req.params.id, req.user.name, { confirmHighRisk: req.body?.confirmHighRisk === true })));
   app.post("/api/requests/:id/publish", auth.admin, (req, res) => res.json(service.publish(req.params.id, req.user.name, { confirmHighRisk: req.body?.confirmHighRisk === true })));
   app.post("/api/requests/:id/rebase", auth.admin, (req, res) => res.json(service.rebase(req.params.id, req.user.name)));
-  app.get("/api/library", (req, res) => res.json(service.currentLibrary()));
-  let syncing = false;
+  app.get("/api/projects", (req,res)=>res.json({projects:service.projects()}));
+  app.post("/api/projects", auth.admin, limiter(6,10*60000), async(req,res)=>{
+    const input=z.object({repository:repositorySchema,branch:branchSchema.optional(),runnerEnabled:z.boolean().default(false)}).strict().parse(req.body);
+    if(service.projects().some(p=>p.repository.toLowerCase()===input.repository.toLowerCase()))fail("Repository đã kết nối. Hãy đồng bộ project hiện có.",400);
+    const lib=await readRepositoryLibrary(input.repository,input.branch,config.GITHUB_TOKEN);
+    if(service.projects().some(p=>p.id===lib.projectId||p.repository.toLowerCase()===lib.repository.toLowerCase()))fail("Project/repository đã kết nối. Hãy đồng bộ project hiện có.",400);
+    service.addLibrary(lib);res.status(201).json(service.updateProject(lib.projectId,{runnerEnabled:input.runnerEnabled}));
+  });
+  app.patch("/api/projects/:id", auth.admin, (req,res)=>res.json(service.updateProject(req.params.id,req.body)));
+  app.get("/api/library", (req, res) => res.json(service.currentLibrary(req.query.projectId)));
+  const syncing = new Set();
   app.post("/api/library/sync", auth.admin, limiter(3, 10 * 60000), async (req, res) => {
-    if (syncing) fail("Library đang đồng bộ."); syncing = true;
-    try { res.json(await syncLibrary(service, config.GITHUB_TOKEN)); } finally { syncing = false; }
+    const id=req.body?.projectId||'writer-studio'; service.project(id);
+    if(syncing.has(id))fail("Library của project đang đồng bộ."); syncing.add(id);
+    try { res.json(await syncLibrary(service, config.GITHUB_TOKEN,id)); } finally { syncing.delete(id); }
   });
   // Publishing authority is issued by admin acceptance, never by an MCP approval/merge tool.
+  app.get("/runner/projects",auth.mcp,limiter(60),(req,res)=>res.json({projects:service.projects()}));
   app.get("/runner/verifications",auth.mcp,limiter(60),(req,res)=>res.json({requests:service.verifications()}));
   app.post("/runner/verifications/:id/claim",auth.mcp,limiter(60),(req,res)=>res.json(service.claimVerification(req.params.id,"mac-browser-ci")));
   app.post("/runner/verifications/:id/report",auth.mcp,limiter(60),(req,res)=>{
@@ -117,13 +129,13 @@ export function createApp(config, options = {}) {
     const result = service.updateRelease(req.params.id, releaseToken, update);
     res.json(result);
     if (result.release.phase === "deployed") {
-      try { await syncLibrary(service, config.GITHUB_TOKEN); service.releaseLibrarySync(req.params.id, true); }
+      try { await syncLibrary(service, config.GITHUB_TOKEN,result.projectId); service.releaseLibrarySync(req.params.id, true); }
       catch { service.releaseLibrarySync(req.params.id, false); }
     }
   });
   app.get("/runner/status", auth.mcp, limiter(30), (req, res) => res.json(service.runnerStatus()));
   app.post("/runner/status", auth.mcp, limiter(30), (req, res) => {
-    const input = z.object({ phase: z.enum(["idle", "running"]), requestId: z.string().regex(/^REQ-[A-F0-9]{8}$/).nullable().default(null) }).parse(req.body);
+    const input = z.object({ phase: z.enum(["idle", "running"]), requestId: z.string().regex(/^REQ-[A-F0-9]{8}$/).nullable().default(null), projects:z.array(z.object({projectId:z.string().max(64),repository:repositorySchema,repoReady:z.boolean(),note:z.string().max(300).optional()})).max(50).optional() }).parse(req.body);
     if (input.phase === "running" && !input.requestId) fail("Running status requires a request.", 400);
     res.json(service.reportRunner(input));
   });

@@ -18,6 +18,7 @@ export const draftSchema = z.object({
   migrationNotes: z.string().max(4000).default(""),
 });
 export const feedbackSchema = z.object({
+  projectId: z.string().regex(/^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$/).optional(),
   feedback: z.string().min(10).max(10000),
   screen: z.string().max(300).default(""),
   reproduction: z.string().max(4000).default(""),
