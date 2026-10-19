@@ -1,5 +1,5 @@
 import { ciSetupOptions, ciSetupUpdate } from "./ci-setup.js";
-import { validateCiUpdate } from "./ci-validation.js";
+import { validateCiUpdate, ciRetryHead } from "./ci-validation.js";
 import "dotenv/config";
 import express from "express";
 import helmet from "helmet";
@@ -117,7 +117,7 @@ export function createApp(config, options = {}) {
     res.status(202).json(service.ciSetup.enqueue(req.params.id,options,req.user.name));
   });
   app.post("/api/projects/:id/ci/complete",auth.admin,(req,res)=>res.json(service.ciSetup.continue(req.params.id,req.user.name)));
-  app.post("/api/projects/:id/ci/retry",auth.admin,(req,res)=>res.json(service.ciSetup.retry(req.params.id,z.object({confirmStopped:z.boolean().default(false)}).parse(req.body||{}).confirmStopped)));
+  app.post("/api/projects/:id/ci/retry",auth.admin,async(req,res)=>{const {confirmStopped}=z.object({confirmStopped:z.boolean().default(false)}).parse(req.body||{}),job=service.ciSetup.get(req.params.id);const head=await ciRetryHead(service.project(req.params.id),job,config.GITHUB_TOKEN);res.json(service.ciSetup.retry(req.params.id,confirmStopped,head));});
   app.get("/api/library", (req, res) => res.json(service.currentLibrary(req.query.projectId)));
   const syncing = new Set();
   app.post("/api/library/sync", auth.admin, limiter(3, 10 * 60000), async (req, res) => {
