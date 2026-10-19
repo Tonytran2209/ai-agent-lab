@@ -36,7 +36,7 @@ export function createApp(config, options = {}) {
     next();
   });
   app.get("/health", (req, res) => {
-    try { db.prepare("SELECT 1").get(); res.json({ ok: true, policyVersion: "risk-v2", runnerProtocol: "execution-failure-v1", releaseProtocol: "release-v1", browserProtocol: "github-browser-v1" }); } catch { res.status(503).json({ ok: false }); }
+    try { db.prepare("SELECT 1").get(); res.json({ ok: true, policyVersion: "risk-v2", runnerProtocol: "execution-failure-v1", releaseProtocol: "release-v1", browserProtocol: "github-browser-v1", aiPolicyVersion: "economy-v1" }); } catch { res.status(503).json({ ok: false }); }
   });
   const limiter = (limit, windowMs = 60000) => rateLimit({ limit, windowMs, standardHeaders: "draft-8", legacyHeaders: false,
     message: { error: "Quá nhiều yêu cầu. Vui lòng thử lại sau." } });
@@ -48,10 +48,12 @@ export function createApp(config, options = {}) {
   app.use("/api", auth.require, limiter(180));
   app.post("/api/auth/logout", (req, res) => { auth.logout(res); res.json({ ok: true }); });
   app.get("/api/config", (req, res) => res.json({ aiConfigured: Boolean(config.OPENAI_API_KEY), model: config.OPENAI_MODEL || "gpt-4.1-mini",
-    policyVersion: "risk-v2", runner: service.runnerStatus(), mcpUrl: (config.APP_URL || "http://localhost:3000").replace(/\/$/, "") + "/mcp", project: { id: "writer-studio", name: "Writer Studio", repository: "Tonytran2209/RebuildWriterStudioTool" } }));
+    aiUsage: req.user.role === "admin" ? service.aiLedger.summary(config) : undefined, policyVersion: "risk-v2", runner: service.runnerStatus(), mcpUrl: (config.APP_URL || "http://localhost:3000").replace(/\/$/, "") + "/mcp", project: { id: "writer-studio", name: "Writer Studio", repository: "Tonytran2209/RebuildWriterStudioTool" } }));
+  app.get("/api/ai/usage", auth.admin, (req, res) => res.json(service.aiLedger.summary(config)));
   app.get("/api/requests", (req, res) => res.json({ requests: service.list() }));
   app.post("/api/requests", limiter(20), (req, res) => {
-    const created = service.create(req.body, req.user.name);
+    const created = service.create(req.body, req.user.name, {deduplicate:true});
+    if (created.duplicate) return res.status(200).json(created);
     res.status(201).json(pipeline.enqueue(created.id, req.user.name));
   });
   app.get("/api/requests/:id", (req, res) => res.json({ request: service.get(req.params.id), events: service.events(req.params.id) }));
@@ -70,10 +72,6 @@ export function createApp(config, options = {}) {
     res.json(pipeline.enqueue(req.params.id, req.user.name));
   });
   app.post(["/api/requests/:id/analyze", "/api/requests/:id/prepare"], editable, limiter(6), (req, res) => {
-    if (!config.OPENAI_API_KEY && !options.analyze) {
-      service.beginPreparation(req.params.id, req.user.name); service.endPreparation(req.params.id, req.user.name, false);
-      fail("Chưa cấu hình AI. Feedback vẫn được giữ.", 503);
-    }
     res.status(202).json(pipeline.enqueue(req.params.id, req.user.name));
   });
   app.post("/api/requests/:id/retry", limiter(6), (req, res) => {

@@ -1,3 +1,4 @@
+import { createAiLedger } from "./ai-ledger.js";
 import crypto from "node:crypto";
 import { localChecksPassed, checksSatisfied, verificationPassed, resultRevision, newVerification } from "./verification.js";
 import { queueRelease, releaseFingerprint, releaseUpdate } from "./releases.js";
@@ -91,6 +92,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
     ], prompt: renderPrompt(r, lib) };
   };
   return {
+    aiLedger: createAiLedger(db),
     currentLibrary, library, list: () => list().map(publicRequest),
     reportRunner(input) {
       const value = { ...input, lastSeenAt: now() };
@@ -105,9 +107,13 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
     },
     get: id => publicRequest(get(id)), packet: id => packet(get(id)),
     events: id => { get(id); return db.prepare("SELECT data FROM events WHERE request_id=? ORDER BY id").all(id).map(r => JSON.parse(r.data)); },
-    create(input, actor) {
+    create(input, actor, { deduplicate = false } = {}) {
       return transaction(db, () => {
         const data = feedbackSchema.parse(input), lib = currentLibrary();
+        if (deduplicate) {
+          const same = list().find(r => r.author === actor && r.libraryVersionId === lib.id && !['completed','rejected'].includes(r.status) && ['feedback','screen','reproduction','expected'].every(k => (r[k] || '').trim() === (data[k] || '').trim()));
+          if (same) return {...publicRequest(same), duplicate:true};
+        }
         const r = { id: "REQ-" + crypto.randomUUID().slice(0, 8).toUpperCase(), projectId: lib.projectId,
           repository: lib.repository, baseCommit: lib.sourceCommit, libraryVersionId: lib.id,
           ...data, title: data.feedback.slice(0, 100), author: actor, status: "feedback",
@@ -161,6 +167,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
     enqueuePreparation(id, actor) {
       return transaction(db, () => {
         const r = get(id); mutable(r);
+        if (["queued", "running"].includes(r.preparation?.status)) return publicRequest(r);
         if (r.draft?.risk === "high" || r.draft?.risk === "medium" && r.riskFloor !== "high") r.riskFloor = r.draft.risk;
         r.preparation = { status: "queued", jobId: crypto.randomUUID(), attempts: 0, queuedAt: now(), actor };
         r.approval = null;
@@ -178,15 +185,15 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
         return { requestId: r.id, jobId: r.preparation.jobId };
       });
     },
-    finishPreparation(id, jobId, success) {
+    finishPreparation(id, jobId, success, options = {}) {
       return transaction(db, () => {
         const r = get(id);
         if (r.preparation?.jobId !== jobId || r.preparation.status !== "running") return publicRequest(r);
-        const retry = !success && r.preparation.attempts < 3 && ["feedback", "needs-triage", "draft", "awaiting-approval"].includes(r.status);
-        r.preparation = { ...r.preparation, status: success ? "completed" : retry ? "queued" : "failed", finishedAt: now(),
+        const retry = !success && options.retryable !== false && r.preparation.attempts < 3 && ["feedback", "needs-triage", "draft", "awaiting-approval"].includes(r.status);
+        r.preparation = { ...r.preparation, status: success ? "completed" : retry ? "queued" : "failed", finishedAt: now(), error: success ? null : (options.message || "Chưa chuẩn bị được request."),
           retryAt: retry ? new Date(Date.now() + 30000 * r.preparation.attempts).toISOString() : null };
         return changed(r, success ? "preparation_finished" : retry ? "preparation_retry_scheduled" : "preparation_failed", "AI Agent Lab",
-          success ? "" : retry ? "AI sẽ tự thử lại. Feedback vẫn được giữ." : "Chưa chuẩn bị được request sau 3 lần. Có thể thử lại hoặc soạn thủ công.");
+          success ? "" : retry ? "AI sẽ tự thử lại. Feedback vẫn được giữ." : (options.message || "Chưa chuẩn bị được request. Có thể thử lại hoặc soạn thủ công."));
       });
     },
     recoverPreparations() {

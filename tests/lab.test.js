@@ -126,6 +126,10 @@ test("HTTP authentication, CSRF, member permissions and actual MCP pull lifecycl
       return { Cookie: res.headers.get("set-cookie").split(";")[0], "X-CSRF-Token": body.user.csrf, "Content-Type": "application/json" };
     }
     const member = await login(config.USER_PASSWORD), admin = await login(config.ADMIN_PASSWORD);
+    assert.equal((await fetch(base + "/api/ai/usage", {headers:member})).status,403);
+    const aiStats=await (await fetch(base + "/api/ai/usage", {headers:admin})).json();
+    assert.equal(aiStats.calls,0); assert.equal(aiStats.limits.requestCalls,3);
+    assert.equal((await (await fetch(base + "/api/config", {headers:member})).json()).aiUsage,undefined);
     const statusResponse = await fetch(base + "/runner/status", { method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer " + config.MCP_TOKEN }, body: JSON.stringify({ phase: "idle", requestId: null }) });
     assert.equal(statusResponse.status, 200);
     assert.equal((await fetch(base + "/runner/status")).status, 401);
@@ -146,8 +150,8 @@ test("HTTP authentication, CSRF, member permissions and actual MCP pull lifecycl
     assert.equal((await fetch(base + "/api/requests/" + r.id + "/prepare", { method: "POST", headers: member, body: JSON.stringify({ autoApprove: true }) })).status, 403);
     const preparationTest = service.create(feedback, "Member");
     const prepareFailure = await fetch(base + "/api/requests/" + preparationTest.id + "/prepare", { method: "POST", headers: admin, body: JSON.stringify({ autoApprove: true }) });
-    assert.equal(prepareFailure.status, 503);
-    assert.equal(service.get(preparationTest.id).preparation.status, "failed");
+    assert.equal(prepareFailure.status, 202);
+    assert.equal(service.get(preparationTest.id).preparation.status, "queued");
     assert.equal(service.get(preparationTest.id).status, "feedback");
     assert.equal(service.get(preparationTest.id).approval, null);
     const manualRequest = service.create(feedback, "Admin");
