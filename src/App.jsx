@@ -108,7 +108,7 @@ export default function App() {
           {admin&&r.status==="completed"&&r.result?.localArtifact&&(!r.release||r.release.phase==="failed")&&<Button className="primary" busy={busy==="publish"} disabled={Boolean(busy)} onClick={()=>acceptOrPublish(r,true)}><GitBranch size={16}/>{r.release?"Thử phát hành lại":"Phát hành"}</Button>}
           {admin&&r.status==="review"&&<Button className="primary" busy={busy==="accept"} onClick={()=>acceptOrPublish(r)}><Check size={16}/>{r.result?.localArtifact?"Nghiệm thu & phát hành":"Nghiệm thu"}</Button>}
           {admin&&r.status==="awaiting-approval"&&<Button disabled={Boolean(busy)} onClick={()=>{const note=window.prompt("Lý do không thực hiện (để AI tham khảo cho lần sau):");if(note?.trim().length>=5)act("reject",()=>api("/requests/"+r.id+"/reject",{method:"POST",body:JSON.stringify({note:note.trim()})}),"Đã ghi nhận quyết định.");}}>Không thực hiện</Button>}
-          
+
           {(admin||!r.draft)&&editableStates.includes(r.status)&&!['queued','running'].includes(r.preparation?.status)&&<Button busy={busy==="retry"} disabled={Boolean(busy)} onClick={()=>retry(r)}><RefreshCw size={15}/>{r.draft?"AI xử lý lại":"Thử lại"}</Button>}
           {admin&&r.status==="approved"&&<Button disabled={Boolean(busy)} onClick={()=>act("pause",()=>api("/requests/"+r.id+"/reject",{method:"POST",body:JSON.stringify({note:"Admin dừng request để kiểm tra lại trước khi Mac nhận."})}),"Đã dừng request.")}>Dừng request</Button>}
         </div></div><div className="compact-detail-body">
