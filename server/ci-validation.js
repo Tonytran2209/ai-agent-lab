@@ -13,3 +13,12 @@ export async function validateCiUpdate(project,job,update,token){
  }
  return null;
 }
+
+export async function ciRetryHead(project,job,token){
+ if(!job?.prNumber||job.mergeCommit)return null;
+ const r=await fetch('https://api.github.com/repos/'+project.repository+'/pulls/'+job.prNumber,{signal:AbortSignal.timeout(20000),redirect:'error',headers:{Accept:'application/vnd.github+json','User-Agent':'ai-agent-lab',...(token?{Authorization:'Bearer '+token}:{})}});
+ if(!r.ok)fail('Không đọc được PR CI để thử lại.',502);
+ const pr=await r.json();if(pr.state!=='open'||pr.merged||!pr.head?.sha)fail('PR CI không còn mở.');
+ await validateCiUpdate(project,{...job,commit:undefined},{phase:'ci',commit:pr.head.sha,prNumber:job.prNumber},token);
+ return {jobId:job.id,previousCommit:job.commit,commit:pr.head.sha};
+}
