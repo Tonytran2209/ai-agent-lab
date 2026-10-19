@@ -1,3 +1,4 @@
+import { matchesProject } from './projects.js';
 import path from 'node:path';
 // This publisher runs on Mac after admin acceptance. Coding subprocesses never receive its credentials.
 export function githubClient(run, ghPath, env, signal) {
@@ -16,15 +17,16 @@ export function latestChecks(runs) {
   return [...newest.values()];
 }
 export async function publishStep({ request: r, config, run, api, signal, purpose = "release" }) {
-  const repo = 'Tonytran2209/RebuildWriterStudioTool';
-  if (r.repository !== repo || r.status !== (purpose === 'verification' ? 'verifying' : 'completed') || !r.release || !/^[a-f0-9]{40}$/.test(r.result?.commit)) throw new Error('Sai repository hoặc quyền phát hành.');
+  const repo = config.repository || 'Tonytran2209/RebuildWriterStudioTool';
+  const baseBranch = r.branch || config.branch || 'main';
+  if (r.repository !== repo || config.projectId && r.projectId !== config.projectId || r.status !== (purpose === 'verification' ? 'verifying' : 'completed') || !r.release || !/^[a-f0-9]{40}$/.test(r.result?.commit)) throw new Error('Sai repository hoặc quyền phát hành.');
   const release = r.release, prefix = 'repos/' + repo;
   const git = async args => {
     const out = await run('git', ['-C', config.repoPath, ...args], { env: Object.fromEntries(Object.entries(process.env).filter(([key]) => !['AI_AGENT_LAB_MCP_TOKEN', 'MCP_TOKEN'].includes(key))), signal, timeout: 120000 });
     if (out.code) throw new Error('Git phát hành thất bại: ' + args[0]);
     return out.stdout.trim();
   };
-  if (!['https://github.com/' + repo + '.git', 'https://github.com/' + repo, 'git@github.com:' + repo + '.git'].includes(await git(['remote', 'get-url', 'origin']))) throw new Error('Remote không đúng Writer Studio.');
+  if (!['https://github.com/' + repo + '.git', 'https://github.com/' + repo, 'git@github.com:' + repo + '.git'].includes(await git(['remote', 'get-url', 'origin']))) throw new Error('Remote không khớp repository của project.');
   if (release.phase === 'queued') {
     const branch = r.result.localArtifact?.branch;
     if (!branch || !new RegExp('^lab/' + r.id + '-[0-9]+$').test(branch)) throw new Error('Thiếu nhánh cục bộ hợp lệ.');
@@ -35,18 +37,18 @@ export async function publishStep({ request: r, config, run, api, signal, purpos
     const helper = '!' + (config.ghPath || '/opt/homebrew/bin/gh') + ' auth git-credential';
     // Fast-forward only; never force-push or touch main directly.
     await git(['-c', 'credential.helper=', '-c', 'credential.helper=' + helper, 'push', 'origin', 'refs/heads/' + branch + ':refs/heads/' + branch]);
-    let prs = await api(prefix + '/pulls?state=all&head=Tonytran2209:' + encodeURIComponent(branch) + '&base=main');
+    let prs = await api(prefix + '/pulls?state=all&head=' + encodeURIComponent(repo.split('/')[0]) + ':' + encodeURIComponent(branch) + '&base=' + encodeURIComponent(baseBranch));
     let pr = prs.find(p => p.head.sha === r.result.commit && (p.state === 'open' || p.merged_at));
     if (!pr) {
       if (prs.length) throw new Error('Nhánh đã có PR bị đóng hoặc thay đổi. Cần kiểm tra thủ công.');
-      pr = await api(prefix + '/pulls', 'POST', { head: branch, base: 'main', title: '[' + r.id + '] ' + r.title.slice(0, 180),
+      pr = await api(prefix + '/pulls', 'POST', { head: branch, base: baseBranch, title: '[' + r.id + '] ' + r.title.slice(0, 180),
         body: (purpose === 'verification' ? 'Draft PR để CI kiểm tra trước nghiệm thu. Chưa được merge/deploy.\n\n' : 'Admin đã nghiệm thu trong AI Agent Lab.\n\n') + r.result.summary + '\n\nPhạm vi: ' + files.join(', ') + '\n\nKiểm tra cục bộ do agent báo cáo; CI GitHub phải đạt trước khi merge.', draft: purpose === "verification" });
     }
     return { phase: 'ci', prNumber: pr.number, prUrl: pr.html_url, note: 'Đã đẩy nhánh và tạo PR #' + pr.number + '. Đang chờ CI.' };
   }
   if (release.phase === 'ci') {
     const pr = await api(prefix + '/pulls/' + release.prNumber);
-    if (pr.head?.sha !== r.result.commit || pr.base?.ref !== 'main' || pr.base?.repo?.full_name !== repo) throw new Error('PR đã đổi head/base sau nghiệm thu.');
+    if (pr.head?.sha !== r.result.commit || pr.base?.ref !== baseBranch || pr.base?.repo?.full_name !== repo) throw new Error('PR đã đổi head/base sau nghiệm thu.');
     const prFiles = await api(prefix + '/pulls/' + release.prNumber + '/files?per_page=100');
     if (pr.changed_files !== prFiles.length || prFiles.some(f => !r.draft.allowedPaths.includes(f.filename))) throw new Error('PR chứa file ngoài phạm vi.');
     if (purpose === 'verification' && (pr.merged || pr.state !== 'open')) throw new Error('PR kiểm tra đã bị đóng hoặc merge ngoài luồng.');
@@ -58,6 +60,7 @@ export async function publishStep({ request: r, config, run, api, signal, purpos
     if (checks.total_count > 100) throw new Error('Quá nhiều CI checks; cần kiểm tra thủ công.');
     const required = checks.check_runs.find(c => c.name === 'writer-check' && c.app?.slug === 'github-actions');
     const browser = checks.check_runs.find(c => c.name === 'browser-check' && c.app?.slug === 'github-actions');
+    if(config.ciReady===false&&!required&&!browser)throw new Error('Project chưa có writer-check và browser-check. Cần bổ sung CI hoặc admin xác minh trình duyệt thực tế trước nghiệm thu.');
     const failed = checks.check_runs.some(c => c.status === 'completed' && !['success', 'neutral', 'skipped'].includes(c.conclusion)) || statuses.statuses.some(s => ['failure', 'error'].includes(s.state));
     if (failed || browser?.status === 'completed' && browser.conclusion !== 'success' || required?.status === 'completed' && required.conclusion !== 'success') throw new Error('CI không đạt. Giữ PR để kiểm tra, không merge.');
     if (!required || !browser || browser.status !== 'completed' || browser.conclusion !== 'success' || checks.check_runs.some(c => c.status !== 'completed') || statuses.statuses.some(s => s.state === 'pending') || pr.mergeable === null) {
@@ -101,6 +104,7 @@ export async function pollReleases(config, token, run, signal, onPullRequest = a
   const { requests } = await request();
   for (const row of [...requests].reverse()) {
     if (signal?.aborted) return;
+    if (!matchesProject(row,config)) continue;
     let claimed;
     try { claimed = await request('/' + row.id + '/claim', {}); } catch { continue; }
     let update;

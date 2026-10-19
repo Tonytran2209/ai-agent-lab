@@ -1,3 +1,4 @@
+import { matchesProject } from './projects.js';
 import { githubClient, publishStep } from './release.js';
 export async function pollVerifications(config,token,run,signal,onPullRequest=async()=>{}) {
   const endpoint=new URL('/runner/verifications',config.mcpUrl);
@@ -9,6 +10,7 @@ export async function pollVerifications(config,token,run,signal,onPullRequest=as
   const {requests}=await request();
   for(const row of [...requests].reverse()){
     if(signal?.aborted)return;
+    if(!matchesProject(row,config))continue;
     let claim;try{claim=await request('/'+row.id+'/claim',{});}catch{continue;}
     let update;
     try{

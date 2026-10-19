@@ -1,3 +1,4 @@
+import { createProjects } from "./projects.js";
 import { createAiLedger } from "./ai-ledger.js";
 import crypto from "node:crypto";
 import { localChecksPassed, checksSatisfied, verificationPassed, resultRevision, newVerification } from "./verification.js";
@@ -33,20 +34,28 @@ export function validateDraft(draft, library) {
 }
 function addVersion(library) {
   const documents = library.documents.map(d => ({ ...d, contentHash: hash(d.content) }));
-  return { ...library, documents, id: hash(JSON.stringify({ commit: library.sourceCommit, documents: documents.map(d => [d.path, d.contentHash]) })).slice(0, 40) };
+  return { ...library, documents, id: hash(JSON.stringify({ projectId:library.projectId, repository:library.repository, commit: library.sourceCommit, documents: documents.map(d => [d.path, d.contentHash]) })).slice(0, 40) };
 }
 export function createService(db, options = {}) {
   const seed = options.seed ?? JSON.parse(readFileSync(new URL("../library/writer-studio.json", import.meta.url), "utf8"));
   const seeded = addVersion(seed);
   db.prepare("INSERT OR IGNORE INTO libraries(id,data) VALUES (?,?)").run(seeded.id, JSON.stringify(seeded));
 db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',?)").run(seeded.id);
-  const currentLibrary = () => library(db.prepare("SELECT value FROM settings WHERE key='current_library'").get().value);
+  const projects = createProjects(db);
+  const currentLibrary = (projectId = seed.projectId) => library(projects.get(projectId).libraryVersionId);
   const library = id => {
     const row = db.prepare("SELECT data FROM libraries WHERE id=?").get(id);
     if (!row) fail("Không tìm thấy library version.", 404);
     return JSON.parse(row.data);
   };
 
+  const legacy = library(db.prepare("SELECT value FROM settings WHERE key='current_library'").get().value);
+  projects.seed(legacy, {runnerEnabled:true,releaseEnabled:true});
+  if (!options.seed) {
+    const extra=addVersion(JSON.parse(readFileSync(new URL('../library/intercom-writer-studio.json',import.meta.url),'utf8')));
+    db.prepare('INSERT OR IGNORE INTO libraries(id,data) VALUES (?,?)').run(extra.id,JSON.stringify(extra));
+    projects.seed(extra,{runnerEnabled:true,ciReady:extra.ciReady});
+  }
   const save = r => db.prepare("INSERT OR REPLACE INTO requests(id,data) VALUES (?,?)").run(r.id, JSON.stringify(r));
   const get = id => {
     const row = db.prepare("SELECT data FROM requests WHERE id=?").get(id);
@@ -93,9 +102,10 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
   };
   return {
     aiLedger: createAiLedger(db),
+    projects:projects.list, project:projects.get, updateProject:projects.update,
     currentLibrary, library, list: () => list().map(publicRequest),
     reportRunner(input) {
-      const value = { ...input, lastSeenAt: now() };
+      const value = { ...input, projects:input.projects ?? this.runnerStatus().projects ?? [], lastSeenAt: now() };
       db.prepare("INSERT OR REPLACE INTO settings(key,value) VALUES ('mac_runner',?)").run(JSON.stringify(value));
       return { ok: true };
     },
@@ -109,14 +119,15 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
     events: id => { get(id); return db.prepare("SELECT data FROM events WHERE request_id=? ORDER BY id").all(id).map(r => JSON.parse(r.data)); },
     create(input, actor, { deduplicate = false } = {}) {
       return transaction(db, () => {
-        const data = feedbackSchema.parse(input), lib = currentLibrary();
+        const data = feedbackSchema.parse(input), lib = currentLibrary(data.projectId);
+        if(!projects.get(lib.projectId).enabled) fail("Project đang tạm dừng nhận feedback.",400);
         if (deduplicate) {
           const same = list().find(r => r.author === actor && r.libraryVersionId === lib.id && !['completed','rejected'].includes(r.status) && ['feedback','screen','reproduction','expected'].every(k => (r[k] || '').trim() === (data[k] || '').trim()));
           if (same) return {...publicRequest(same), duplicate:true};
         }
         const r = { id: "REQ-" + crypto.randomUUID().slice(0, 8).toUpperCase(), projectId: lib.projectId,
           repository: lib.repository, baseCommit: lib.sourceCommit, libraryVersionId: lib.id,
-          ...data, title: data.feedback.slice(0, 100), author: actor, status: "feedback",
+          ...data, projectId:lib.projectId, branch:lib.branch, title: data.feedback.slice(0, 100), author: actor, status: "feedback",
           draft: null, approval: null, lease: null, result: null, ai: null, createdAt: now(), updatedAt: now() };
         save(r); event(r.id, "feedback_received", actor); return publicRequest(r);
       });
@@ -233,7 +244,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
     learningExamples(input) {
       const tokens = text => new Set(String(text).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").split(/[^\p{L}\p{N}]+/u).filter(t => t.length >= 3));
       const query = tokens(input.feedback + " " + input.screen);
-      return list().filter(r => ["completed", "rejected"].includes(r.status) && r.draft && r.id !== input.id)
+      return list().filter(r => r.projectId === (input.projectId || seed.projectId) && r.repository === (input.repository || projects.get(input.projectId || seed.projectId).repository) && ["completed", "rejected"].includes(r.status) && r.draft && r.id !== input.id)
         .map(r => ({ r, score: [...tokens(r.feedback + " " + r.screen + " " + r.draft.module)].filter(t => query.has(t)).length }))
         .filter(v => v.score >= 2).sort((a,b) => b.score - a.score).slice(0,3).map(({r}) => {
           const last = db.prepare("SELECT data FROM events WHERE request_id=? AND json_extract(data,'$.type')='request_rejected' ORDER BY id DESC LIMIT 1").get(r.id);
@@ -298,10 +309,10 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
         r.status = "rejected"; r.approval = null; return changed(r, "request_rejected", actor, note);
       });
     },
-    ready: () => list().filter(r => r.status === "approved").map(publicRequest),
+    ready: () => list().filter(r => r.status === "approved" && projects.get(r.projectId).enabled).map(publicRequest),
     claim(id, owner, observedBaseCommit) {
       return transaction(db, () => {
-        const r = get(id); if (r.status !== "approved") fail("Request chưa được duyệt hoặc đã được claim.");
+        const r = get(id); if(!projects.get(r.projectId).enabled)fail("Project đang tạm dừng."); if (r.status !== "approved") fail("Request chưa được duyệt hoặc đã được claim.");
         if (r.baseCommit !== observedBaseCommit) fail("HEAD không khớp baseCommit. Không được thực thi.");
         const fingerprint = hash(JSON.stringify({ draft: r.draft, baseCommit: r.baseCommit, libraryVersionId: r.libraryVersionId }));
         if (!r.approval || fingerprint !== r.approval.requestHash) fail("Approval không khớp nội dung request.");
@@ -400,6 +411,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
     claimVerification(id,owner) {
       return transaction(db,()=>{
         const r=get(id),v=r.verification;
+        if(!projects.get(r.projectId).enabled)fail("Project đang tạm dừng.");
         if(r.status!=="verifying"||!["queued","ci"].includes(v?.phase)||v.resultRevision!==resultRevision(r)||!localChecksPassed(r))fail("Không có quyền kiểm tra kết quả này.");
         if(v.lease&&Date.parse(v.lease.expiresAt)>Date.now())fail("Đang có worker kiểm tra.");
         const token=crypto.randomBytes(32).toString("hex");v.lease={owner,tokenHash:hash(token),expiresAt:new Date(Date.now()+15*60000).toISOString()};save(r);return {request:publicRequest(r),verificationToken:token};
@@ -422,16 +434,17 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
     accept(id, actor, options = {}) {
       return transaction(db, () => {
         const r = get(id); if (r.status !== "review" || !checksSatisfied(r) || r.result?.browserVerification === "ci" && !verificationPassed(r)) fail("Request chưa có đủ kết quả kiểm tra chờ nghiệm thu.");
-        r.status = "completed"; if (r.result.localArtifact) queueRelease(r, actor, options); return changed(r, "result_accepted", actor, r.release ? "Đã nghiệm thu và cho phép phát hành qua PR/CI." : "Đã nghiệm thu artifact bên ngoài; không có commit Mac để tự phát hành.");
+        r.status = "completed"; if (r.result.localArtifact && projects.get(r.projectId).enabled && projects.get(r.projectId).releaseEnabled) queueRelease(r, actor, options); return changed(r, "result_accepted", actor, r.release ? "Đã nghiệm thu và cho phép phát hành qua PR/CI." : "Đã nghiệm thu; phát hành tự động đang tắt hoặc artifact được quản lý bên ngoài.");
       });
     },
     publish(id, actor, options = {}) {
-      return transaction(db, () => { const r = get(id); queueRelease(r, actor, options); return changed(r, "release_queued", actor); });
+      return transaction(db, () => { const r = get(id); if(!projects.get(r.projectId).enabled||!projects.get(r.projectId).releaseEnabled)fail("Project chưa bật phát hành sau nghiệm thu."); queueRelease(r, actor, options); return changed(r, "release_queued", actor); });
     },
     releases: () => list().filter(r => r.status === "completed" && r.release && !["deployed", "failed"].includes(r.release.phase)).map(publicRequest),
     claimRelease(id, owner) {
       return transaction(db, () => {
         const r = get(id), release = r.release;
+        if(!projects.get(r.projectId).enabled||!projects.get(r.projectId).releaseEnabled)fail("Project đã tắt phát hành.");
         if (r.status !== "completed" || !release || ["deployed", "failed"].includes(release.phase) || release.requestHash !== releaseFingerprint(r)) fail("Không có quyền phát hành nội dung này.");
         if (release.lease && Date.parse(release.lease.expiresAt) > Date.now()) fail("Tiến trình phát hành đang được giữ.");
         const other = list().find(v => v.id !== id && v.repository === r.repository && v.release?.lease && Date.parse(v.release.lease.expiresAt) > Date.now());
@@ -474,7 +487,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
         const r = get(id);
         if (["claimed", "running", "completed", "review"].includes(r.status)) fail("Không thể cập nhật base của request đang chạy/đã có kết quả.");
         cancelPreparation(r);
-        const lib = currentLibrary(); r.baseCommit = lib.sourceCommit; r.libraryVersionId = lib.id;
+        const lib = currentLibrary(r.projectId); r.baseCommit = lib.sourceCommit; r.libraryVersionId = lib.id;
         r.status = "feedback"; r.draft = null; r.approval = null; r.ai = null; r.result = null;
         return changed(r, "base_updated", actor);
       });
@@ -483,7 +496,8 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
       const lib = addVersion(input);
       return transaction(db, () => {
         db.prepare("INSERT OR IGNORE INTO libraries(id,data) VALUES (?,?)").run(lib.id, JSON.stringify(lib));
-        db.prepare("UPDATE settings SET value=? WHERE key='current_library'").run(lib.id);
+        projects.updateLibrary(lib);
+        if(lib.projectId === seed.projectId) db.prepare("UPDATE settings SET value=? WHERE key='current_library'").run(lib.id);
         return lib;
       });
     },

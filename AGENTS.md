@@ -1,6 +1,6 @@
 # AI Agent Lab
 
-Private team feedback workspace for Writer Studio. Node 24, React/Vite, Express, built-in SQLite and official MCP SDK.
+Private team feedback workspace for multiple GitHub projects. Node 24, React/Vite, Express, built-in SQLite and official MCP SDK.
 
 ## Verification
 
@@ -21,7 +21,9 @@ Run `npm ci` then `npm run check`. Never require live provider credentials for t
 - Never expose claim token hashes, raw claim tokens, passwords or API keys via UI/list endpoints.
 - Git library versions are immutable; syncing must not change existing packets.
 - Agent-reported verification is not independent CI evidence. Label it accurately.
-- Canonical Writer Studio source remains read-only during Lab library sync.
+- Canonical project sources remain read-only during Lab library sync.
+- Each request pins projectId, repository, branch and library; sync, rebase, learning, coding and publishing must stay in that project.
+- Adding a project never enables production release implicitly. Mac checkouts are managed locally; never accept a server-provided filesystem path or executable.
 
 ## Design
 

@@ -1,3 +1,4 @@
+import { connectProjects, matchesProject } from "./projects.js";
 import { codingPacket } from "../server/ai-context.js";
 import { pollVerifications } from "./verify.js";
 import { pollReleases } from "./release.js";
@@ -11,15 +12,16 @@ import { relativePath } from "../server/schemas.js";
 
 class ScopeError extends Error {}
 const REPOSITORY = "Tonytran2209/RebuildWriterStudioTool";
-export function repositoryMatches(remote) {
-  return ["https://github.com/" + REPOSITORY, "git@github.com:" + REPOSITORY, "ssh://git@github.com/" + REPOSITORY]
+export function repositoryMatches(remote, repository = REPOSITORY) {
+  return ["https://github.com/" + repository, "git@github.com:" + repository, "ssh://git@github.com/" + repository]
     .some(v => remote === v || remote === v + ".git");
 }
-export function safePacket(packet) {
+export function safePacket(packet, repository = REPOSITORY, projectId) {
   const r = packet.request;
-  if (!packet.executable || r?.status !== "approved" || !r.approval || r.repository !== REPOSITORY ||
+  if (!packet.executable || r?.status !== "approved" || !r.approval || r.repository !== repository || (projectId && r.projectId !== projectId) ||
       !/^REQ-[A-F0-9]{8}$/.test(r.id) || !/^[a-f0-9]{40}$/.test(r.baseCommit) || !r.draft?.allowedPaths?.length)
     throw new Error("Request không được duyệt hoặc sai project/base.");
+  if (projectId && (packet.library?.projectId !== projectId || packet.library?.repository !== repository || packet.library?.sourceCommit !== r.baseCommit || packet.library?.id !== r.libraryVersionId)) throw new Error("Pinned library không khớp project/repository/base.");
   r.draft.allowedPaths.forEach(p => relativePath.parse(p));
   return r;
 }
@@ -87,8 +89,8 @@ export async function prepareDependencies(worktree, run = command, options = {})
   }
 }
 export async function executeRequest({ packet, call, config, signal, run = command, reportStatus = async () => {} }) {
-  const r = safePacket(packet);
-  if (!repositoryMatches(await git(config.repoPath, ["config", "--get", "remote.origin.url"]))) throw new Error("Remote checkout không đúng Writer Studio.");
+  const r = safePacket(packet, config.repository || REPOSITORY, config.projectId);
+  if (!repositoryMatches(await git(config.repoPath, ["config", "--get", "remote.origin.url"]), config.repository || REPOSITORY)) throw new Error("Remote checkout không khớp repository của project.");
   await git(config.repoPath, ["fetch", "--no-tags", "origin", r.baseCommit], { signal });
   await git(config.repoPath, ["cat-file", "-e", r.baseCommit + "^{commit}"]);
   const journalPath = path.join(config.stateDir, r.id + ".json");
@@ -135,7 +137,7 @@ export async function executeRequest({ packet, call, config, signal, run = comma
   }, 60000);
   const stopHeartbeat = async () => { clearInterval(heartbeat); await heartbeatTask; };
   try {
-    if (claimed.request?.approval?.requestHash !== r.approval.requestHash) throw new Error("Approval thay đổi trước khi claim; cần kiểm tra lại.");
+    if (claimed.request?.repository !== r.repository || claimed.request?.projectId !== r.projectId || claimed.request?.approval?.requestHash !== r.approval.requestHash) throw new Error("Approval thay đổi trước khi claim; cần kiểm tra lại.");
     await journal("running");
     await reportStatus({ phase: "running", requestId: r.id });
     await call("report_progress", { requestId: r.id, claimToken: token, note: "Mac đã nhận request. Worktree: " + worktree });
@@ -241,17 +243,22 @@ export async function main(configPath) {
       let connection;
       try {
         connection = await connect(config, token);
-        await pollVerifications(config, token, command, controller.signal);
-        await pollReleases(config, token, command, controller.signal);
+        const connected = await connectProjects(config, token, command, controller.signal);
+        for (const projectConfig of connected.configs) {
+          await pollVerifications(projectConfig, token, command, controller.signal);
+          await pollReleases(projectConfig, token, command, controller.signal);
+        }
         const { requests } = await connection.call("list_ready_requests");
-        await reportStatus({ phase: "idle", requestId: null });
+        await reportStatus({ phase: "idle", requestId: null, projects:connected.statuses });
         if (!wasConnected) log("Đã kết nối Lab; đang kiểm tra hàng đợi.");
         wasConnected = true;
         for (const r of [...requests].reverse()) {
           if (controller.signal.aborted) break;
+          const selectedConfig = connected.configs.find(c => matchesProject(r,c));
+          if (!selectedConfig) continue;
           try {
             const packet = await connection.call("get_request", { requestId: r.id });
-            const done = await executeRequest({ packet, call: connection.call, config, signal: controller.signal, reportStatus });
+            const done = await executeRequest({ packet, call: connection.call, config:selectedConfig, signal: controller.signal, reportStatus });
             log("Reported " + done.requestId + " branch " + done.branch);
           } catch { log("Request " + r.id + " chưa chạy xong; kiểm tra trạng thái Lab và journal cục bộ."); }
         }
