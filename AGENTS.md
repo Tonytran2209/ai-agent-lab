@@ -25,6 +25,9 @@ Run `npm ci` then `npm run check`. Never require live provider credentials for t
 - Each request pins projectId, repository, branch and library; sync, rebase, learning, coding and publishing must stay in that project.
 - Adding a project never enables production release implicitly. Mac checkouts are managed locally; never accept a server-provided filesystem path or executable.
 
+- CI onboarding is an admin-only capability separate from feedback/MCP coding. CI workers may add only the managed workflow/test files and may merge only with explicit job consent and exact-head successful GitHub Actions evidence. Never overwrite existing workflows, modify application code/manifests, or enable release implicitly.
+- CI setup readiness must be independently verified server-side; empty, skipped, wrong-app or wrong-commit checks never count as passing.
+
 ## Design
 
 Use Writer Studio design tokens, neutral grays, semantic status colors, system typography, compact spacing, 12px cards and 8px controls. Preserve responsive navigation, visible focus, local errors and durable saved results.

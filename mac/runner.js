@@ -1,3 +1,4 @@
+import { pollCiSetups } from "./ci-setup.js";
 import { connectProjects, matchesProject } from "./projects.js";
 import { codingPacket } from "../server/ai-context.js";
 import { pollVerifications } from "./verify.js";
@@ -244,6 +245,7 @@ export async function main(configPath) {
       try {
         connection = await connect(config, token);
         const connected = await connectProjects(config, token, command, controller.signal);
+        await pollCiSetups(connected.configs, token, command, controller.signal);
         for (const projectConfig of connected.configs) {
           await pollVerifications(projectConfig, token, command, controller.signal);
           await pollReleases(projectConfig, token, command, controller.signal);

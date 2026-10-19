@@ -1,0 +1,46 @@
+# Automatic CI onboarding
+
+Admin → Thiết lập project exposes **Tự thiết lập CI** on every project. It also offers **Tự thiết lập CI sau khi kết nối** for new repositories. Mac connection must be enabled. This is a durable control-plane job, separate from feedback and from MCP coding requests; it does not consume OpenAI API tokens or run Codex.
+
+Options are explicit and default off:
+
+- Auto-merge the narrowly scoped CI PR after both required checks pass.
+- Enable post-acceptance publishing after CI is ready (requires an exact Railway environment). If another admin changes project settings while the job runs, automatic release enabling is skipped; CI can still become ready.
+
+Without auto-merge, successful PR checks show **CI đạt · chờ hoàn tất** with a PR/report link and **Hoàn tất thiết lập**. That button authorizes revalidation and merging of the CI-only PR. Per-feedback admin acceptance/high-risk approval is unchanged.
+
+## State and evidence
+
+`queued → ci → awaiting-merge (optional) → syncing → ready`; existing green CI can go directly to ready without writing any repository files. Failure retains its PR/commit and a bounded event log. Repeat clicks do not restart active work. **Thử lại CI** resumes the same PR. Expired leases remain locked until an admin explicitly confirms that the old worker stopped. Raw lease tokens and hashes never appear in public project responses.
+
+Mac creates a private isolated `lab-ci/<job UUID>` worktree under the selected project's state. It verifies the origin, repository, branch and pinned base, generates deterministic files, verifies the exact diff, pushes without force and opens a draft PR. It does not install/run the repository's scripts or Chrome locally. GitHub Actions executes checks.
+
+The worker verifies check name, GitHub Actions app, exact commit, scope, PR head/base and merge conditions. The server independently verifies GitHub evidence before accepting awaiting-merge/ready, verifies the merged PR and current target-branch head, and syncs the immutable library before ready. A workflow's mere presence is not readiness. Skipped, missing, pending or failing required checks do not pass. Sync after merge also waits for both checks on the target branch.
+
+CI job claim/report routes are authenticated worker APIs; creating jobs/completing/recovering them is admin-only. No new MCP tool can approve, merge or deploy.
+
+## Supported automatic profile
+
+`writer-react-v1` supports the current Writer Studio and Intercom Writer Studio structure: React/Vite, npm lockfiles for root/backend, `npm run check`, the canonical Draft component, i18n/default data and CSS. It tests the real Draft component's editing, in-memory update callback and text export on desktop/mobile. Where EB V2 exists, it additionally loads the real workspace with an isolated deterministic Brief response. Unexpected API/external calls are aborted; there are no production credentials or AI calls.
+
+Managed paths (only added; never overwrite existing files):
+
+- `.github/workflows/agent-lab-ci.yml`
+- `playwright.agent-lab.config.mjs`
+- `tests/agent-lab/server.mjs`
+- `tests/agent-lab/fixture.jsx`
+- `tests/agent-lab/draft.spec.mjs`
+
+No application logic, manifests, lockfiles, migrations or secrets are edited. The browser job installs pinned Playwright 1.64.1 ephemerally without saving package/lock changes. Node 22, read-only workflow permissions, exact PR-head checkout, desktop/mobile projects, screenshots and failure traces are configured. No existing regression test is replaced. Coverage is an initial baseline, not a guarantee that every future feedback criterion is covered; new criteria may require additional tests.
+
+Existing successful writer-check/browser-check are preserved and verified. If custom workflows exist without this compatible contract, or source structure differs, setup stops with an adapter-needed message rather than generating a misleading green workflow. No unbounded model fallback or automatic weakening of CI occurs.
+
+## Installation and operations
+
+The Mac runtime additionally needs `mac/ci-setup.js`, `mac/ci-template.js`, `mac/ci-templates/`, `server/ci-evidence.js` and the updated runner. Installer copies these automatically. An already running LaunchAgent needs one reload for this program update; adding projects or requesting CI afterwards requires no reload.
+
+For GitHub CLI OAuth, grant workflow permission once with `gh auth refresh -h github.com -s workflow` and complete browser authorization. Fine-grained tokens require Workflows: write as well as repository contents/pull-request permissions. The worker detects missing OAuth workflow scope before creating a worktree.
+
+Railway's GITHUB_TOKEN needs read access to the connected repos for independent evidence/library verification; Mac `gh` needs permission to push CI branches/create PRs, and to merge only if the admin opted in. Public GitHub rate limits can temporarily stop verification; the job retains its artifact for retry. Unchanged library commits reuse the immutable snapshot after a cheap HEAD check to reduce API calls. Merge failures/branch changes never force-push or rewrite user work.
+
+A CI-config merge may trigger the repository's existing Railway auto-deploy. This workflow does not create/change Railway services, apply production migrations or grant acceptance to any application change.
