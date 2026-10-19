@@ -43,6 +43,7 @@ function Drawer({ title, onClose, children }) {
 export default function App() {
   const [user, setUser] = useState(null), [boot, setBoot] = useState(true), [view, setView] = useState("inbox");
   const [projects,setProjects]=useState([]), [projectId,setProjectId]=useState(()=>localStorage.getItem('lab-project-id')||'writer-studio');
+  const selectedProject = useRef(projectId); selectedProject.current = projectId;
   const [requests, setRequests] = useState([]), [config, setConfig] = useState(null), [library, setLibrary] = useState(null);
   const [selected, setSelected] = useState(null), [detail, setDetail] = useState(null);
   const [query, setQuery] = useState(""), [filter, setFilter] = useState("all"), [compose, setCompose] = useState(false);
@@ -58,6 +59,7 @@ export default function App() {
   }
   async function refresh() {
     const [r,c,l,p] = await Promise.all([api("/requests"),api("/config"),api("/library?projectId="+encodeURIComponent(projectId)),api("/projects")]);
+    if(selectedProject.current!==projectId)return;
     setProjects(p.projects);
     const changes = requestChanges(previous.current,r.requests); previous.current = new Map(r.requests.map(v=>[v.id,requestSignal(v)]));
     if (changes.length) { const item = changes.find(v=>user?.role === "admin" || v.author === user?.name); if (item) setToast({ message: item.title + " · " + displayState(item), requestId: item.id }); }
@@ -118,7 +120,8 @@ export default function App() {
           <details className="feedback-fold"><summary>Feedback gốc</summary><p>{r.feedback}</p>{r.screen&&<small>Màn hình: {r.screen}</small>}</details>
           {admin&&<details className="technical-fold"><summary>Phạm vi & chỉnh sửa nâng cao</summary><p className="mono">{r.repository} · {r.baseCommit.slice(0,12)}</p>{r.draft?.allowedPaths.map(p=><p className="mono" key={p}>{p}</p>)}{r.ai?.source&&<p>Chuẩn bị: {({provider:'AI',cache:'Kế hoạch từ cache · không gọi API',template:'Quy tắc có sẵn · không gọi API'})[r.ai.source]}. {r.ai.usage ? (r.ai.usage.total_tokens + ' token') : ''}</p>}{r.ai?.learningSources?.length>0&&<p>Đã tham khảo {r.ai.learningSources.length} quyết định đã nghiệm thu/từ chối trước đó.</p>}{editableStates.includes(r.status)&&!['queued','running'].includes(r.preparation?.status)&&<DraftEditor key={r.id+":"+r.updatedAt} request={r} busy={busy} onSave={draft=>act("save",()=>api("/requests/"+r.id+"/draft",{method:"PUT",body:JSON.stringify(draft)}),"Đã cập nhật kế hoạch.")} onSubmit={draft=>approve(r,draft)}/>}</details>}
         </div></>}</section></div></>}
-      {view==="library"&&admin&&library&&<LibraryView library={library} admin busy={busy} onSync={()=>act("sync",()=>api("/library/sync",{method:"POST",body:JSON.stringify({projectId})}),"Đã đồng bộ tài liệu.")}/>}
+      {view==="library"&&admin&&library?.projectId!==projectId&&<p className="subtle" role="status">Đang tải library của project…</p>}
+      {view==="library"&&admin&&library?.projectId===projectId&&<LibraryView library={library} admin busy={busy} onSync={()=>act("sync",()=>api("/library/sync",{method:"POST",body:JSON.stringify({projectId})}),"Đã đồng bộ tài liệu.")}/>}
       {view==="projects"&&admin&&<ProjectSettings projects={projects} runner={config?.runner} busy={busy} onAdd={data=>act('project-add',()=>api('/projects',{method:'POST',body:JSON.stringify(data)}),'Đã kết nối project và ghim library.')} onUpdate={(id,data)=>act('project-update',()=>api('/projects/'+id,{method:'PATCH',body:JSON.stringify(data)}),'Đã lưu thiết lập project.')} onSync={id=>act('project-sync',()=>api('/library/sync',{method:'POST',body:JSON.stringify({projectId:id})}),'Đã đồng bộ library project.')}/>}
       {view==="connection"&&admin&&config&&<Connection config={config} copy={copy}/>}
     </main>
