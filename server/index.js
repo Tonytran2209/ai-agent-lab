@@ -1,3 +1,5 @@
+import { ciSetupOptions, ciSetupUpdate } from "./ci-setup.js";
+import { validateCiUpdate } from "./ci-validation.js";
 import "dotenv/config";
 import express from "express";
 import helmet from "helmet";
@@ -37,7 +39,7 @@ export function createApp(config, options = {}) {
     next();
   });
   app.get("/health", (req, res) => {
-    try { db.prepare("SELECT 1").get(); res.json({ ok: true, policyVersion: "risk-v2", runnerProtocol: "execution-failure-v1", releaseProtocol: "release-v1", browserProtocol: "github-browser-v1", aiPolicyVersion: "economy-v1", projectProtocol:"multi-project-v1" }); } catch { res.status(503).json({ ok: false }); }
+    try { db.prepare("SELECT 1").get(); res.json({ ok: true, policyVersion: "risk-v2", runnerProtocol: "execution-failure-v1", releaseProtocol: "release-v1", browserProtocol: "github-browser-v1", aiPolicyVersion: "economy-v1", projectProtocol:"multi-project-v1", ciSetupProtocol:"ci-setup-v1" }); } catch { res.status(503).json({ ok: false }); }
   });
   const limiter = (limit, windowMs = 60000) => rateLimit({ limit, windowMs, standardHeaders: "draft-8", legacyHeaders: false,
     message: { error: "Quá nhiều yêu cầu. Vui lòng thử lại sau." } });
@@ -100,13 +102,22 @@ export function createApp(config, options = {}) {
   app.post("/api/requests/:id/rebase", auth.admin, (req, res) => res.json(service.rebase(req.params.id, req.user.name)));
   app.get("/api/projects", (req,res)=>res.json({projects:service.projects()}));
   app.post("/api/projects", auth.admin, limiter(6,10*60000), async(req,res)=>{
-    const input=z.object({repository:repositorySchema,branch:branchSchema.optional(),runnerEnabled:z.boolean().default(false)}).strict().parse(req.body);
+    const input=z.object({repository:repositorySchema,branch:branchSchema.optional(),runnerEnabled:z.boolean().default(false),setupCi:z.boolean().default(false),autoMergeCi:z.boolean().default(false)}).strict().parse(req.body);
+    if(input.setupCi&&!input.runnerEnabled)fail("Cần bật Mac để tự thiết lập CI.",400);
     if(service.projects().some(p=>p.repository.toLowerCase()===input.repository.toLowerCase()))fail("Repository đã kết nối. Hãy đồng bộ project hiện có.",400);
     const lib=await readRepositoryLibrary(input.repository,input.branch,config.GITHUB_TOKEN);
     if(service.projects().some(p=>p.id===lib.projectId||p.repository.toLowerCase()===lib.repository.toLowerCase()))fail("Project/repository đã kết nối. Hãy đồng bộ project hiện có.",400);
-    service.addLibrary(lib);res.status(201).json(service.updateProject(lib.projectId,{runnerEnabled:input.runnerEnabled}));
+    service.addLibrary(lib);service.updateProject(lib.projectId,{runnerEnabled:input.runnerEnabled});if(input.setupCi)service.ciSetup.enqueue(lib.projectId,{autoMerge:input.autoMergeCi},req.user.name);res.status(201).json(service.project(lib.projectId));
   });
   app.patch("/api/projects/:id", auth.admin, (req,res)=>res.json(service.updateProject(req.params.id,req.body)));
+  app.post("/api/projects/:id/ci/setup",auth.admin,limiter(6,600000),async(req,res)=>{
+    const options=ciSetupOptions.parse(req.body||{});service.project(req.params.id);
+    const previous=service.ciSetup.get(req.params.id);
+    if(!previous||['ready','failed'].includes(previous.phase)){if(previous?.lease)fail('Worker cũ còn giữ claim.');await syncLibrary(service,config.GITHUB_TOKEN,req.params.id);}
+    res.status(202).json(service.ciSetup.enqueue(req.params.id,options,req.user.name));
+  });
+  app.post("/api/projects/:id/ci/complete",auth.admin,(req,res)=>res.json(service.ciSetup.continue(req.params.id,req.user.name)));
+  app.post("/api/projects/:id/ci/retry",auth.admin,(req,res)=>res.json(service.ciSetup.retry(req.params.id,z.object({confirmStopped:z.boolean().default(false)}).parse(req.body||{}).confirmStopped)));
   app.get("/api/library", (req, res) => res.json(service.currentLibrary(req.query.projectId)));
   const syncing = new Set();
   app.post("/api/library/sync", auth.admin, limiter(3, 10 * 60000), async (req, res) => {
@@ -115,6 +126,16 @@ export function createApp(config, options = {}) {
     try { res.json(await syncLibrary(service, config.GITHUB_TOKEN,id)); } finally { syncing.delete(id); }
   });
   // Publishing authority is issued by admin acceptance, never by an MCP approval/merge tool.
+  app.get('/runner/ci-setups',auth.mcp,limiter(60),(req,res)=>res.json({jobs:service.ciSetup.queue()}));
+  const ciClaim=z.object({jobId:z.string().uuid(),setupToken:z.string().regex(/^[a-f0-9]{64}$/)});
+  app.post('/runner/ci-setups/:id/claim',auth.mcp,(req,res)=>res.json(service.ciSetup.claim(req.params.id,z.object({jobId:z.string().uuid()}).parse(req.body).jobId)));
+  app.post('/runner/ci-setups/:id/heartbeat',auth.mcp,(req,res)=>{const b=ciClaim.parse(req.body);const result=service.ciSetup.heartbeat(req.params.id,b.jobId,b.setupToken);service.reportRunner({phase:"idle",requestId:null});res.json(result);});
+  app.post('/runner/ci-setups/:id/report',auth.mcp,async(req,res)=>{
+    const b=ciClaim.extend({update:ciSetupUpdate}).parse(req.body),project=service.project(req.params.id),job=service.ciSetup.verify(req.params.id,b.jobId,b.setupToken);
+    const evidence=b.update.phase!=='failed'?await validateCiUpdate(project,job,b.update,config.GITHUB_TOKEN):null;
+    if(b.update.phase==='ready'){const lib=await syncLibrary(service,config.GITHUB_TOKEN,project.id);if(lib.sourceCommit!==(b.update.commit||job.commit))fail('Branch đổi trong khi đồng bộ; chưa đánh dấu CI ready.');}
+    res.json(service.ciSetup.report(project.id,b.jobId,b.setupToken,b.update,evidence));
+  });
   app.get("/runner/projects",auth.mcp,limiter(60),(req,res)=>res.json({projects:service.projects()}));
   app.get("/runner/verifications",auth.mcp,limiter(60),(req,res)=>res.json({requests:service.verifications()}));
   app.post("/runner/verifications/:id/claim",auth.mcp,limiter(60),(req,res)=>res.json(service.claimVerification(req.params.id,"mac-browser-ci")));

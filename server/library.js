@@ -9,7 +9,7 @@ export function parseProjectContract(content, repository) {
   if(!name||name.length>120)fail('project.md cần tiêu đề tên project (tối đa 120 ký tự).',400);
   return {projectId,name};
 }
-export async function readRepositoryLibrary(repository, branch, token) {
+export async function readRepositoryLibrary(repository, branch, token, existing) {
   repository=repositorySchema.parse(repository);
   const github=async suffix=>{
     const res=await fetch('https://api.github.com/repos/'+repository+'/'+suffix,{signal:AbortSignal.timeout(20000),redirect:'error',headers:{Accept:'application/vnd.github+json','User-Agent':'ai-agent-lab',...(token?{Authorization:'Bearer '+token}:{})}});
@@ -17,7 +17,9 @@ export async function readRepositoryLibrary(repository, branch, token) {
   };
   if(!branch)branch=(await github('')).default_branch;
   branch=branchSchema.parse(branch);
-  const commit=await github('commits/'+encodeURIComponent(branch)),tree=await github('git/trees/'+commit.sha+'?recursive=1');
+  const commit=await github('commits/'+encodeURIComponent(branch));
+  if(existing&&existing.repository===repository&&existing.branch===branch&&existing.sourceCommit===commit.sha)return existing;
+  const tree=await github('git/trees/'+commit.sha+'?recursive=1');
   if(!/^[a-f0-9]{40}$/.test(commit.sha)||tree.truncated)fail('Không thể xác minh toàn bộ source map.',502);
   const paths=tree.tree.filter(v=>v.type==='blob').map(v=>v.path);
   if(canonicalDocuments.some(p=>!paths.includes(p)))fail('Repo chưa đủ 11 tài liệu canonical trong .agent-hub.',400);
@@ -31,5 +33,5 @@ export async function readRepositoryLibrary(repository, branch, token) {
   return {...identity,repository,branch,sourceCommit:commit.sha,syncedAt:new Date().toISOString(),documents,sourcePaths:paths,ciReady:paths.some(p=>/^\.github\/workflows\/[^/]+\.ya?ml$/.test(p))};
 }
 export async function syncLibrary(service, token, projectId='writer-studio') {
-  const p=service.project(projectId);return service.addLibrary(await readRepositoryLibrary(p.repository,p.branch,token));
+  const p=service.project(projectId),previous=service.currentLibrary(projectId),next=await readRepositoryLibrary(p.repository,p.branch,token,previous);return next===previous?previous:service.addLibrary(next);
 }

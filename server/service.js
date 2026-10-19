@@ -1,3 +1,4 @@
+import { createCiSetup } from "./ci-setup.js";
 import { createProjects } from "./projects.js";
 import { createAiLedger } from "./ai-ledger.js";
 import crypto from "node:crypto";
@@ -56,6 +57,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
     db.prepare('INSERT OR IGNORE INTO libraries(id,data) VALUES (?,?)').run(extra.id,JSON.stringify(extra));
     projects.seed(extra,{runnerEnabled:true,ciReady:extra.ciReady});
   }
+  const ciSetup=createCiSetup(db,projects,library);
   const save = r => db.prepare("INSERT OR REPLACE INTO requests(id,data) VALUES (?,?)").run(r.id, JSON.stringify(r));
   const get = id => {
     const row = db.prepare("SELECT data FROM requests WHERE id=?").get(id);
@@ -102,7 +104,8 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
   };
   return {
     aiLedger: createAiLedger(db),
-    projects:projects.list, project:projects.get, updateProject:projects.update,
+    ciSetup,
+    projects:()=>projects.list().map(p=>({...p,ciSetup:ciSetup.get(p.id)})), project:id=>({...projects.get(id),ciSetup:ciSetup.get(id)}), updateProject:projects.update,
     currentLibrary, library, list: () => list().map(publicRequest),
     reportRunner(input) {
       const value = { ...input, projects:input.projects ?? this.runnerStatus().projects ?? [], lastSeenAt: now() };
