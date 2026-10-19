@@ -42,7 +42,7 @@ test('same author active feedback deduplicates, different author remains separat
  const f=fixture();try{const a=f.service.create(feedback,'A',{deduplicate:true});const b=f.service.create(feedback,'A',{deduplicate:true});assert.equal(a.id,b.id);assert.equal(b.duplicate,true);assert.notEqual(f.service.create(feedback,'B',{deduplicate:true}).id,a.id);}finally{f.close();}
 });
 test('coding prompt excludes previous results/events/approval while preserving pinned scope and policies',()=>{
- const f=fixture();try{const lib=f.service.currentLibrary();const packet=codingPacket({id:'REQ-A',baseCommit:lib.sourceCommit,libraryVersionId:lib.id,draft:plan,result:{huge:'secret-result'},approval:{token:'secret'}},lib);assert.ok(!JSON.stringify(packet).includes('secret'));assert.equal(packet.request.draft,plan);assert.ok(packet.library.documents.some(d=>d.path.includes('/policies/ownership')));assert.ok(JSON.stringify(compactLibrary(lib,'design')).length<JSON.stringify(lib).length);}finally{f.close();}
+ const f=fixture();try{const lib=f.service.currentLibrary();const packet=codingPacket({id:'REQ-A',baseCommit:lib.sourceCommit,libraryVersionId:lib.id,draft:plan,result:{huge:'secret-result'},approval:{token:'secret'}},lib);assert.ok(!JSON.stringify(packet).includes('secret'));assert.equal(packet.request.draft,plan);assert.equal(packet.library.sourcePaths,undefined);assert.ok(packet.library.documents.some(d=>d.path.includes('/policies/ownership')));assert.ok(JSON.stringify(compactLibrary(lib,'design')).length<JSON.stringify(lib).length);}finally{f.close();}
 });
 test('token and lifetime request caps block admission; provider quota is not retried',async t=>{
  const f=fixture();let calls=0;t.mock.method(globalThis,'fetch',async()=>{calls++;return {ok:false,status:429,json:async()=>({error:{code:'insufficient_quota'}})};});
@@ -50,4 +50,12 @@ test('token and lifetime request caps block admission; provider quota is not ret
  w.enqueue(a.id,'A');w.start();await w.tick();assert.equal(f.service.get(a.id).preparation.status,'failed');assert.equal(calls,1);
  await assert.rejects(analyzeFeedback(f.service,a.id,'AI',{OPENAI_API_KEY:'mock',AI_REQUEST_CALL_LIMIT:1}),/hạn mức/);assert.equal(calls,1);
  }finally{await w.stop();f.close();}
+});
+test('malformed provider envelope is permanent while fetch failure is transient',async t=>{
+ const f=fixture();const r=f.service.create(feedback,'A');try{
+ t.mock.method(globalThis,'fetch',async()=>({ok:true,json:async()=>({status:'completed',usage,output:{wrong:true}})}));
+ const w=createPipeline(f.service,{OPENAI_API_KEY:'mock'});w.enqueue(r.id,'A');w.start();await w.tick();await w.stop();assert.equal(f.service.get(r.id).preparation.status,'failed');assert.equal(f.service.aiLedger.summary({}).tokens,1200);
+ t.mock.method(globalThis,'fetch',async()=>{throw new TypeError('network disconnected');});
+ await assert.rejects(analyzeFeedback(f.service,r.id,'AI',{OPENAI_API_KEY:'mock'}),e=>e.retryable===true);
+ }finally{f.close();}
 });

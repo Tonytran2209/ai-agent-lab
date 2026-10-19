@@ -11,8 +11,8 @@ export function feedbackLayer(request) {
   return /hiển thị|giao diện|display|preview|font|màu chữ/i.test(text) && !/database|cơ sở dữ liệu|api|đăng nhập|quyền|export|xuất|lưu|backend|payment/i.test(text) ? 'design' : 'cross-layer';
 }
 export function codingPacket(request, library) {
-  return { request: Object.fromEntries(['id','repository','baseCommit','libraryVersionId','draft'].map(k => [k, request[k]])),
-    library: compactLibrary(library, request.draft?.layer || 'cross-layer') };
+  const { sourcePaths, ...pinned } = compactLibrary(library, request.draft?.layer || 'cross-layer');
+  return { request: Object.fromEntries(['id','repository','baseCommit','libraryVersionId','draft'].map(k => [k, request[k]])), library: pinned };
 }
 // Exact, deliberately narrow recipe. Additional prose/requirements always use analysis.
 export function displayRecipe(request, library) {

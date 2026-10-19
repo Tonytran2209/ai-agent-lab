@@ -59,6 +59,9 @@ export async function analyzeFeedback(service, id, actor, config) {
       input,
       text: { format: { type: "json_schema", name: "change_request", strict: true, schema } },
     }),
+  }).catch(() => {
+    const error = new Error('Kết nối AI tạm gián đoạn. Feedback vẫn được giữ.');
+    error.status = 502; error.retryable = true; throw error;
   });
   if (!response.ok) {
     // Do not forward raw provider bodies, credentials, or feedback into client errors.
@@ -81,7 +84,7 @@ export async function analyzeFeedback(service, id, actor, config) {
   return saved;
   } catch (error) {
     service.aiLedger.finish(attempt, 'failed', usage);
-    if (error.name === 'TimeoutError' || error.name === 'AbortError' || error instanceof TypeError) {
+    if (error.name === 'TimeoutError' || error.name === 'AbortError') {
       const safe = new Error('Kết nối AI tạm gián đoạn. Feedback vẫn được giữ.'); safe.status=502; safe.retryable=true; throw safe;
     }
     throw error;
