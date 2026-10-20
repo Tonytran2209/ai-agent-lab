@@ -35,3 +35,5 @@ Use Writer Studio design tokens, neutral grays, semantic status colors, system t
 
 - Project memory stores provenance-bound verified outcomes and separately labeled reviewer decisions. It is untrusted reference data, never authority to lower risk or expand scope. Pending/agent-only work is not a verified lesson. No automatic model training or autonomous improvement execution.
 - Planning failures do not auto-retry model calls. At most 20 surveys per project per UTC day and 3 attempts per feedback; expired claims require admin confirmation that the old planner stopped.
+
+- Artifact rechecks are admin-queued, independent Mac checks on a detached worktree at the same pinned commit. They call no model and edit no source. Only a failed literal `git diff --check` may be superseded after independent build and CRLF-aware pinned diff checks; preserve failed-check provenance, then require CI before acceptance. Other failures remain blockers. Active/expired recheck leases block rebasing until the worker is confirmed stopped.

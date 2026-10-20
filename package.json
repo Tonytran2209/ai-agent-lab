@@ -14,7 +14,7 @@
     "build": "vite build",
     "start": "node server/index.js",
     "test": "node --test --test-concurrency=1 tests/*.test.js",
-    "check": "node --check server/index.js && node --check server/service.js && node --check server/mcp.js && node --check server/pipeline.js && node --check server/releases.js && node --check mac/release.js && node --check mac/verify.js && node --check server/verification.js && node --check mac/runner.js && node --check mac/install.js && node --check mac/planning.js && node --check server/local-planning.js && node --check server/project-memory.js && npm run test && npm run build"
+    "check": "node --check server/rechecks.js && node --check mac/recheck.js && node --check server/delivery.js && node --check server/index.js && node --check server/service.js && node --check server/mcp.js && node --check server/pipeline.js && node --check server/releases.js && node --check mac/release.js && node --check mac/verify.js && node --check server/verification.js && node --check mac/runner.js && node --check mac/install.js && node --check mac/planning.js && node --check server/local-planning.js && node --check server/project-memory.js && npm run test && npm run build"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.1",
