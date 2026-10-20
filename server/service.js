@@ -96,7 +96,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
     const p=projects.get(r.projectId);
     if (!p.autoCompleteAfterApproval || !p.releaseEnabled || !p.enabled || !p.runnerEnabled || !p.ciReady || p.configurationRevision!==r.delivery.configurationRevision || p.releaseEnvironment!==r.delivery.environment) fail("Cấu hình tự phát hành đã thay đổi; tạo feedback mới hoặc dùng luồng nghiệm thu hiện tại.");
     if (r.draft.risk!=="low" && options.authorizeRelease!==true) fail("Cần xác nhận duyệt thực hiện và tự phát hành.");
-    r.delivery={...r.delivery,phase:"authorized",approvalHash:r.approval.requestHash,authorizedBy:r.approval.actor,authorizedAt:now(),highRiskConfirmed:r.draft.risk==="high"&&options.confirmHighRisk===true};
+    r.delivery={mode:"single-approval-v1",environment:p.releaseEnvironment,configurationRevision:p.configurationRevision,phase:"authorized",attempts:0,approvalHash:r.approval.requestHash,authorizedBy:r.approval.actor,authorizedAt:now(),highRiskConfirmed:r.draft.risk==="high"&&options.confirmHighRisk===true};
   }
   function deliveryAuthority(r) {
     const p=projects.get(r.projectId),d=r.delivery;
@@ -463,7 +463,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
     accept(id, actor, options = {}) {
       return transaction(db, () => {
         const r = get(id); if (r.status !== "review" || !checksSatisfied(r) || r.result?.browserVerification === "ci" && !verificationPassed(r)) fail("Request chưa có đủ kết quả kiểm tra chờ nghiệm thu.");
-        r.status = "completed"; if (r.result.localArtifact && projects.get(r.projectId).enabled && projects.get(r.projectId).releaseEnabled) queueRelease(r, actor, options); return changed(r, "result_accepted", actor, r.release ? "Đã nghiệm thu và cho phép phát hành qua PR/CI." : "Đã nghiệm thu; phát hành tự động đang tắt hoặc artifact được quản lý bên ngoài.");
+        r.status = "completed"; r.acceptance={mode:"manual",by:actor,at:now()}; if (r.result.localArtifact && projects.get(r.projectId).enabled && projects.get(r.projectId).releaseEnabled) queueRelease(r, actor, options); return changed(r, "result_accepted", actor, r.release ? "Đã nghiệm thu và cho phép phát hành qua PR/CI." : "Đã nghiệm thu; phát hành tự động đang tắt hoặc artifact được quản lý bên ngoài.");
       });
     },
     publish(id, actor, options = {}) {
@@ -473,7 +473,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
     claimRelease(id, owner) {
       return transaction(db, () => {
         const r = get(id), release = r.release;
-        if(r.delivery?.approvalHash)deliveryAuthority(r);
+        if(r.acceptance?.mode==="automated-ci")deliveryAuthority(r);
         if(!projects.get(r.projectId).enabled||!projects.get(r.projectId).releaseEnabled)fail("Project đã tắt phát hành.");
         if (r.status !== "completed" || !release || ["deployed", "failed"].includes(release.phase) || release.requestHash !== releaseFingerprint(r)) fail("Không có quyền phát hành nội dung này.");
         if (release.lease && Date.parse(release.lease.expiresAt) > Date.now()) fail("Tiến trình phát hành đang được giữ.");

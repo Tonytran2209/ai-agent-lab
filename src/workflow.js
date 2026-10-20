@@ -16,7 +16,7 @@ export function preparationRunning(request) {
   return request.preparation?.status === "running" && Date.now() - Date.parse(request.preparation.startedAt) < 90000;
 }
 export function requestSignal(request) {
-  return request.status + (request.verification ? ":browser:" + request.verification.phase : "") + (request.release ? ":release:" + request.release.phase : "") + (request.preparation ? ":" + request.preparation.status : "");
+  return request.status + (request.delivery ? ":delivery:"+request.delivery.phase : "") + (request.verification ? ":browser:" + request.verification.phase : "") + (request.release ? ":release:" + request.release.phase : "") + (request.preparation ? ":" + request.preparation.status : "");
 }
 export function workflowMessage(request, runner, aiConfigured = true) {
   if(request.preparation?.engine==='codex-local'&&['queued','running','failed'].includes(request.preparation.status)){
@@ -24,6 +24,7 @@ export function workflowMessage(request, runner, aiConfigured = true) {
     if(request.preparation.status==='failed')return request.preparation.error||'Khảo sát trên Mac đã dừng; kiểm tra trước khi thử lại.';
     return preparationRunning(request)?'Codex đang đọc code và kinh nghiệm liên quan. Chưa có quyền sửa file; server sẽ kiểm tra rủi ro của kế hoạch.':'Claim khảo sát đã hết hạn. Admin cần xác nhận planner cũ đã dừng trước khi khôi phục.';
   }
+  if (request.status === "verifying" && request.delivery?.approvalHash) return "Đang kiểm tra CI trên PR. Khi đạt, hệ thống tự merge và theo dõi deploy theo quyền đã duyệt.";
   if (request.status === "verifying") return request.verification?.note || "Đang chờ GitHub kiểm tra trình duyệt trước nghiệm thu. Chưa merge/deploy.";
   if (request.status === "review" && request.delivery?.approvalHash) return request.delivery.phase==="failed" ? "Tự phát hành đã dừng: "+request.delivery.note : "Đang xác minh CI độc lập để tự phát hành theo quyền đã duyệt.";
   if (request.status === "review" && request.verification?.phase === "passed") return "Đã có kiểm tra trình duyệt bổ sung trên đúng kết quả. Xem bằng chứng và nghiệm thu tiêu chí trước khi phát hành.";
