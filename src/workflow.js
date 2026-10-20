@@ -25,6 +25,7 @@ export function workflowMessage(request, runner, aiConfigured = true) {
     return preparationRunning(request)?'Codex đang đọc code và kinh nghiệm liên quan. Chưa có quyền sửa file; server sẽ kiểm tra rủi ro của kế hoạch.':'Claim khảo sát đã hết hạn. Admin cần xác nhận planner cũ đã dừng trước khi khôi phục.';
   }
   if (request.status === "verifying") return request.verification?.note || "Đang chờ GitHub kiểm tra trình duyệt trước nghiệm thu. Chưa merge/deploy.";
+  if (request.status === "review" && request.delivery?.approvalHash) return request.delivery.phase==="failed" ? "Tự phát hành đã dừng: "+request.delivery.note : "Đang xác minh CI độc lập để tự phát hành theo quyền đã duyệt.";
   if (request.status === "review" && request.verification?.phase === "passed") return "Đã có kiểm tra trình duyệt bổ sung trên đúng kết quả. Xem bằng chứng và nghiệm thu tiêu chí trước khi phát hành.";
   if (request.release) return request.release.note;
   if (!aiConfigured && ["queued", "running"].includes(request.preparation?.status)) return "Feedback đã lưu. Admin cần cấu hình AI để hệ thống tự chuẩn bị request.";

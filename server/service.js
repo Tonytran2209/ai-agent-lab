@@ -91,6 +91,17 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
     if (Date.parse(r.lease.expiresAt) < Date.now()) fail("Claim đã hết hạn. Chủ request cần xác minh agent đã dừng trước khi mở lại.");
     if (!["claimed", "running"].includes(r.status)) fail("Request không ở trạng thái thực thi.");
   }
+  function authorizeDelivery(r, options = {}) {
+    if (!r.delivery) return;
+    const p=projects.get(r.projectId);
+    if (!p.autoCompleteAfterApproval || !p.releaseEnabled || !p.enabled || !p.runnerEnabled || !p.ciReady || p.configurationRevision!==r.delivery.configurationRevision || p.releaseEnvironment!==r.delivery.environment) fail("Cấu hình tự phát hành đã thay đổi; tạo feedback mới hoặc dùng luồng nghiệm thu hiện tại.");
+    if (r.draft.risk!=="low" && options.authorizeRelease!==true) fail("Cần xác nhận duyệt thực hiện và tự phát hành.");
+    r.delivery={...r.delivery,phase:"authorized",approvalHash:r.approval.requestHash,authorizedBy:r.approval.actor,authorizedAt:now(),highRiskConfirmed:r.draft.risk==="high"&&options.confirmHighRisk===true};
+  }
+  function deliveryAuthority(r) {
+    const p=projects.get(r.projectId),d=r.delivery;
+    if(!d?.approvalHash || d.approvalHash!==r.approval?.requestHash || d.approvalHash!==hash(JSON.stringify({draft:r.draft,baseCommit:r.baseCommit,libraryVersionId:r.libraryVersionId})) || !p.enabled || !p.runnerEnabled || !p.releaseEnabled || !p.autoCompleteAfterApproval || !p.ciReady || d.configurationRevision!==p.configurationRevision || d.environment!==p.releaseEnvironment || r.draft.risk==="high"&&!d.highRiskConfirmed) fail("Quyền tự phát hành không còn khớp kế hoạch/cấu hình. Cần admin kiểm tra.");
+  }
   const packet = r => {
     const lib = library(r.libraryVersionId);
     return { executable: Boolean(r.approval && ["approved", "claimed", "running"].includes(r.status)), request: publicRequest(r), library: lib, instructions: [
@@ -134,6 +145,8 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
           repository: lib.repository, baseCommit: lib.sourceCommit, libraryVersionId: lib.id,
           ...data, projectId:lib.projectId, branch:lib.branch, title: data.feedback.slice(0, 100), author: actor, status: "feedback",
           draft: null, approval: null, lease: null, result: null, ai: null, createdAt: now(), updatedAt: now() };
+        const project=projects.get(r.projectId);
+        if(project.autoCompleteAfterApproval)r.delivery={mode:"single-approval-v1",phase:"pending-approval",environment:project.releaseEnvironment,configurationRevision:project.configurationRevision};
         save(r); event(r.id, "feedback_received", actor); return publicRequest(r);
       });
     },
@@ -239,7 +252,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
         r.review = { required: d.risk === "low" ? "none" : d.risk === "medium" ? "check" : "approve-high" };
         if (d.risk === "low") {
           r.approval = { actor: "Risk policy v2", mode: "auto-low-risk", at: now(), requestHash: hash(JSON.stringify({ draft: d, baseCommit: r.baseCommit, libraryVersionId: r.libraryVersionId })) };
-          r.status = "approved";
+          authorizeDelivery(r); r.status = "approved";
           return changed(r, "request_auto_approved", "AI Agent Lab", "Low risk: tự chuyển sang Mac, không cần admin duyệt.");
         }
         r.approval = null; r.status = "awaiting-approval";
@@ -256,7 +269,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
           return { requestId: r.id, outcome: r.status === "completed" ? "accepted" : "rejected", sourceCommit: r.baseCommit,
             problem: r.draft.problem.slice(0,1500), risk: r.draft.risk, module: r.draft.module, allowedPaths: r.draft.allowedPaths,
             acceptanceCriteria: r.draft.acceptanceCriteria, assumptions: r.draft.assumptions || [],
-            reviewerNote: last ? JSON.parse(last.data).detail.slice(0,1000) : "Admin đã nghiệm thu kết quả." };
+            reviewerNote: last ? JSON.parse(last.data).detail.slice(0,1000) : r.acceptance?.mode==="automated-ci"?"CI đã xác minh theo quyền duyệt trước.":"Admin đã nghiệm thu kết quả." };
         });
     },
     rawForAnalysis: id => get(id),
@@ -270,7 +283,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
         r.executionBlocked = false;
         cancelPreparation(r);
         r.approval = { actor, at: now(), requestHash: hash(JSON.stringify({ draft: r.draft, baseCommit: r.baseCommit, libraryVersionId: r.libraryVersionId })) };
-        r.status = "approved";
+        authorizeDelivery(r, options); r.status = "approved";
         return changed(r, "request_approved", actor, "Lưu và duyệt trong một bước.");
       });
     },
@@ -287,7 +300,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
           r.reproduction.trim().length >= 10 && r.expected.trim().length >= 10;
         if (!eligible) return publicRequest(r);
         r.approval = { actor, mode: "auto-low-risk", at: now(), requestHash: hash(JSON.stringify({ draft: d, baseCommit: r.baseCommit, libraryVersionId: r.libraryVersionId })) };
-        r.status = "approved";
+        authorizeDelivery(r); r.status = "approved";
         return changed(r, "request_auto_approved", actor, "Admin cho phép tự duyệt UI rủi ro thấp ở lần chuẩn bị này.");
       });
     },
@@ -303,7 +316,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
         r.executionBlocked = false;
         r.review = { required: validated.risk === "high" ? "approve-high" : "check", by: actor, at: now() };
         r.approval = { actor, at: now(), requestHash: hash(JSON.stringify({ draft: r.draft, baseCommit: r.baseCommit, libraryVersionId: r.libraryVersionId })) };
-        r.status = "approved"; return changed(r, "request_approved", actor);
+        authorizeDelivery(r, options); r.status = "approved"; return changed(r, "request_approved", actor);
       });
     },
     reject(id, note, actor) {
@@ -353,7 +366,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
         if (r.status !== "failed" || !r.executionFailure || r.lease) fail("Chỉ thử lại lỗi thực thi đã dừng.");
         const fingerprint = hash(JSON.stringify({ draft: r.draft, baseCommit: r.baseCommit, libraryVersionId: r.libraryVersionId }));
         if (!r.approval || r.approval.requestHash !== fingerprint) fail("Kế hoạch đã đổi; cần duyệt lại.");
-        r.status = "approved"; r.executionFailure = null; r.result = null;
+        if(r.delivery?.approvalHash)deliveryAuthority(r); r.status = "approved"; r.executionFailure = null; r.result = null;
         return changed(r, "execution_retry_queued", actor, "Thử lại thực thi với kế hoạch và quyền đã duyệt, không phân tích lại feedback.");
       });
     },
@@ -378,6 +391,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
         if (url.pathname.includes("/commit/") && !url.pathname.endsWith(result.commit)) fail("Commit artifact không khớp commit báo cáo.", 400);
         }
         const passed = result.checks.some(c => c.command === "npm run check" && c.passed) && result.checks.every(c => c.passed);
+        if(r.delivery?.approvalHash)result.browserVerification="ci";
         r.result = { ...result, attestation: "agent-reported", reportedAt: now() };
         const owner = r.lease.owner;
         const ci = result.browserVerification === "ci" && localChecksPassed(r);
@@ -436,6 +450,16 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
         return previous!==v.phase?changed(r,"browser_verification_"+v.phase,owner,v.note):publicRequest(r);
       });
     },
+    deliveryCandidates: () => list().filter(r=>r.status==="review"&&r.delivery?.approvalHash&&!["failed","released"].includes(r.delivery.phase)&&(!r.delivery.nextAttemptAt||Date.parse(r.delivery.nextAttemptAt)<=Date.now())).map(publicRequest),
+    beginDelivery(id) {
+      return transaction(db,()=>{const r=get(id);if(r.status!=="review"||!r.delivery?.approvalHash||["failed","released"].includes(r.delivery.phase)||(r.delivery.attempts||0)>=3)fail("Không có tiến trình tự phát hành.");r.delivery.attempts=(r.delivery.attempts||0)+1;r.delivery.phase="checking";r.delivery.nextAttemptAt=new Date(Date.now()+180000).toISOString();save(r);return publicRequest(r);});
+    },
+    deliveryFailed(id,note,retryable=false) {
+      return transaction(db,()=>{const r=get(id);if(r.status!=="review"||!r.delivery?.approvalHash)return publicRequest(r);r.delivery.phase=retryable&&r.delivery.attempts<3?"retrying":"failed";r.delivery.note=note;r.delivery.nextAttemptAt=new Date(Date.now()+60000*r.delivery.attempts).toISOString();return changed(r,"delivery_check_stopped","AI Agent Lab",note);});
+    },
+    finishDelivery(id, expectedRevision, evidenceUrl) {
+      return transaction(db,()=>{const r=get(id);deliveryAuthority(r);if(r.status!=="review"||r.delivery.phase!=="checking"||resultRevision(r)!==expectedRevision||!checksSatisfied(r)||!verificationPassed(r)||r.verification.source!=="github-actions")fail("Kết quả chưa đủ điều kiện tự phát hành.");r.status="completed";r.acceptance={mode:"automated-ci",authorizedBy:r.delivery.authorizedBy,at:now(),evidenceUrl};queueRelease(r,r.delivery.authorizedBy,{confirmHighRisk:r.delivery.highRiskConfirmed});r.delivery.phase="released";r.delivery.note="Đã xác minh CI độc lập; Mac đang tự phát hành theo quyền đã duyệt.";return changed(r,"result_accepted","AI Agent Lab",r.delivery.note);});
+    },
     accept(id, actor, options = {}) {
       return transaction(db, () => {
         const r = get(id); if (r.status !== "review" || !checksSatisfied(r) || r.result?.browserVerification === "ci" && !verificationPassed(r)) fail("Request chưa có đủ kết quả kiểm tra chờ nghiệm thu.");
@@ -449,6 +473,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
     claimRelease(id, owner) {
       return transaction(db, () => {
         const r = get(id), release = r.release;
+        if(r.delivery?.approvalHash)deliveryAuthority(r);
         if(!projects.get(r.projectId).enabled||!projects.get(r.projectId).releaseEnabled)fail("Project đã tắt phát hành.");
         if (r.status !== "completed" || !release || ["deployed", "failed"].includes(release.phase) || release.requestHash !== releaseFingerprint(r)) fail("Không có quyền phát hành nội dung này.");
         if (release.lease && Date.parse(release.lease.expiresAt) > Date.now()) fail("Tiến trình phát hành đang được giữ.");

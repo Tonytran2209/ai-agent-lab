@@ -1,3 +1,4 @@
+import {createDelivery} from './delivery.js';
 import {planReport} from './local-planning.js';
 import { ciSetupOptions, ciSetupUpdate } from "./ci-setup.js";
 import { validateCiUpdate, ciRetryHead } from "./ci-validation.js";
@@ -23,6 +24,7 @@ export function createApp(config, options = {}) {
   const db = options.db ?? openDatabase(config.DATA_DIR || path.join(root, "data"));
   const service = createService(db, options);
   const pipeline = createPipeline(service, config, { analyze: options.analyze });
+  const delivery=createDelivery(service,config);
   const app = express();
   // Railway edge proxy adds one trusted hop; app is designed for one replica.
   app.set("trust proxy", 1);
@@ -40,7 +42,7 @@ export function createApp(config, options = {}) {
     next();
   });
   app.get("/health", (req, res) => {
-    try { db.prepare("SELECT 1").get(); res.json({ ok: true, policyVersion: "risk-v2", runnerProtocol: "execution-failure-v1", releaseProtocol: "release-v1", browserProtocol: "github-browser-v1", aiPolicyVersion: "economy-v1", projectProtocol:"multi-project-v1", ciSetupProtocol:"ci-setup-v1",planningProtocol:"local-planning-v1",memoryProtocol:"verified-memory-v1" }); } catch { res.status(503).json({ ok: false }); }
+    try { db.prepare("SELECT 1").get(); res.json({ ok: true, policyVersion: "risk-v2", runnerProtocol: "execution-failure-v1", releaseProtocol: "release-v1", browserProtocol: "github-browser-v1", aiPolicyVersion: "economy-v1", projectProtocol:"multi-project-v1", ciSetupProtocol:"ci-setup-v1",planningProtocol:"local-planning-v1",memoryProtocol:"verified-memory-v1",deliveryProtocol:"single-approval-v1" }); } catch { res.status(503).json({ ok: false }); }
   });
   const limiter = (limit, windowMs = 60000) => rateLimit({ limit, windowMs, standardHeaders: "draft-8", legacyHeaders: false,
     message: { error: "Quá nhiều yêu cầu. Vui lòng thử lại sau." } });
@@ -67,7 +69,7 @@ export function createApp(config, options = {}) {
     next();
   };
   app.put("/api/requests/:id/draft", editable, (req, res) => res.json(service.edit(req.params.id, req.body, req.user.name)));
-  app.post("/api/requests/:id/submit", editable, (req, res) => res.json(service.submit(req.params.id, req.body, req.user.name, { confirmHighRisk: req.body.confirmHighRisk === true })));
+  app.post("/api/requests/:id/submit", editable, (req, res) => res.json(service.submit(req.params.id, req.body, req.user.name, { confirmHighRisk: req.body.confirmHighRisk === true, authorizeRelease: req.body.authorizeRelease === true })));
   app.post("/api/requests/:id/clarify", (req, res) => {
     const r = service.get(req.params.id);
     if (req.user.role !== "admin" && r.author !== req.user.name) fail("Chỉ tác giả/admin được bổ sung feedback.", 403);
@@ -86,7 +88,7 @@ export function createApp(config, options = {}) {
   });
   app.post("/api/requests/:id/retry-execution", auth.admin, (req, res) => res.json(service.retryExecution(req.params.id, req.user.name)));
   app.post("/api/requests/:id/approve", auth.admin, (req, res) => {
-    const options = z.object({ confirmHighRisk: z.boolean().default(false), expectedRevision: z.string().optional() }).parse(req.body ?? {});
+    const options = z.object({ confirmHighRisk: z.boolean().default(false), authorizeRelease:z.boolean().default(false), expectedRevision: z.string().optional() }).parse(req.body ?? {});
     res.json(service.approve(req.params.id, req.user.name, options));
   });
   app.post("/api/requests/:id/reject", auth.admin, (req, res) => {
@@ -183,13 +185,13 @@ export function createApp(config, options = {}) {
       status >= 500 && e.status === undefined ? "Không xử lý được yêu cầu. Dữ liệu đã lưu vẫn được giữ." : e.message;
     res.status(status).json({ error });
   });
-  return { app, db, service, pipeline };
+  return { app, db, service, pipeline, delivery };
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const { app, db, pipeline } = createApp(process.env);
+  const { app, db, pipeline, delivery } = createApp(process.env);
   const port = Number(process.env.PORT || 3000);
-  const server = app.listen(port, "0.0.0.0", () => { pipeline.start(); console.log("AI Agent Lab listening on port " + port); });
-  const stop = async () => { await pipeline.stop(); server.close(() => db.close()); };
+  const server = app.listen(port, "0.0.0.0", () => { pipeline.start(); delivery.start(); console.log("AI Agent Lab listening on port " + port); });
+  const stop = async () => { await pipeline.stop(); await delivery.stop(); server.close(() => db.close()); };
   process.once("SIGTERM", stop); process.once("SIGINT", stop);
 }
 
