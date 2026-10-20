@@ -1,0 +1,12 @@
+# Workflow stability audit — 2026-10-20
+
+Confirmed issues and fixes:
+
+1. CRLF repositories: agent-reported plain `git diff --check` failures permanently block results even when the CRLF-aware check and build pass. Added explicit admin-queued, no-model artifact recheck. A separate worker verifies repository, pinned parent and scope, uses a fresh detached worktree, installs dependencies, executes build and canonical whitespace checks, and checks HEAD/working-tree integrity. It preserves failed provenance in checkHistory before queuing CI. Other failed checks cannot use this recovery. Claims are revision-bound, sanitized, heartbeat-renewed and require manual expiry recovery. Three attempts maximum.
+2. Publisher CI evidence did not require check-run head_sha. It now shares the server assessor and demands both required GitHub Actions jobs on the exact SHA. Renames must also keep the old path in scope and the PR file list must equal reported paths. A foreign head repository is rejected.
+3. Rebase was allowed during CI verification and left old verification/release metadata. Active checking states/leases now block rebase; failed-result rebase archives old checks and removes stale evidence/authorization.
+4. Runner heartbeat was coupled to individual stages; long planning/setup/verification could show an active Mac as offline. Independent presence updates retain the last known stage/projects; connection errors explicitly mark the runner unavailable.
+5. Result UI incorrectly said local/unpushed after a draft PR existed. It now prefers release/verification PR links and exposes superseded failed-check provenance.
+6. Automatic acceptance validated GitHub before checking whether project settings had invalidated consent. Authority is now checked before evidence calls as well as at final acceptance.
+
+Remaining practical limits: generic browser CI proves configured fixture behavior, not every request acceptance criterion. For Discovery → Gate 1, inspect/test that specific path before manual acceptance. Publishing remains dependent on an awake authenticated Mac, GitHub and Railway; there is no automatic code-level conflict resolution or production migration. A crashed runner lock and expired editing claims require human confirmation; deleting them automatically could create concurrent editors. Model failure retries remain explicit and bounded. No new AI API calls are added by recovery or evidence checks.

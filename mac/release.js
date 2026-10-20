@@ -1,3 +1,4 @@
+import {assessCi} from '../server/ci-evidence.js';
 import { matchesProject } from './projects.js';
 import path from 'node:path';
 // This publisher runs on Mac after admin acceptance. Coding subprocesses never receive its credentials.
@@ -48,9 +49,9 @@ export async function publishStep({ request: r, config, run, api, signal, purpos
   }
   if (release.phase === 'ci') {
     const pr = await api(prefix + '/pulls/' + release.prNumber);
-    if (pr.head?.sha !== r.result.commit || pr.base?.ref !== baseBranch || pr.base?.repo?.full_name !== repo) throw new Error('PR đã đổi head/base sau nghiệm thu.');
+    if (pr.head?.sha !== r.result.commit || pr.base?.ref !== baseBranch || pr.base?.repo?.full_name !== repo || pr.head?.repo?.full_name!==repo) throw new Error('PR đã đổi head/base sau nghiệm thu.');
     const prFiles = await api(prefix + '/pulls/' + release.prNumber + '/files?per_page=100');
-    if (pr.changed_files !== prFiles.length || prFiles.some(f => !r.draft.allowedPaths.includes(f.filename))) throw new Error('PR chứa file ngoài phạm vi.');
+    if (pr.changed_files !== prFiles.length || prFiles.some(f => !r.draft.allowedPaths.includes(f.filename)||f.previous_filename&&!r.draft.allowedPaths.includes(f.previous_filename)) || JSON.stringify(prFiles.map(f=>f.filename).sort())!==JSON.stringify([...r.result.changedPaths].sort())) throw new Error('PR chứa file ngoài phạm vi.');
     if (purpose === 'verification' && (pr.merged || pr.state !== 'open')) throw new Error('PR kiểm tra đã bị đóng hoặc merge ngoài luồng.');
     if (pr.merged) return { phase: 'deploying', mergeCommit: pr.merge_commit_sha, note: 'PR đã merge. Đang xác nhận Railway deploy đúng commit.' };
     if (pr.state !== 'open') throw new Error('PR đã đóng mà chưa merge.');
@@ -61,11 +62,11 @@ export async function publishStep({ request: r, config, run, api, signal, purpos
     const required = checks.check_runs.find(c => c.name === 'writer-check' && c.app?.slug === 'github-actions');
     const browser = checks.check_runs.find(c => c.name === 'browser-check' && c.app?.slug === 'github-actions');
     if(config.ciReady===false&&!required&&!browser)throw new Error('Project chưa có writer-check và browser-check. Cần bổ sung CI hoặc admin xác minh trình duyệt thực tế trước nghiệm thu.');
-    const failed = checks.check_runs.some(c => c.status === 'completed' && !['success', 'neutral', 'skipped'].includes(c.conclusion)) || statuses.statuses.some(s => ['failure', 'error'].includes(s.state));
-    if (failed || browser?.status === 'completed' && browser.conclusion !== 'success' || required?.status === 'completed' && required.conclusion !== 'success') throw new Error('CI không đạt. Giữ PR để kiểm tra, không merge.');
-    if (!required || !browser || browser.status !== 'completed' || browser.conclusion !== 'success' || checks.check_runs.some(c => c.status !== 'completed') || statuses.statuses.some(s => s.state === 'pending') || pr.mergeable === null) {
-      if (Date.now() - Date.parse(release.phaseStartedAt || release.authorizedAt) > 30 * 60000) throw new Error('Hết thời gian chờ CI. Kiểm tra PR rồi thử phát hành lại.');
-      return { phase: 'ci', note: 'Đang chờ writer-check và các kiểm tra GitHub hoàn tất.' };
+    const evidence=assessCi(response,statuses,r.result.commit);
+    if(evidence.failed || browser?.status==='completed'&&browser.conclusion!=='success' || required?.status==='completed'&&required.conclusion!=='success')throw new Error('CI không đạt. Giữ PR để kiểm tra, không merge.');
+    if(!evidence.ready || pr.mergeable===null){
+      if(Date.now()-Date.parse(release.phaseStartedAt||release.authorizedAt)>30*60000)throw new Error('Hết thời gian chờ CI. Kiểm tra PR rồi thử phát hành lại.');
+      return {phase:'ci',note:'Đang chờ writer-check và browser-check đạt trên đúng commit.'};
     }
     if (purpose === 'verification') return {phase:'passed',evidenceUrl:browser.details_url,note:'writer-check và browser-check đã đạt trên đúng commit. Chờ admin nghiệm thu tiêu chí của request; chưa merge/deploy.'};
     if (pr.draft) {

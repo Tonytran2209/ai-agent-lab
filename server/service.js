@@ -1,3 +1,4 @@
+import {createRechecks} from './rechecks.js';
 import {createProjectMemory} from './project-memory.js';
 import {createLocalPlanning} from './local-planning.js';
 import { createCiSetup } from "./ci-setup.js";
@@ -72,8 +73,9 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
   const publicRequest = r => {
     const { lease, ...rest } = r;
     const release = rest.release ? { ...rest.release, lease: rest.release.lease ? { owner: rest.release.lease.owner, expiresAt: rest.release.lease.expiresAt } : null } : undefined;
+    const recheck=rest.recheck?{...rest.recheck,lease:rest.recheck.lease?{owner:rest.recheck.lease.owner,expiresAt:rest.recheck.lease.expiresAt}:null}:undefined;
     const verification = rest.verification ? { ...rest.verification, lease: rest.verification.lease ? {owner:rest.verification.lease.owner,expiresAt:rest.verification.lease.expiresAt} : null } : undefined;
-    return { ...rest, ...(service.localPlanning?.get(r.id)?{planning:service.localPlanning.get(r.id)}:{}), ...(rest.result ? {resultRevision:resultRevision(r)} : {}), ...(verification ? {verification} : {}), ...(release ? { release } : {}), lease: lease ? { owner: lease.owner, expiresAt: lease.expiresAt } : null };
+    return { ...rest, ...(recheck?{recheck}:{}), ...(service.localPlanning?.get(r.id)?{planning:service.localPlanning.get(r.id)}:{}), ...(rest.result ? {resultRevision:resultRevision(r)} : {}), ...(verification ? {verification} : {}), ...(release ? { release } : {}), lease: lease ? { owner: lease.owner, expiresAt: lease.expiresAt } : null };
   };
   function changed(r, type, actor, detail) { r.updatedAt = now(); save(r); event(r.id, type, actor, detail); return publicRequest(r); }
   function mutable(r) {
@@ -129,7 +131,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
       const row = db.prepare("SELECT value FROM settings WHERE key='mac_runner'").get();
       if (!row) return { connected: false, phase: "unknown", lastSeenAt: null, requestId: null };
       const value = JSON.parse(row.value);
-      return { ...value, connected: Date.now() - Date.parse(value.lastSeenAt) < 120000 };
+      return { ...value, connected: value.phase!=="error" && Date.now() - Date.parse(value.lastSeenAt) < 120000 };
     },
     get: id => publicRequest(get(id)), packet: id => packet(get(id)),
     events: id => { get(id); return db.prepare("SELECT data FROM events WHERE request_id=? ORDER BY id").all(id).map(r => JSON.parse(r.data)); },
@@ -321,7 +323,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
     },
     reject(id, note, actor) {
       return transaction(db, () => {
-        const r = get(id); if (["claimed", "running"].includes(r.status)) fail("Agent đang giữ claim; cần xác nhận agent dừng trước.");
+        const r = get(id); if (["claimed", "running", "rechecking"].includes(r.status)||r.recheck?.lease||r.verification?.lease) fail("Agent đang giữ claim; cần xác nhận agent dừng trước.");
         if (r.release && !["deployed", "failed"].includes(r.release.phase)) fail("Đang phát hành; không thể thu hồi quyền bằng thao tác từ chối coding request.");
         cancelPreparation(r);
         r.status = "rejected"; r.approval = null; return changed(r, "request_rejected", actor, note);
@@ -452,7 +454,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
     },
     deliveryCandidates: () => list().filter(r=>r.status==="review"&&r.delivery?.approvalHash&&!["failed","released"].includes(r.delivery.phase)&&(!r.delivery.nextAttemptAt||Date.parse(r.delivery.nextAttemptAt)<=Date.now())).map(publicRequest),
     beginDelivery(id) {
-      return transaction(db,()=>{const r=get(id);if(r.status!=="review"||!r.delivery?.approvalHash||["failed","released"].includes(r.delivery.phase)||(r.delivery.attempts||0)>=3)fail("Không có tiến trình tự phát hành.");r.delivery.attempts=(r.delivery.attempts||0)+1;r.delivery.phase="checking";r.delivery.nextAttemptAt=new Date(Date.now()+180000).toISOString();save(r);return publicRequest(r);});
+      return transaction(db,()=>{const r=get(id);deliveryAuthority(r);if(r.status!=="review"||!r.delivery?.approvalHash||["failed","released"].includes(r.delivery.phase)||(r.delivery.attempts||0)>=3)fail("Không có tiến trình tự phát hành.");r.delivery.attempts=(r.delivery.attempts||0)+1;r.delivery.phase="checking";r.delivery.nextAttemptAt=new Date(Date.now()+180000).toISOString();save(r);return publicRequest(r);});
     },
     deliveryFailed(id,note,retryable=false) {
       return transaction(db,()=>{const r=get(id);if(r.status!=="review"||!r.delivery?.approvalHash)return publicRequest(r);r.delivery.phase=retryable&&r.delivery.attempts<3?"retrying":"failed";r.delivery.note=note;r.delivery.nextAttemptAt=new Date(Date.now()+60000*r.delivery.attempts).toISOString();return changed(r,"delivery_check_stopped","AI Agent Lab",note);});
@@ -515,8 +517,11 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
     rebase(id, actor) {
       return transaction(db, () => {
         const r = get(id);
-        if (["claimed", "running", "completed", "review"].includes(r.status)) fail("Không thể cập nhật base của request đang chạy/đã có kết quả.");
+        if (["claimed", "running", "completed", "review", "verifying", "rechecking"].includes(r.status)||r.recheck?.lease||r.verification?.lease||r.release?.lease) fail("Không thể cập nhật base của request đang chạy/đã có kết quả.");
         cancelPreparation(r);
+        if(r.result)r.resultHistory=[...(r.resultHistory||[]),{commit:r.result.commit,checks:r.result.checks,summary:r.result.summary,at:now()}];
+        delete r.verification;delete r.release;delete r.acceptance;delete r.recheck;
+        if(r.delivery){const p=projects.get(r.projectId);if(p.autoCompleteAfterApproval)r.delivery={mode:"single-approval-v1",phase:"pending-approval",environment:p.releaseEnvironment,configurationRevision:p.configurationRevision};else delete r.delivery;}
         const lib = currentLibrary(r.projectId); r.baseCommit = lib.sourceCommit; r.libraryVersionId = lib.id;
         r.status = "feedback"; r.draft = null; r.approval = null; r.ai = null; r.result = null;
         return changed(r, "base_updated", actor);
@@ -532,6 +537,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
       });
     },
   };
+  service.rechecks=createRechecks(db,service);
   service.memory=createProjectMemory(db,service);
   service.localPlanning=createLocalPlanning(db,service);
   return service;

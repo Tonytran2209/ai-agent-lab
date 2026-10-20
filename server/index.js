@@ -42,7 +42,7 @@ export function createApp(config, options = {}) {
     next();
   });
   app.get("/health", (req, res) => {
-    try { db.prepare("SELECT 1").get(); res.json({ ok: true, policyVersion: "risk-v2", runnerProtocol: "execution-failure-v1", releaseProtocol: "release-v1", browserProtocol: "github-browser-v1", aiPolicyVersion: "economy-v1", projectProtocol:"multi-project-v1", ciSetupProtocol:"ci-setup-v1",planningProtocol:"local-planning-v1",memoryProtocol:"verified-memory-v1",deliveryProtocol:"single-approval-v1" }); } catch { res.status(503).json({ ok: false }); }
+    try { db.prepare("SELECT 1").get(); res.json({ ok: true, policyVersion: "risk-v2", runnerProtocol: "execution-failure-v1", releaseProtocol: "release-v1", browserProtocol: "github-browser-v1", aiPolicyVersion: "economy-v1", projectProtocol:"multi-project-v1", ciSetupProtocol:"ci-setup-v1",planningProtocol:"local-planning-v1",memoryProtocol:"verified-memory-v1",deliveryProtocol:"single-approval-v1",recheckProtocol:"artifact-recheck-v1" }); } catch { res.status(503).json({ ok: false }); }
   });
   const limiter = (limit, windowMs = 60000) => rateLimit({ limit, windowMs, standardHeaders: "draft-8", legacyHeaders: false,
     message: { error: "Quá nhiều yêu cầu. Vui lòng thử lại sau." } });
@@ -102,6 +102,8 @@ export function createApp(config, options = {}) {
   app.post("/api/requests/:id/verification/retry",auth.admin,(req,res)=>res.json(service.queueVerification(req.params.id,req.user.name)));
   app.post("/api/requests/:id/accept", auth.admin, (req, res) => res.json(service.accept(req.params.id, req.user.name, { confirmHighRisk: req.body?.confirmHighRisk === true })));
   app.post("/api/requests/:id/publish", auth.admin, (req, res) => res.json(service.publish(req.params.id, req.user.name, { confirmHighRisk: req.body?.confirmHighRisk === true })));
+  app.post('/api/requests/:id/checks/retry',auth.admin,(req,res)=>{const b=z.object({expectedResultRevision:z.string().regex(/^[a-f0-9]{64}$/)}).strict().parse(req.body);res.json(service.rechecks.queue(req.params.id,req.user.name,b.expectedResultRevision));});
+  app.post('/api/requests/:id/checks/release',auth.admin,(req,res)=>res.json(service.rechecks.release(req.params.id,req.user.name,req.body?.workerStopped===true)));
   app.post("/api/requests/:id/rebase", auth.admin, (req, res) => res.json(service.rebase(req.params.id, req.user.name)));
   app.get("/api/projects", (req,res)=>res.json({projects:service.projects()}));
   app.post("/api/projects", auth.admin, limiter(6,10*60000), async(req,res)=>{
@@ -143,6 +145,11 @@ export function createApp(config, options = {}) {
   app.patch('/api/projects/:id/memory/:memoryId',auth.admin,(req,res)=>res.json(service.memory.setEnabled(req.params.id,req.params.memoryId,z.object({enabled:z.boolean()}).strict().parse(req.body).enabled)));
   app.post('/api/requests/:id/planning/cancel',auth.admin,(req,res)=>res.json(service.localPlanning.cancel(req.params.id)));
   app.post('/api/requests/:id/planning/release',auth.admin,(req,res)=>res.json(service.localPlanning.release(req.params.id,z.object({plannerStopped:z.literal(true)}).parse(req.body).plannerStopped)));
+  app.get('/runner/rechecks',auth.mcp,(req,res)=>res.json({requests:service.rechecks.list()}));
+  app.post('/runner/rechecks/:id/claim',auth.mcp,(req,res)=>res.json(service.rechecks.claim(req.params.id,'Mac recheck worker')));
+  app.post('/runner/rechecks/:id/heartbeat',auth.mcp,(req,res)=>res.json(service.rechecks.heartbeat(req.params.id,z.object({recheckToken:z.string().regex(/^[a-f0-9]{64}$/)}).strict().parse(req.body).recheckToken)));
+  app.post('/runner/rechecks/:id/report',auth.mcp,(req,res)=>{const b=z.object({recheckToken:z.string().regex(/^[a-f0-9]{64}$/),resultRevision:z.string().regex(/^[a-f0-9]{64}$/),checks:z.array(z.object({command:z.string().max(200),passed:z.boolean(),output:z.string().max(4000)}).strict()).length(2),note:z.string().min(10).max(2000)}).strict().parse(req.body);res.json(service.rechecks.report(req.params.id,b.recheckToken,b));});
+  app.post('/runner/rechecks/:id/fail',auth.mcp,(req,res)=>{const b=z.object({recheckToken:z.string().regex(/^[a-f0-9]{64}$/),note:z.string().min(5).max(2000)}).strict().parse(req.body);res.json(service.rechecks.fail(req.params.id,b.recheckToken,b.note));});
   app.get('/runner/planning',auth.mcp,limiter(60),(req,res)=>res.json({jobs:service.localPlanning.queue()}));
   const planningClaim=z.object({jobId:z.string().uuid(),planningToken:z.string().regex(/^[a-f0-9]{64}$/)});
   app.post('/runner/planning/:id/claim',auth.mcp,(req,res)=>{const b=z.object({jobId:z.string().uuid(),observedBaseCommit:z.string().regex(/^[a-f0-9]{40}$/)}).strict().parse(req.body);const result=service.localPlanning.claim(req.params.id,b.jobId,b.observedBaseCommit);service.reportRunner({phase:"running",requestId:req.params.id});res.json(result);});

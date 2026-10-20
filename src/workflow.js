@@ -19,6 +19,7 @@ export function requestSignal(request) {
   return request.status + (request.delivery ? ":delivery:"+request.delivery.phase : "") + (request.verification ? ":browser:" + request.verification.phase : "") + (request.release ? ":release:" + request.release.phase : "") + (request.preparation ? ":" + request.preparation.status : "");
 }
 export function workflowMessage(request, runner, aiConfigured = true) {
+  if(request.status==="rechecking")return "Mac sẽ kiểm tra lại artifact trên đúng commit, nhận diện CRLF. Không gọi AI hoặc sửa code; lỗi cũ vẫn nằm trong lịch sử.";
   if(request.preparation?.engine==='codex-local'&&['queued','running','failed'].includes(request.preparation.status)){
     if(request.preparation.status==='queued')return runner?.connected?'Đã lưu feedback. Mac sẽ khảo sát code chỉ đọc khi rảnh; Lab không gọi AI API.':'Đã lưu feedback. Chờ Mac runner kết nối để khảo sát code; Lab không gọi AI API.';
     if(request.preparation.status==='failed')return request.preparation.error||'Khảo sát trên Mac đã dừng; kiểm tra trước khi thử lại.';
@@ -53,4 +54,10 @@ export function inRequestQueue(request) {
 export function requestChanges(previous, current) {
   if (!previous) return [];
   return current.filter(r => !previous.has(r.id) || previous.get(r.id) !== requestSignal(r));
+}
+
+export function requiresAttention(r) {
+  if([r.lease,r.planning?.lease,r.verification?.lease,r.recheck?.lease,r.release?.lease].some(l=>l&&Date.parse(l.expiresAt)<=Date.now()))return true;
+  if(r.status==='review')return !r.delivery?.approvalHash||r.delivery.phase==='failed';
+  return ['awaiting-approval','failed','needs-triage'].includes(r.status)||r.release?.phase==='failed'||r.preparation?.status==='failed';
 }

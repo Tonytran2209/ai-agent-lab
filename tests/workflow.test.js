@@ -1,0 +1,3 @@
+import {test} from 'node:test';import assert from 'node:assert/strict';
+
+test('automatic acceptance does not ask admin for a second review; expired rechecks need attention',async()=>{const {requiresAttention}=await import('../src/workflow.js');assert.equal(requiresAttention({status:'review',delivery:{approvalHash:'approved',phase:'checking'}}),false);assert.equal(requiresAttention({status:'review',delivery:{approvalHash:'approved',phase:'failed'}}),true);assert.equal(requiresAttention({status:'review'}),true);assert.equal(requiresAttention({status:'rechecking',recheck:{lease:{expiresAt:new Date(0).toISOString()}}}),true);});

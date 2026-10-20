@@ -37,8 +37,8 @@ test('high risk requires separate explicit release confirmation and failed check
 const packet=(phase='queued')=>({id:'REQ-ABCDEF12',repository:repo,title:draft.title,status:'completed',baseCommit:base,draft,result:report,release:{phase,prNumber:1,authorizedAt:new Date().toISOString(),updatedAt:new Date().toISOString()}});
 const config={repoPath:'/tmp/test-publisher',ghPath:'/opt/homebrew/bin/gh',releaseEnvironment:'production'};
 const gitRun=async(_,args)=>{const a=args.slice(2);let stdout='';if(a[0]==='remote')stdout=`https://github.com/${repo}.git`;if(a[0]==='rev-parse')stdout=a[1].endsWith('^')?base:commit;if(a[0]==='diff')stdout=draft.allowedPaths[0];return {code:0,stdout};};
-const pr={number:1,html_url:`https://github.com/${repo}/pull/1`,head:{sha:commit},base:{ref:'main',repo:{full_name:repo}},changed_files:1,state:'open',mergeable:true,mergeable_state:'clean'};
-const check={name:'writer-check',app:{slug:'github-actions'},status:'completed',conclusion:'success'};
+const pr={number:1,html_url:`https://github.com/${repo}/pull/1`,head:{sha:commit,repo:{full_name:repo}},base:{ref:'main',repo:{full_name:repo}},changed_files:1,state:'open',mergeable:true,mergeable_state:'clean'};
+const check={head_sha:commit,name:'writer-check',app:{slug:'github-actions'},status:'completed',conclusion:'success'};
 test('publisher creates a PR idempotently and never force pushes or writes main',async()=>{
  const commands=[];const run=async(e,a)=>{commands.push(a);return gitRun(e,a);};
  const api=async(endpoint,method,body)=>{if(endpoint.includes('/pulls?'))return [];assert.equal(method,'POST');assert.equal(body.base,'main');return pr;};
@@ -82,4 +82,9 @@ test('release HTTP endpoints require admin acceptance and authenticated publishe
   const claimed=await (await fetch(origin+'/runner/releases/'+r.id+'/claim',{method:'POST',headers:bearer,body:'{}'})).json();assert.ok(claimed.releaseToken);
   const publicRows=await (await fetch(origin+'/api/requests',{headers:member})).text();assert.ok(!publicRows.includes(claimed.releaseToken));assert.ok(!publicRows.includes('tokenHash'));
  }finally{await new Promise(r=>server.close(r));db.close();rmSync(dir,{recursive:true,force:true});}
+});
+test('publisher ignores checks on another SHA and rejects rename sources outside approved scope',async()=>{
+ const checks=[{...check,head_sha:merged},{...check,name:'browser-check',head_sha:merged}];const r=await publishStep({request:packet('ci'),config,run:gitRun,api:ciApi(checks)});assert.equal(r.phase,'ci');
+ const good=ciApi();const api=async(e,m,b)=>e.includes('/files?')?[{filename:draft.allowedPaths[0],previous_filename:'backend/secrets.ts'}]:good(e,m,b);
+ await assert.rejects(()=>publishStep({request:packet('ci'),config,run:gitRun,api}),/phạm vi/);
 });
