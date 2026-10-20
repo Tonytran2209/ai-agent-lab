@@ -12,7 +12,7 @@ export function feedbackLayer(request) {
 }
 export function codingPacket(request, library) {
   const { sourcePaths, ...pinned } = compactLibrary(library, request.draft?.layer || 'cross-layer');
-  return { request: Object.fromEntries(['id','projectId','repository','branch','baseCommit','libraryVersionId','draft'].map(k => [k, request[k]])), library: pinned };
+  return { request: Object.fromEntries(['id','projectId','repository','branch','baseCommit','libraryVersionId','feedback','screen','reproduction','expected','draft'].map(k => [k, request[k]])), library: pinned };
 }
 // Exact, deliberately narrow recipe. Additional prose/requirements always use analysis.
 export function displayRecipe(request, library) {

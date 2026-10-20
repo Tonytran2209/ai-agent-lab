@@ -3,6 +3,8 @@ import { hash } from './service.js';
 
 // SQLite owns the queue. No browser lifetime or in-memory task list is required for durability.
 export function createPipeline(service, config, options = {}) {
+  const local = !options.analyze && config.LAB_PLANNING_MODE !== 'server';
+  if(local)return {enqueue:(id,actor)=>service.localPlanning.enqueue(id,actor),start(){service.localPlanning.recover();},async stop(){},async tick(){service.localPlanning.recover();}};
   const analyze = options.analyze ?? analyzeFeedback;
   let stopped = true, active = null, timer;
   const tick = () => {

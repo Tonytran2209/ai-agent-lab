@@ -12,12 +12,18 @@ export const workflowLabels = {
   rejected: "Request đã bị từ chối",
 };
 export function preparationRunning(request) {
+  if(request.preparation?.engine==="codex-local")return request.preparation.status==="running"&&Boolean(request.planning?.lease)&&Date.parse(request.planning.lease.expiresAt)>Date.now();
   return request.preparation?.status === "running" && Date.now() - Date.parse(request.preparation.startedAt) < 90000;
 }
 export function requestSignal(request) {
   return request.status + (request.verification ? ":browser:" + request.verification.phase : "") + (request.release ? ":release:" + request.release.phase : "") + (request.preparation ? ":" + request.preparation.status : "");
 }
 export function workflowMessage(request, runner, aiConfigured = true) {
+  if(request.preparation?.engine==='codex-local'&&['queued','running','failed'].includes(request.preparation.status)){
+    if(request.preparation.status==='queued')return runner?.connected?'Đã lưu feedback. Mac sẽ khảo sát code chỉ đọc khi rảnh; Lab không gọi AI API.':'Đã lưu feedback. Chờ Mac runner kết nối để khảo sát code; Lab không gọi AI API.';
+    if(request.preparation.status==='failed')return request.preparation.error||'Khảo sát trên Mac đã dừng; kiểm tra trước khi thử lại.';
+    return preparationRunning(request)?'Codex đang đọc code và kinh nghiệm liên quan. Chưa có quyền sửa file; server sẽ kiểm tra rủi ro của kế hoạch.':'Claim khảo sát đã hết hạn. Admin cần xác nhận planner cũ đã dừng trước khi khôi phục.';
+  }
   if (request.status === "verifying") return request.verification?.note || "Đang chờ GitHub kiểm tra trình duyệt trước nghiệm thu. Chưa merge/deploy.";
   if (request.status === "review" && request.verification?.phase === "passed") return "Đã có kiểm tra trình duyệt bổ sung trên đúng kết quả. Xem bằng chứng và nghiệm thu tiêu chí trước khi phát hành.";
   if (request.release) return request.release.note;

@@ -14,7 +14,9 @@ CREATE TABLE IF NOT EXISTS libraries (id TEXT PRIMARY KEY, data TEXT NOT NULL);
   `);
   return db;
 }
+let savepointId=0;
 export function transaction(db, fn) {
+  if(db.isTransaction){const name='lab_nested_'+(++savepointId);db.exec('SAVEPOINT '+name);try{const result=fn();db.exec('RELEASE '+name);return result;}catch(e){db.exec('ROLLBACK TO '+name);db.exec('RELEASE '+name);throw e;}}
   db.exec("BEGIN IMMEDIATE");
   try { const result = fn(); db.exec("COMMIT"); return result; }
   catch (e) { db.exec("ROLLBACK"); throw e; }

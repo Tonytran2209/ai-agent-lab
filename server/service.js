@@ -1,3 +1,5 @@
+import {createProjectMemory} from './project-memory.js';
+import {createLocalPlanning} from './local-planning.js';
 import { createCiSetup } from "./ci-setup.js";
 import { createProjects } from "./projects.js";
 import { createAiLedger } from "./ai-ledger.js";
@@ -71,7 +73,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
     const { lease, ...rest } = r;
     const release = rest.release ? { ...rest.release, lease: rest.release.lease ? { owner: rest.release.lease.owner, expiresAt: rest.release.lease.expiresAt } : null } : undefined;
     const verification = rest.verification ? { ...rest.verification, lease: rest.verification.lease ? {owner:rest.verification.lease.owner,expiresAt:rest.verification.lease.expiresAt} : null } : undefined;
-    return { ...rest, ...(rest.result ? {resultRevision:resultRevision(r)} : {}), ...(verification ? {verification} : {}), ...(release ? { release } : {}), lease: lease ? { owner: lease.owner, expiresAt: lease.expiresAt } : null };
+    return { ...rest, ...(service.localPlanning?.get(r.id)?{planning:service.localPlanning.get(r.id)}:{}), ...(rest.result ? {resultRevision:resultRevision(r)} : {}), ...(verification ? {verification} : {}), ...(release ? { release } : {}), lease: lease ? { owner: lease.owner, expiresAt: lease.expiresAt } : null };
   };
   function changed(r, type, actor, detail) { r.updatedAt = now(); save(r); event(r.id, type, actor, detail); return publicRequest(r); }
   function mutable(r) {
@@ -102,7 +104,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
       "Create a draft PR or commit artifact. Never merge, deploy, delete data, or apply a production migration from this request.",
     ], prompt: renderPrompt(r, lib) };
   };
-  return {
+  const service = {
     aiLedger: createAiLedger(db),
     ciSetup,
     projects:()=>projects.list().map(p=>({...p,ciSetup:ciSetup.get(p.id)})), project:id=>({...projects.get(id),ciSetup:ciSetup.get(id)}), updateProject:projects.update,
@@ -505,6 +507,9 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
       });
     },
   };
+  service.memory=createProjectMemory(db,service);
+  service.localPlanning=createLocalPlanning(db,service);
+  return service;
 }
 export function renderPrompt(r, library) {
   if (!r.approval || !["approved", "claimed", "running"].includes(r.status)) return "Request " + r.id + " is not approved for execution. Review only. Do not edit code or attempt execution until an admin approves it.";
