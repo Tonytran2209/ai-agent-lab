@@ -9,4 +9,6 @@ Confirmed issues and fixes:
 5. Result UI incorrectly said local/unpushed after a draft PR existed. It now prefers release/verification PR links and exposes superseded failed-check provenance.
 6. Automatic acceptance validated GitHub before checking whether project settings had invalidated consent. Authority is now checked before evidence calls as well as at final acceptance.
 
+7. A project that exhausted its daily planning budget remained first in the global queue; the worker repeatedly picked it and starved other projects. The server now omits exhausted jobs from dispatch while preserving them durably, exposes the remaining budget, and explains the wait in UI. At the next UTC day, dispatch resumes without another user submission.
+
 Remaining practical limits: generic browser CI proves configured fixture behavior, not every request acceptance criterion. For Discovery → Gate 1, inspect/test that specific path before manual acceptance. Publishing remains dependent on an awake authenticated Mac, GitHub and Railway; there is no automatic code-level conflict resolution or production migration. A crashed runner lock and expired editing claims require human confirmation; deleting them automatically could create concurrent editors. Model failure retries remain explicit and bounded. No new AI API calls are added by recovery or evidence checks.

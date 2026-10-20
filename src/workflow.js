@@ -21,6 +21,7 @@ export function requestSignal(request) {
 export function workflowMessage(request, runner, aiConfigured = true) {
   if(request.status==="rechecking")return "Mac sẽ kiểm tra lại artifact trên đúng commit, nhận diện CRLF. Không gọi AI hoặc sửa code; lỗi cũ vẫn nằm trong lịch sử.";
   if(request.preparation?.engine==='codex-local'&&['queued','running','failed'].includes(request.preparation.status)){
+    if(request.preparation.status==='queued'&&request.planning?.budgetRemaining===0)return 'Project đã dùng hết 20 lượt khảo sát hôm nay (UTC). Feedback vẫn được giữ và sẽ tiếp tục khi ngân sách ngày mới mở; không gọi thêm AI.';
     if(request.preparation.status==='queued')return runner?.connected?'Đã lưu feedback. Mac sẽ khảo sát code chỉ đọc khi rảnh; Lab không gọi AI API.':'Đã lưu feedback. Chờ Mac runner kết nối để khảo sát code; Lab không gọi AI API.';
     if(request.preparation.status==='failed')return request.preparation.error||'Khảo sát trên Mac đã dừng; kiểm tra trước khi thử lại.';
     return preparationRunning(request)?'Codex đang đọc code và kinh nghiệm liên quan. Chưa có quyền sửa file; server sẽ kiểm tra rủi ro của kế hoạch.':'Claim khảo sát đã hết hạn. Admin cần xác nhận planner cũ đã dừng trước khi khôi phục.';
