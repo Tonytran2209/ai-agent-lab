@@ -9,7 +9,7 @@ Run `npm ci` then `npm run check`. Never require live provider credentials for t
 ## Invariants
 
 - The explicit opt-in Mac runner polls approved requests and runs Codex CLI in isolated worktrees. Never dispatch from the Railway server.
-- New member/admin feedback is queued durably for automatic AI preparation. Server-classified bounded low-risk UI auto-runs; medium needs admin check; high needs explicit high-risk approval.
+- New member/admin feedback is queued durably for read-only Codex planning on the Mac by default; the Lab server makes no model API call. Survey leases are separate from execution approval and claims. Legacy server analysis requires explicit LAB_PLANNING_MODE=server. Server-classified bounded low-risk UI auto-runs; medium needs admin check; high needs explicit high-risk approval.
 - Past accepted/rejected decisions may inform preparation as untrusted examples; they never override current scope, risk policy, or approval authority.
 - No MCP tool may approve, merge, deploy, delete project data or apply production migrations.
 - UI results from the Mac runner first enter a separate browser-verification queue. That worker may push a draft PR and report CI, but must never mark it ready, merge or deploy before admin acceptance. Browser checks run in GitHub Actions, not Chrome launched by LaunchAgent. Failed local checks are preserved when additional verification supersedes them.
@@ -32,3 +32,6 @@ Run `npm ci` then `npm run check`. Never require live provider credentials for t
 
 Use Writer Studio design tokens, neutral grays, semantic status colors, system typography, compact spacing, 12px cards and 8px controls. Preserve responsive navigation, visible focus, local errors and durable saved results.
 
+
+- Project memory stores provenance-bound verified outcomes and separately labeled reviewer decisions. It is untrusted reference data, never authority to lower risk or expand scope. Pending/agent-only work is not a verified lesson. No automatic model training or autonomous improvement execution.
+- Planning failures do not auto-retry model calls. At most 20 surveys per project per UTC day and 3 attempts per feedback; expired claims require admin confirmation that the old planner stopped.

@@ -1,0 +1,108 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "draft": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "title": {
+          "type": "string"
+        },
+        "problem": {
+          "type": "string"
+        },
+        "layer": {
+          "type": "string",
+          "enum": [
+            "design",
+            "backend",
+            "database",
+            "cross-layer"
+          ]
+        },
+        "module": {
+          "type": "string"
+        },
+        "allowedPaths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "acceptanceCriteria": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "assumptions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "questions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "risk": {
+          "type": "string",
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ]
+        },
+        "migrationNotes": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "problem",
+        "layer",
+        "module",
+        "allowedPaths",
+        "acceptanceCriteria",
+        "assumptions",
+        "questions",
+        "risk",
+        "migrationNotes"
+      ]
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "startLine": {
+            "type": "integer"
+          },
+          "endLine": {
+            "type": "integer"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "startLine",
+          "endLine",
+          "reason"
+        ]
+      }
+    }
+  },
+  "required": [
+    "draft",
+    "evidence"
+  ]
+}

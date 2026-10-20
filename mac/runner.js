@@ -1,3 +1,4 @@
+import {pollPlanning} from './planning.js';
 import { pollCiSetups } from "./ci-setup.js";
 import { connectProjects, matchesProject } from "./projects.js";
 import { codingPacket } from "../server/ai-context.js";
@@ -76,6 +77,7 @@ export function childEnvironment(env) {
   // The child doesn't need Lab credentials: this runner owns all MCP lifecycle calls.
   const clean = { ...env };
   for (const key of ["AI_AGENT_LAB_MCP_TOKEN", "MCP_TOKEN", "ADMIN_PASSWORD", "SESSION_SECRET", "USER_PASSWORD", "OPENAI_API_KEY", "GITHUB_TOKEN", "GH_TOKEN"]) delete clean[key];
+  for(const key of Object.keys(clean))if(/TOKEN|SECRET|PASSWORD|API_KEY|PRIVATE_KEY/i.test(key))delete clean[key];
   return clean;
 }
 export async function prepareDependencies(worktree, run = command, options = {}) {
@@ -239,7 +241,7 @@ export async function main(configPath) {
   };
   let wasConnected = false;
   try {
-    log("Mac runner started; polling approved requests.");
+    log("Mac runner started; local-planning-v1; polling approved requests.");
     while (!controller.signal.aborted) {
       let connection;
       try {
@@ -250,6 +252,7 @@ export async function main(configPath) {
           await pollVerifications(projectConfig, token, command, controller.signal);
           await pollReleases(projectConfig, token, command, controller.signal);
         }
+        await pollPlanning(connected.configs,token,command,controller.signal,childEnvironment(process.env));
         const { requests } = await connection.call("list_ready_requests");
         await reportStatus({ phase: "idle", requestId: null, projects:connected.statuses });
         if (!wasConnected) log("Đã kết nối Lab; đang kiểm tra hàng đợi.");
