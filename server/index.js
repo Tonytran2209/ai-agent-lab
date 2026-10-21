@@ -150,7 +150,7 @@ export function createApp(config, options = {}) {
     if(b.update.phase==='ready'){const lib=await syncLibrary(service,config.GITHUB_TOKEN,project.id);if(lib.sourceCommit!==(b.update.commit||job.commit))fail('Branch đổi trong khi đồng bộ; chưa đánh dấu CI ready.');}
     res.json(service.ciSetup.report(project.id,b.jobId,b.setupToken,b.update,evidence));
   });
-  app.get('/api/projects/:id/memory',auth.admin,(req,res)=>res.json({entries:service.memory.list(req.params.id),suggestions:service.memory.suggestions(req.params.id),planning:{usedToday:service.localPlanning.budget(req.params.id),dailyLimit:20,maxAttemptsPerFeedback:3}}));
+  app.get('/api/projects/:id/memory',auth.admin,(req,res)=>res.json({entries:service.memory.list(req.params.id),suggestions:service.memory.suggestions(req.params.id),planning:{usedToday:service.localPlanning.budget(req.params.id),dailyLimit:service.project(req.params.id).planningDailyBudget||20,maxAttemptsPerFeedback:3}}));
   app.patch('/api/projects/:id/memory/:memoryId',auth.admin,(req,res)=>res.json(service.memory.setEnabled(req.params.id,req.params.memoryId,z.object({enabled:z.boolean()}).strict().parse(req.body).enabled)));
   app.post('/api/requests/:id/planning/cancel',auth.admin,(req,res)=>res.json(service.localPlanning.cancel(req.params.id)));
   app.post('/api/requests/:id/planning/release',auth.admin,(req,res)=>res.json(service.localPlanning.release(req.params.id,z.object({plannerStopped:z.literal(true)}).parse(req.body).plannerStopped)));

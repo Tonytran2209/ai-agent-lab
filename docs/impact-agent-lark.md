@@ -34,4 +34,4 @@ Changing recipient/app starts a new future-only subscription; pending messages f
 
 ## Rollout
 
-Install runner/planning/projects/release modules, plan schema and shared `server/{impact,schemas,releases}.js`, then reload LaunchAgent once. New requests wait for the upgraded planner; old contracts are retained. Enable `impact-auto` per intended project in Settings after verifying CI and release configuration. Configure Lark through the password field and use Send test; never paste secrets into chat or commits.
+Install runner/planning/projects/release modules, plan schema and shared `server/{impact,schemas}.js`, then reload LaunchAgent once. New requests wait for the upgraded planner; old contracts are retained. Enable `impact-auto` per intended project in Settings after verifying CI and release configuration. Configure Lark through the password field and use Send test; never paste secrets into chat or commits.
