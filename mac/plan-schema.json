@@ -58,6 +58,108 @@
         },
         "migrationNotes": {
           "type": "string"
+        },
+        "traceability": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "criterionIndex": {
+                "type": "integer"
+              },
+              "criterion": {
+                "type": "string"
+              },
+              "rules": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    },
+                    "startLine": {
+                      "type": "integer"
+                    },
+                    "endLine": {
+                      "type": "integer"
+                    },
+                    "quote": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "startLine",
+                    "endLine",
+                    "quote"
+                  ]
+                }
+              },
+              "verification": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "method": {
+                    "type": "string",
+                    "enum": [
+                      "test",
+                      "inspection"
+                    ]
+                  },
+                  "command": {
+                    "type": "string"
+                  },
+                  "files": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "expected": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "method",
+                  "command",
+                  "files",
+                  "expected"
+                ]
+              }
+            },
+            "required": [
+              "criterionIndex",
+              "criterion",
+              "rules",
+              "verification"
+            ]
+          }
+        },
+        "documentationReview": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "updatesNeeded": {
+              "type": "boolean"
+            },
+            "documents": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "reason": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "updatesNeeded",
+            "documents",
+            "reason"
+          ]
         }
       },
       "required": [
@@ -70,7 +172,9 @@
         "assumptions",
         "questions",
         "risk",
-        "migrationNotes"
+        "migrationNotes",
+        "traceability",
+        "documentationReview"
       ]
     },
     "evidence": {

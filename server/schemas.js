@@ -1,3 +1,4 @@
+import {traceSchema,documentationReviewSchema,criterionEvidenceSchema} from './contracts.js';
 import { z } from "zod";
 export const layers = ["design", "backend", "database", "cross-layer"];
 export const relativePath = z.string().min(1).max(240).refine(p =>
@@ -6,6 +7,8 @@ export const relativePath = z.string().min(1).max(240).refine(p =>
   !/(^|\/)(\.env(?:\.|$)|\.git(?:\/|$)|node_modules(?:\/|$))/.test(p),
   "Chỉ cho phép đường dẫn file cụ thể trong repo; không glob, secrets hoặc traversal.");
 export const draftSchema = z.object({
+  traceability:traceSchema.optional(),
+  documentationReview:documentationReviewSchema.optional(),
   title: z.string().min(5).max(180),
   problem: z.string().min(10).max(6000),
   layer: z.enum(layers),
@@ -25,6 +28,8 @@ export const feedbackSchema = z.object({
   expected: z.string().max(3000).default(""),
 });
 export const completionSchema = z.object({
+  criterionEvidence:criterionEvidenceSchema.optional(),
+  documentationReview:documentationReviewSchema.optional(),
   browserVerification: z.enum(["ci"]).optional(),
   summary: z.string().min(10).max(6000),
   changedPaths: z.array(relativePath).min(1).max(20),

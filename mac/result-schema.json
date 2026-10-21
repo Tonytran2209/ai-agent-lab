@@ -1,17 +1,107 @@
 {
   "type": "object",
   "additionalProperties": false,
-  "required": ["summary", "blocked", "checks"],
+  "required": [
+    "summary",
+    "blocked",
+    "checks",
+    "criterionEvidence",
+    "documentationReview"
+  ],
   "properties": {
-    "summary": { "type": "string" },
-    "blocked": { "type": "boolean" },
+    "summary": {
+      "type": "string"
+    },
+    "blocked": {
+      "type": "boolean"
+    },
     "checks": {
       "type": "array",
       "items": {
-        "type": "object", "additionalProperties": false,
-        "required": ["command", "passed"],
-        "properties": { "command": { "type": "string" }, "passed": { "type": "boolean" } }
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "command",
+          "passed"
+        ],
+        "properties": {
+          "command": {
+            "type": "string"
+          },
+          "passed": {
+            "type": "boolean"
+          }
+        }
       }
+    },
+    "criterionEvidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "criterionIndex": {
+            "type": "integer"
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "passed",
+              "failed"
+            ]
+          },
+          "method": {
+            "type": "string",
+            "enum": [
+              "test",
+              "inspection"
+            ]
+          },
+          "command": {
+            "type": "string"
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "detail": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "criterionIndex",
+          "outcome",
+          "method",
+          "command",
+          "files",
+          "detail"
+        ]
+      }
+    },
+    "documentationReview": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "updatesNeeded": {
+          "type": "boolean"
+        },
+        "documents": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "updatesNeeded",
+        "documents",
+        "reason"
+      ]
     }
   }
 }

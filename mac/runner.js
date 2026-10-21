@@ -1,3 +1,4 @@
+import {executionContractInstructions} from '../server/contract-json.js';
 import {pollRechecks} from './recheck.js';
 import {pollPlanning} from './planning.js';
 import { pollCiSetups } from "./ci-setup.js";
@@ -120,7 +121,7 @@ export async function executeRequest({ packet, call, config, signal, run = comma
   await noSymlinks(worktree, r.draft.allowedPaths);
   const head = await git(worktree, ["rev-parse", "HEAD"]);
   let claimed;
-  try { claimed = await call("claim_request", { requestId: r.id, agentName: "mac-runner", observedBaseCommit: head }); }
+  try { claimed = await call("claim_request", { requestId: r.id, agentName: "mac-runner", observedBaseCommit: head, ...(r.contractProtocol?{contractProtocol:r.contractProtocol}:{}) }); }
   catch (e) {
     // No agent has edited this worktree; failed claims must not leak a worktree per poll.
     if (!resumed) await git(config.repoPath, ["worktree", "remove", worktree]).then(() => git(config.repoPath, ["branch", "-d", branch])).catch(() => {});
@@ -156,6 +157,7 @@ export async function executeRequest({ packet, call, config, signal, run = comma
       "Run non-browser acceptance checks. Do NOT launch Chrome/Chromium/headless browsers from this LaunchAgent. UI visual regression is performed separately by GitHub browser-check on a draft PR before admin review. Do not report browser verification as passed or failed if you did not perform it; describe it as pending CI in the summary.",
       "Frontend AND backend dependencies are already installed. The runner independently runs npm run check. Report failed checks honestly; a check failure alone is not a scope change. Set blocked=true only when implementation requires additional paths or policy changes.",
       "For whitespace checks use git -c core.whitespace=cr-at-eol diff --check against the pinned base; this recognizes CRLF while still rejecting trailing spaces/tabs. Do not use unconfigured git diff --check on CRLF repositories.",
+      executionContractInstructions,
       "Return JSON matching the supplied schema. Checks must describe commands actually executed.",
       JSON.stringify(codingPacket(claimed.request, claimed.library)),
     ].join("\n");
@@ -167,6 +169,7 @@ export async function executeRequest({ packet, call, config, signal, run = comma
     if (executed.code) throw new Error("Codex thoát với mã " + executed.code + ". Kiểm tra đăng nhập/quyền sandbox.");
     if (controller.signal.aborted) throw new Error("Mất heartbeat hoặc runner đang dừng.");
     const result = JSON.parse(await readFile(outputPath, "utf8"));
+    if(r.contractProtocol&&result.documentationReview?.updatesNeeded&&result.documentationReview.documents.some(p=>!r.draft.allowedPaths.includes(p)))throw new ScopeError("Diff cần cập nhật MD ngoài scope đã duyệt; cần lập lại kế hoạch với tài liệu liên quan.");
     if (result.blocked) throw new ScopeError(String(result.summary).slice(0, 2000));
     if (await git(worktree, ["rev-parse", "HEAD"]) !== r.baseCommit) throw new Error("Codex đã thay đổi HEAD ngoài quy trình.");
     let files = await changedFiles(worktree, r.baseCommit);
@@ -180,6 +183,8 @@ export async function executeRequest({ packet, call, config, signal, run = comma
     if (controller.signal.aborted) throw new Error("Runner đã dừng trước khi gửi kết quả.");
     await call("complete_request", { requestId: r.id, claimToken: token, result: {
       ...(r.draft.layer === "design" ? {browserVerification:"ci"} : {}),
+      ...(result.criterionEvidence?{criterionEvidence:result.criterionEvidence}:{}),
+      ...(result.documentationReview?{documentationReview:result.documentationReview}:{}),
       summary: String(result.summary).slice(0, 6000), changedPaths: files, commit, localArtifact: { branch },
       checks: [
         ...(Array.isArray(result.checks) ? result.checks.slice(0, 8).map(c => ({ command: String(c.command).slice(0, 200), passed: c.passed === true, output: "Codex-reported" })) : []),
@@ -234,7 +239,7 @@ export async function main(configPath) {
   const stop = () => controller.abort();
   process.once("SIGTERM", stop); process.once("SIGINT", stop);
   const log = text => console.log(new Date().toISOString(), text);
-  let lastTelemetry={phase:"connecting",requestId:null};
+  let lastTelemetry={phase:"polling",requestId:null,contractProtocol:"md-trace-v1"};
   const reportStatus = async value => {
     lastTelemetry={...lastTelemetry,...value};
     // Telemetry failure never grants/releases execution authority. Old backends may return 404.

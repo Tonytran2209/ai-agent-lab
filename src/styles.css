@@ -72,3 +72,7 @@
 @media(max-width:760px){.focused-workspace .compact-detail-heading h2{font-size:20px}.request-meta{gap:7px}.request-meta>span:not(.project-tag):not(.risk){font-size:9px}.activity-timeline li>div{flex-wrap:wrap;gap:4px}.request-disclosure>summary>span{font-size:9px}}
 .review-scope{margin:14px 0;display:grid;gap:6px}.review-scope small{font-size:10px;color:#888}.review-scope code{font-size:11px;color:#bcbcbc;overflow-wrap:anywhere}
 .project-memory{max-width:850px;margin:32px auto}.project-memory>h1{font-size:25px;margin:12px 0}.project-memory>p{color:#aaa;margin:14px 0 22px}.project-memory>h2{margin:30px 0 12px}.memory-budget{font-size:11px;color:#888}.project-memory details p{margin-bottom:10px}.project-memory details small{color:#777}.project-memory .quick-actions{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-top:14px}.project-memory .quick-actions a{font-size:12px;text-decoration:underline}
+
+.contract-row{padding:18px 0;border-bottom:1px solid #303030}.contract-row .section-heading{align-items:flex-start;gap:14px}.contract-row small{color:#a7abb4;white-space:normal}.contract-row a{font-size:11px;overflow-wrap:anywhere}.contract-row blockquote{border-left:2px solid #525252;margin:10px 0;padding-left:12px;color:#aaa;font-size:12px;white-space:pre-wrap}.contract-row p,.contract-docs p{font-size:12px;overflow-wrap:anywhere}.contract-docs{padding-top:18px}.contract-trace>p{font-size:12px}
+
+.contract-docs [role="alert"]{color:#d6b17a}
