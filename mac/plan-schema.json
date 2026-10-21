@@ -160,6 +160,82 @@
             "documents",
             "reason"
           ]
+        },
+        "impact": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "summary": {
+              "type": "string"
+            },
+            "domains": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "ui",
+                  "content",
+                  "documentation",
+                  "tests",
+                  "business",
+                  "api",
+                  "performance",
+                  "authentication",
+                  "authorization",
+                  "billing",
+                  "data-loss",
+                  "migration",
+                  "infrastructure",
+                  "secrets",
+                  "policy"
+                ]
+              }
+            },
+            "affectedFlows": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "dependencies": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "evidencePaths": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "uncertainty": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "reversible": {
+              "type": "boolean"
+            },
+            "rollback": {
+              "type": "string"
+            },
+            "preservesDataAndContracts": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "summary",
+            "domains",
+            "affectedFlows",
+            "dependencies",
+            "evidencePaths",
+            "uncertainty",
+            "reversible",
+            "rollback",
+            "preservesDataAndContracts"
+          ]
         }
       },
       "required": [
@@ -174,7 +250,8 @@
         "risk",
         "migrationNotes",
         "traceability",
-        "documentationReview"
+        "documentationReview",
+        "impact"
       ]
     },
     "evidence": {

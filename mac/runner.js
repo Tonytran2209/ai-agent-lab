@@ -239,7 +239,7 @@ export async function main(configPath) {
   const stop = () => controller.abort();
   process.once("SIGTERM", stop); process.once("SIGINT", stop);
   const log = text => console.log(new Date().toISOString(), text);
-  let lastTelemetry={phase:"polling",requestId:null,contractProtocol:"md-trace-v1"};
+  let lastTelemetry={phase:"polling",requestId:null,contractProtocol:"md-trace-v1",governanceProtocol:"impact-v1"};
   const reportStatus = async value => {
     lastTelemetry={...lastTelemetry,...value};
     // Telemetry failure never grants/releases execution authority. Old backends may return 404.

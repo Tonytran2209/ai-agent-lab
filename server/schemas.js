@@ -1,3 +1,4 @@
+import {impactSchema} from './impact.js';
 import {traceSchema,documentationReviewSchema,criterionEvidenceSchema} from './contracts.js';
 import { z } from "zod";
 export const layers = ["design", "backend", "database", "cross-layer"];
@@ -7,6 +8,7 @@ export const relativePath = z.string().min(1).max(240).refine(p =>
   !/(^|\/)(\.env(?:\.|$)|\.git(?:\/|$)|node_modules(?:\/|$))/.test(p),
   "Chỉ cho phép đường dẫn file cụ thể trong repo; không glob, secrets hoặc traversal.");
 export const draftSchema = z.object({
+  impact:impactSchema.optional(),
   traceability:traceSchema.optional(),
   documentationReview:documentationReviewSchema.optional(),
   title: z.string().min(5).max(180),
