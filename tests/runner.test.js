@@ -52,14 +52,14 @@ test("Mac runner claims once, runs checks, commits locally, reports and preserve
     // An exact allow-listed remote identity, with a local transport rewrite for this offline test.
     await git("remote", "add", "origin", "https://github.com/Tonytran2209/RebuildWriterStudioTool.git");
     await git("config", `url.${repo}.insteadOf`, "https://github.com/Tonytran2209/RebuildWriterStudioTool.git");
-    const request = { id: "REQ-ABCDEF12", repository: "Tonytran2209/RebuildWriterStudioTool", status: "approved", approval: {}, baseCommit, draft: { allowedPaths: ["file.txt"] } };
+    const request = { id: "REQ-ABCDEF12", contractProtocol:"md-trace-v1", repository: "Tonytran2209/RebuildWriterStudioTool", status: "approved", approval: {}, baseCommit, draft: { allowedPaths: ["file.txt"] } };
     const packet = { executable: true, request, library: {} }, calls = [];
     const call = async (name, args) => { calls.push({ name, args }); return name === "claim_request" ? { ...packet, claimToken: "test-private-token" } : {}; };
     const run = async (exe, args, opts) => {
       if (exe === "fake-codex") {
         assert.ok(!opts.input.includes("test-private-token"));
         await writeFile(path.join(opts.cwd, "file.txt"), "after\n");
-        await writeFile(args[args.indexOf("--output-last-message") + 1], JSON.stringify({ blocked: false, summary: "Đã cập nhật file trong phạm vi được duyệt.", checks: [] }));
+        await writeFile(args[args.indexOf("--output-last-message") + 1], JSON.stringify({ blocked: false, summary: "Đã cập nhật file trong phạm vi được duyệt.", criterionEvidence:[{criterionIndex:0,outcome:"passed",method:"inspection",command:"",files:["file.txt"],detail:"Inspected the exact approved file and observed the expected result."}], documentationReview:{updatesNeeded:false,documents:[],reason:"Only the existing bounded rendering behavior changed, no documentation contract changed."}, checks: [] }));
       }
       return { code: 0, stdout: "", stderr: "" };
     };
@@ -67,6 +67,9 @@ test("Mac runner claims once, runs checks, commits locally, reports and preserve
     assert.equal(calls.filter(c => c.name === "claim_request").length, 1);
     assert.equal(calls.at(-1).name, "complete_request");
     assert.ok(calls.at(-1).args.result.localArtifact);
+    assert.equal(calls.find(c=>c.name==="claim_request").args.contractProtocol,"md-trace-v1");
+    assert.equal(calls.at(-1).args.result.criterionEvidence[0].criterionIndex,0);
+    assert.equal(calls.at(-1).args.result.documentationReview.updatesNeeded,false);
     assert.equal(await readFile(path.join(repo, "file.txt"), "utf8"), "before\n");
     assert.notEqual(done.commit, baseCommit);
     const worktreesBefore = await git("worktree", "list", "--porcelain");

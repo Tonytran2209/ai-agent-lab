@@ -108,7 +108,7 @@ test("AI strict output prepares a draft; provider failure preserves feedback", a
 test("HTTP authentication, CSRF, member permissions and actual MCP pull lifecycle", async () => {
   const f = fixture();
   const secret = () => crypto.randomBytes(32).toString("hex");
-  const config = { ADMIN_PASSWORD: secret(), USER_PASSWORD: secret(), SESSION_SECRET: secret(), MCP_TOKEN: secret(), NODE_ENV: "test" };
+  const config = { MD_TRACEABILITY_ENABLED:"false",ADMIN_PASSWORD: secret(), USER_PASSWORD: secret(), SESSION_SECRET: secret(), MCP_TOKEN: secret(), NODE_ENV: "test" };
   const { app, service } = createApp(config, { db: f.db });
   const server = app.listen(0, "127.0.0.1"); await new Promise(resolve => server.once("listening", resolve));
   const base = "http://127.0.0.1:" + server.address().port;

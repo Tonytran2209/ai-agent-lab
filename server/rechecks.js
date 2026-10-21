@@ -1,3 +1,4 @@
+import {contractSatisfied} from './contracts.js';
 import crypto from 'node:crypto';
 import {transaction} from './db.js';
 import {fail} from './schemas.js';
@@ -15,7 +16,7 @@ export function createRechecks(db,service){
   heartbeat(id,token){return transaction(db,()=>{const r=get(id),j=verify(r,token);j.lease.expiresAt=new Date(Date.now()+15*60000).toISOString();save(r);return {ok:true};});},
   report(id,token,input){return transaction(db,()=>{const r=get(id),j=verify(r,token);if(input.resultRevision!==j.resultRevision)fail('Báo cáo không khớp artifact.');const checks=input.checks;if(checks.length!==2||checks[0].command!=='npm run check'||checks[1].command!==whitespaceCommand)fail('Cần hai kiểm tra độc lập bắt buộc.');const owner=j.lease.owner;j.checks=checks;j.lease=null;j.phase=checks.every(c=>c.passed)?'passed':'failed';if(j.phase==='passed'){
     const previous={command:'git diff --check',passed:false,output:r.result.checks.find(c=>!c.passed)?.output,commit:r.result.commit,resultRevision:j.resultRevision,supersededAt:new Date().toISOString(),reason:'Runner kiểm tra lại đúng diff với core.whitespace=cr-at-eol; không bỏ qua space/tab thừa.'};
-    r.checkHistory=[...(r.checkHistory||[]),previous];r.result={...r.result,checks:[...r.result.checks.filter(c=>c.command!=='git diff --check'&&c.command!=='npm run check'&&c.command!==whitespaceCommand),...checks],browserVerification:'ci'};r.verification=newVerification(r,owner);r.status='verifying';
+    r.checkHistory=[...(r.checkHistory||[]),previous];r.result={...r.result,checks:[...r.result.checks.filter(c=>c.command!=='git diff --check'&&c.command!=='npm run check'&&c.command!==whitespaceCommand),...checks],browserVerification:'ci'};if(contractSatisfied(r)){r.verification=newVerification(r,owner);r.status='verifying';}else{delete r.verification;r.status='failed';}
    }else r.status='failed';return event(r,j.phase==='passed'?'checks_rechecked':'checks_recheck_failed',owner,input.note);});},
   fail(id,token,note){return transaction(db,()=>{const r=get(id),j=verify(r,token),owner=j.lease.owner;j.lease=null;j.phase='failed';r.status='failed';return event(r,'checks_recheck_failed',owner,note);});},
   release(id,actor,stopped){return transaction(db,()=>{const r=get(id),j=r.recheck;if(!stopped||!j?.lease||Date.parse(j.lease.expiresAt)>Date.now())fail('Xác minh worker cũ đã dừng trước khi mở khóa claim hết hạn.');j.lease=null;j.phase='failed';r.status='failed';return event(r,'checks_recheck_released',actor,'Admin xác nhận worker kiểm tra cũ đã dừng.');});}
