@@ -3,6 +3,7 @@ import { checksSatisfied, verificationPassed } from './verification.js';
 import { z } from 'zod';
 import { fail } from './schemas.js';
 export const releaseUpdate = z.object({
+  postDeployCheck:z.object({url:z.string().url(),status:z.number().int().min(200).max(299),checkedAt:z.string().datetime()}).optional(),
   phase: z.enum(['ci', 'deploying', 'deployed', 'failed']),
   note: z.string().min(5).max(2000),
   prNumber: z.number().int().positive().optional(),

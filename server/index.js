@@ -1,3 +1,4 @@
+import {createLark} from './lark.js';
 import {createDelivery} from './delivery.js';
 import {planReport} from './local-planning.js';
 import { ciSetupOptions, ciSetupUpdate } from "./ci-setup.js";
@@ -25,6 +26,7 @@ export function createApp(config, options = {}) {
   const service = createService(db, {...options,requireTraceability:config.MD_TRACEABILITY_ENABLED!=="false"});
   const pipeline = createPipeline(service, config, { analyze: options.analyze });
   const delivery=createDelivery(service,config);
+  const lark=createLark(db,service,config);
   const app = express();
   // Railway edge proxy adds one trusted hop; app is designed for one replica.
   app.set("trust proxy", 1);
@@ -42,7 +44,7 @@ export function createApp(config, options = {}) {
     next();
   });
   app.get("/health", (req, res) => {
-    try { db.prepare("SELECT 1").get(); res.json({ ok: true, policyVersion: "risk-v2", runnerProtocol: "execution-failure-v1", releaseProtocol: "release-v1", browserProtocol: "github-browser-v1", aiPolicyVersion: "economy-v1", projectProtocol:"multi-project-v1", ciSetupProtocol:"ci-setup-v1",planningProtocol:"local-planning-v1",memoryProtocol:"verified-memory-v1",deliveryProtocol:"single-approval-v1",recheckProtocol:"artifact-recheck-v1",contractProtocol:"md-trace-v1" }); } catch { res.status(503).json({ ok: false }); }
+    try { db.prepare("SELECT 1").get(); res.json({ ok: true, policyVersion: "risk-v2", runnerProtocol: "execution-failure-v1", releaseProtocol: "release-v1", browserProtocol: "github-browser-v1", aiPolicyVersion: "economy-v1", projectProtocol:"multi-project-v1", ciSetupProtocol:"ci-setup-v1",planningProtocol:"local-planning-v1",memoryProtocol:"verified-memory-v1",deliveryProtocol:"single-approval-v1",recheckProtocol:"artifact-recheck-v1",contractProtocol:"md-trace-v1",governanceProtocol:"impact-v1",notificationProtocol:"lark-card-v1" }); } catch { res.status(503).json({ ok: false }); }
   });
   const limiter = (limit, windowMs = 60000) => rateLimit({ limit, windowMs, standardHeaders: "draft-8", legacyHeaders: false,
     message: { error: "Quá nhiều yêu cầu. Vui lòng thử lại sau." } });
@@ -123,6 +125,13 @@ export function createApp(config, options = {}) {
   });
   app.post("/api/projects/:id/ci/complete",auth.admin,(req,res)=>res.json(service.ciSetup.continue(req.params.id,req.user.name)));
   app.post("/api/projects/:id/ci/retry",auth.admin,async(req,res)=>{const {confirmStopped}=z.object({confirmStopped:z.boolean().default(false)}).parse(req.body||{}),job=service.ciSetup.get(req.params.id);const head=await ciRetryHead(service.project(req.params.id),job,config.GITHUB_TOKEN);res.json(service.ciSetup.retry(req.params.id,confirmStopped,head));});
+  app.get('/api/requests/:id/risk-feedback',auth.admin,(req,res)=>res.json(service.memory.riskFeedback(req.params.id)));
+  app.put('/api/requests/:id/risk-feedback',auth.admin,(req,res)=>{const v=z.object({risk:z.enum(['low','medium','high']),reason:z.string().trim().min(20).max(1000)}).strict().parse(req.body);res.json(service.memory.recordRiskFeedback(req.params.id,v.risk,v.reason,req.user.name));});
+  app.get("/api/settings/lark",auth.admin,(req,res)=>res.json(lark.get()));
+  app.put("/api/settings/lark",auth.admin,(req,res)=>res.json(lark.update(req.body)));
+  app.post("/api/settings/lark/retry/:id",auth.admin,limiter(6),(req,res)=>res.status(202).json(lark.retry(req.params.id)));
+  app.post("/api/settings/lark/test",auth.admin,limiter(3,60000),(req,res)=>res.status(202).json(lark.test()));
+  app.get("/api/projects/:id/intelligence",auth.admin,(req,res)=>res.json(service.memory.metrics(req.params.id)));
   app.get("/api/library", (req, res) => res.json(service.currentLibrary(req.query.projectId)));
   const syncing = new Set();
   app.post("/api/library/sync", auth.admin, limiter(3, 10 * 60000), async (req, res) => {
@@ -152,7 +161,7 @@ export function createApp(config, options = {}) {
   app.post('/runner/rechecks/:id/fail',auth.mcp,(req,res)=>{const b=z.object({recheckToken:z.string().regex(/^[a-f0-9]{64}$/),note:z.string().min(5).max(2000)}).strict().parse(req.body);res.json(service.rechecks.fail(req.params.id,b.recheckToken,b.note));});
   app.get('/runner/planning',auth.mcp,limiter(60),(req,res)=>res.json({jobs:service.localPlanning.queue()}));
   const planningClaim=z.object({jobId:z.string().uuid(),planningToken:z.string().regex(/^[a-f0-9]{64}$/)});
-  app.post('/runner/planning/:id/claim',auth.mcp,(req,res)=>{const b=z.object({jobId:z.string().uuid(),observedBaseCommit:z.string().regex(/^[a-f0-9]{40}$/),contractProtocol:z.literal('md-trace-v1').optional()}).strict().parse(req.body);const result=service.localPlanning.claim(req.params.id,b.jobId,b.observedBaseCommit,20,b.contractProtocol);service.reportRunner({phase:"running",requestId:req.params.id});res.json(result);});
+  app.post('/runner/planning/:id/claim',auth.mcp,(req,res)=>{const b=z.object({jobId:z.string().uuid(),observedBaseCommit:z.string().regex(/^[a-f0-9]{40}$/),contractProtocol:z.literal('md-trace-v1').optional(),governanceProtocol:z.literal('impact-v1').optional()}).strict().parse(req.body);const result=service.localPlanning.claim(req.params.id,b.jobId,b.observedBaseCommit,20,b.contractProtocol,b.governanceProtocol);service.reportRunner({phase:"running",requestId:req.params.id});res.json(result);});
   app.post('/runner/planning/:id/heartbeat',auth.mcp,(req,res)=>{const b=planningClaim.parse(req.body);const result=service.localPlanning.heartbeat(req.params.id,b.jobId,b.planningToken);service.reportRunner({phase:'running',requestId:req.params.id});res.json(result);});
   app.post('/runner/planning/:id/report',auth.mcp,(req,res)=>{const b=planningClaim.extend({report:planReport}).strict().parse(req.body);res.json(service.localPlanning.complete(req.params.id,b.jobId,b.planningToken,b.report));});
   app.post('/runner/planning/:id/fail',auth.mcp,(req,res)=>{const b=planningClaim.strict().parse(req.body);res.json(service.localPlanning.failed(req.params.id,b.jobId,b.planningToken));});
@@ -176,7 +185,7 @@ export function createApp(config, options = {}) {
   });
   app.get("/runner/status", auth.mcp, limiter(30), (req, res) => res.json(service.runnerStatus()));
   app.post("/runner/status", auth.mcp, limiter(30), (req, res) => {
-    const input = z.object({ phase: z.enum(["idle", "running", "polling", "error"]), contractProtocol:z.literal("md-trace-v1").optional(), requestId: z.string().regex(/^REQ-[A-F0-9]{8}$/).nullable().default(null), projects:z.array(z.object({projectId:z.string().max(64),repository:repositorySchema,repoReady:z.boolean(),note:z.string().max(300).optional()})).max(50).optional() }).parse(req.body);
+    const input = z.object({ phase: z.enum(["idle", "running", "polling", "error"]), contractProtocol:z.literal("md-trace-v1").optional(), governanceProtocol:z.literal("impact-v1").optional(), requestId: z.string().regex(/^REQ-[A-F0-9]{8}$/).nullable().default(null), projects:z.array(z.object({projectId:z.string().max(64),repository:repositorySchema,repoReady:z.boolean(),note:z.string().max(300).optional()})).max(50).optional() }).parse(req.body);
     if (input.phase === "running" && !input.requestId) fail("Running status requires a request.", 400);
     res.json(service.reportRunner(input));
   });
@@ -192,13 +201,13 @@ export function createApp(config, options = {}) {
       status >= 500 && e.status === undefined ? "Không xử lý được yêu cầu. Dữ liệu đã lưu vẫn được giữ." : e.message;
     res.status(status).json({ error });
   });
-  return { app, db, service, pipeline, delivery };
+  return { app, db, service, pipeline, delivery, lark };
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const { app, db, pipeline, delivery } = createApp(process.env);
+  const { app, db, pipeline, delivery, lark } = createApp(process.env);
   const port = Number(process.env.PORT || 3000);
-  const server = app.listen(port, "0.0.0.0", () => { pipeline.start(); delivery.start(); console.log("AI Agent Lab listening on port " + port); });
-  const stop = async () => { await pipeline.stop(); await delivery.stop(); server.close(() => db.close()); };
+  const server = app.listen(port, "0.0.0.0", () => { pipeline.start(); delivery.start(); lark.start(); console.log("AI Agent Lab listening on port " + port); });
+  const stop = async () => { await pipeline.stop(); await delivery.stop(); await lark.stop(); server.close(() => db.close()); };
   process.once("SIGTERM", stop); process.once("SIGINT", stop);
 }
 

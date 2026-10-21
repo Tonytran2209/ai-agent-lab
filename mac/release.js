@@ -17,7 +17,7 @@ export function latestChecks(runs) {
   for(const run of runs){const key=(run.app?.id||run.app?.slug||"unknown")+":"+run.name;const old=newest.get(key);if(!old||Number(run.id||0)>Number(old.id||0))newest.set(key,run);}
   return [...newest.values()];
 }
-export async function publishStep({ request: r, config, run, api, signal, purpose = "release" }) {
+export async function publishStep({ request: r, config, run, api, signal, purpose = "release", fetcher=fetch }) {
   const repo = config.repository || 'Tonytran2209/RebuildWriterStudioTool';
   const baseBranch = r.branch || config.branch || 'main';
   if (r.repository !== repo || config.projectId && r.projectId !== config.projectId || r.status !== (purpose === 'verification' ? 'verifying' : 'completed') || !r.release || !/^[a-f0-9]{40}$/.test(r.result?.commit)) throw new Error('Sai repository hoặc quyền phát hành.');
@@ -84,8 +84,19 @@ export async function publishStep({ request: r, config, run, api, signal, purpos
     const deployment = deployments.find(d => d.sha === release.mergeCommit && d.environment === config.releaseEnvironment && d.creator?.login === 'railway-app[bot]');
     if (deployment) {
       const states = await api(prefix + '/deployments/' + deployment.id + '/statuses');
-      if (states[0]?.state === 'success') return { phase: 'deployed', deploymentUrl: states[0].environment_url || states[0].target_url,
-        note: 'Railway xác nhận deploy thành công commit ' + release.mergeCommit.slice(0, 12) + '.' };
+      if (states[0]?.state === 'success') {
+        let postDeployCheck;
+        if(config.postDeployUrl){
+          const u=new URL(config.postDeployUrl);
+          if(u.protocol!=='https:'||! /^[a-z0-9-]+\.up\.railway\.app$/.test(u.hostname)||u.username||u.password||u.port||u.search||u.hash)throw new Error('URL kiểm tra sau deploy không hợp lệ.');
+          let response;try{response=await fetcher(u.href,{method:'GET',redirect:'error',signal:AbortSignal.timeout(15000)});}catch{throw new Error('Đã deploy nhưng HTTP smoke check không kết nối được. Không tự rollback; cần kiểm tra release.');}
+          if(!response.ok)throw new Error('Đã deploy nhưng HTTP smoke check trả '+response.status+'. Main đã cập nhật; cần kiểm tra, không merge lại.');
+          await response.body?.cancel();
+          postDeployCheck={url:u.href,status:response.status,checkedAt:new Date().toISOString()};
+        }
+        return { phase: 'deployed', deploymentUrl: states[0].environment_url || states[0].target_url,...(postDeployCheck?{postDeployCheck}:{}),
+          note: 'Railway xác nhận deploy thành công commit ' + release.mergeCommit.slice(0, 12) + '.'+(postDeployCheck?' HTTP smoke check đã đạt; không thay thế kiểm tra nghiệp vụ.':' Chưa cấu hình HTTP smoke check sau deploy.') };
+      }
       if (['failure', 'error'].includes(states[0]?.state)) throw new Error('Railway deploy lỗi. Code đã merge main; cần kiểm tra deployment, không merge lại.');
     }
     if (Date.now() - Date.parse(release.phaseStartedAt || release.updatedAt) > 30 * 60000) throw new Error('Chưa có xác nhận Railway cho đúng commit sau 30 phút. Main đã cập nhật; kiểm tra Railway rồi thử theo dõi lại.');
