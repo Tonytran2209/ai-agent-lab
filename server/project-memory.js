@@ -1,7 +1,8 @@
 import {checksSatisfied,verificationPassed} from './verification.js';
 import {fail} from './schemas.js';
 import crypto from 'node:crypto';
-const words=s=>new Set(String(s).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').split(/[^\p{L}\p{N}]+/u).filter(w=>w.length>=3));
+const stopwords=new Set('the and for with from this that have been should would could please feedback request project article toi cua cac mot nhung nay khi thi voi cho can hay giup thay duoc dang nhan xet phan bai buoc hien'.split(' '));
+const words=s=>new Set(String(s).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').split(/[^\p{L}\p{N}]+/u).filter(w=>w.length>=3&&!stopwords.has(w)));
 export function createProjectMemory(db,service){
  db.exec('CREATE TABLE IF NOT EXISTS risk_feedback (request_id TEXT PRIMARY KEY,data TEXT NOT NULL)');
  db.exec('CREATE TABLE IF NOT EXISTS project_memory (id TEXT PRIMARY KEY,project_id TEXT NOT NULL,data TEXT NOT NULL)');

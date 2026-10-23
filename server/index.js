@@ -159,12 +159,13 @@ export function createApp(config, options = {}) {
   app.post('/runner/rechecks/:id/heartbeat',auth.mcp,(req,res)=>res.json(service.rechecks.heartbeat(req.params.id,z.object({recheckToken:z.string().regex(/^[a-f0-9]{64}$/)}).strict().parse(req.body).recheckToken)));
   app.post('/runner/rechecks/:id/report',auth.mcp,(req,res)=>{const b=z.object({recheckToken:z.string().regex(/^[a-f0-9]{64}$/),resultRevision:z.string().regex(/^[a-f0-9]{64}$/),checks:z.array(z.object({command:z.string().max(200),passed:z.boolean(),output:z.string().max(4000)}).strict()).length(2),note:z.string().min(10).max(2000)}).strict().parse(req.body);res.json(service.rechecks.report(req.params.id,b.recheckToken,b));});
   app.post('/runner/rechecks/:id/fail',auth.mcp,(req,res)=>{const b=z.object({recheckToken:z.string().regex(/^[a-f0-9]{64}$/),note:z.string().min(5).max(2000)}).strict().parse(req.body);res.json(service.rechecks.fail(req.params.id,b.recheckToken,b.note));});
+  app.post('/api/requests/:id/planning/replay',auth.admin,(req,res)=>{const b=z.object({expectedRevision:z.string().min(1)}).strict().parse(req.body);res.json(service.localPlanning.replay(req.params.id,req.user.name,b.expectedRevision));});
   app.get('/runner/planning',auth.mcp,limiter(60),(req,res)=>res.json({jobs:service.localPlanning.queue()}));
   const planningClaim=z.object({jobId:z.string().uuid(),planningToken:z.string().regex(/^[a-f0-9]{64}$/)});
-  app.post('/runner/planning/:id/claim',auth.mcp,(req,res)=>{const b=z.object({jobId:z.string().uuid(),observedBaseCommit:z.string().regex(/^[a-f0-9]{40}$/),contractProtocol:z.literal('md-trace-v1').optional(),governanceProtocol:z.literal('impact-v1').optional()}).strict().parse(req.body);const result=service.localPlanning.claim(req.params.id,b.jobId,b.observedBaseCommit,20,b.contractProtocol,b.governanceProtocol);service.reportRunner({phase:"running",requestId:req.params.id});res.json(result);});
+  app.post('/runner/planning/:id/claim',auth.mcp,(req,res)=>{const b=z.object({jobId:z.string().uuid(),observedBaseCommit:z.string().regex(/^[a-f0-9]{40}$/),contractProtocol:z.literal('md-trace-v1').optional(),governanceProtocol:z.literal('impact-v1').optional(),replayProtocol:z.literal('planning-replay-v1').optional()}).strict().parse(req.body);const result=service.localPlanning.claim(req.params.id,b.jobId,b.observedBaseCommit,20,b.contractProtocol,b.governanceProtocol,b.replayProtocol);service.reportRunner({phase:"running",requestId:req.params.id});res.json(result);});
   app.post('/runner/planning/:id/heartbeat',auth.mcp,(req,res)=>{const b=planningClaim.parse(req.body);const result=service.localPlanning.heartbeat(req.params.id,b.jobId,b.planningToken);service.reportRunner({phase:'running',requestId:req.params.id});res.json(result);});
-  app.post('/runner/planning/:id/report',auth.mcp,(req,res)=>{const b=planningClaim.extend({report:planReport}).strict().parse(req.body);res.json(service.localPlanning.complete(req.params.id,b.jobId,b.planningToken,b.report));});
-  app.post('/runner/planning/:id/fail',auth.mcp,(req,res)=>{const b=planningClaim.extend({reason:z.enum(['scope','validation','report','codex','worker']).optional()}).strict().parse(req.body);res.json(service.localPlanning.failed(req.params.id,b.jobId,b.planningToken,b.reason));});
+  app.post('/runner/planning/:id/report',auth.mcp,(req,res)=>{const b=planningClaim.extend({report:planReport}).strict().parse(req.body);try{res.json(service.localPlanning.complete(req.params.id,b.jobId,b.planningToken,b.report));}catch(e){if(e.code==='SCOPE_POLICY')service.localPlanning.validationFailure(req.params.id,b.jobId,b.planningToken,e.details.map(d=>d.path));throw e;}});
+  app.post('/runner/planning/:id/fail',auth.mcp,(req,res)=>{const b=planningClaim.extend({reason:z.enum(['scope','validation','report','codex','worker','artifact']).optional()}).strict().parse(req.body);res.json(service.localPlanning.failed(req.params.id,b.jobId,b.planningToken,b.reason));});
   app.get("/runner/projects",auth.mcp,limiter(60),(req,res)=>res.json({projects:service.projects()}));
   app.get("/runner/verifications",auth.mcp,limiter(60),(req,res)=>res.json({requests:service.verifications()}));
   app.post("/runner/verifications/:id/claim",auth.mcp,limiter(60),(req,res)=>res.json(service.claimVerification(req.params.id,"mac-browser-ci")));
@@ -199,7 +200,7 @@ export function createApp(config, options = {}) {
     const status = e instanceof ZodError ? 400 : e.status || (e.name === "TimeoutError" ? 504 : 500);
     const error = e instanceof ZodError ? e.issues.map(i => i.path.join(".") + ": " + i.message).join("; ") :
       status >= 500 && e.status === undefined ? "Không xử lý được yêu cầu. Dữ liệu đã lưu vẫn được giữ." : e.message;
-    res.status(status).json({ error });
+    res.status(status).json({ error,...(e.code==='SCOPE_POLICY'?{code:e.code,details:e.details}:{}) });
   });
   return { app, db, service, pipeline, delivery, lark };
 }

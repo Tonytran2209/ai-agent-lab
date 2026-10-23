@@ -221,6 +221,10 @@ export async function connect(config, token) {
   };
   return { client, call };
 }
+export async function pollIndependentWorkers(jobs,signal,onError=()=>{}){
+ for(const job of jobs){if(signal?.aborted)break;try{await job.run();}catch{if(signal?.aborted)break;onError(job.name);}}
+}
+
 export async function main(configPath) {
   const config = JSON.parse(await readFile(configPath, "utf8"));
   config.repoPath = await realpath(config.repoPath);
@@ -258,13 +262,14 @@ export async function main(configPath) {
         connection = await connect(config, token);
         const connected = await connectProjects(config, token, command, controller.signal);
         await reportStatus({phase:"polling",requestId:null,projects:connected.statuses});
-        await pollCiSetups(connected.configs, token, command, controller.signal);
-        for (const projectConfig of connected.configs) {
-          await pollRechecks(projectConfig,token,command,controller.signal,prepareDependencies,childEnvironment(process.env));
-          await pollVerifications(projectConfig, token, command, controller.signal);
-          await pollReleases(projectConfig, token, command, controller.signal);
+        const workers=[{name:'ci-setup',run:()=>pollCiSetups(connected.configs,token,command,controller.signal)}];
+        for(const projectConfig of connected.configs){
+          workers.push({name:projectConfig.projectId+' / recheck',run:()=>pollRechecks(projectConfig,token,command,controller.signal,prepareDependencies,childEnvironment(process.env))},
+            {name:projectConfig.projectId+' / browser CI',run:()=>pollVerifications(projectConfig,token,command,controller.signal)},
+            {name:projectConfig.projectId+' / release',run:()=>pollReleases(projectConfig,token,command,controller.signal)});
         }
-        await pollPlanning(connected.configs,token,command,controller.signal,childEnvironment(process.env));
+        workers.push({name:'planning',run:()=>pollPlanning(connected.configs,token,command,controller.signal,childEnvironment(process.env),reportStatus)});
+        await pollIndependentWorkers(workers,controller.signal,name=>log('Worker '+name+' chưa hoàn tất; tiếp tục các hàng đợi độc lập.'));
         const { requests } = await connection.call("list_ready_requests");
         await reportStatus({ phase: "idle", requestId: null, projects:connected.statuses });
         if (!wasConnected) log("Đã kết nối Lab; đang kiểm tra hàng đợi.");

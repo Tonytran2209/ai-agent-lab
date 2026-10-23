@@ -1,8 +1,9 @@
+import {rejectedScopePaths} from './scope.js';
 import {impactRisk,decideAutomation} from './impact.js';
 import {validateContract,assessContract,contractSatisfied,documentationImpact} from './contracts.js';
 import {createRechecks} from './rechecks.js';
 import {createProjectMemory} from './project-memory.js';
-import {createLocalPlanning} from './local-planning.js';
+import {createLocalPlanning,intentRisk} from './local-planning.js';
 import { createCiSetup } from "./ci-setup.js";
 import { createProjects } from "./projects.js";
 import { createAiLedger } from "./ai-ledger.js";
@@ -15,19 +16,11 @@ import { draftSchema, feedbackSchema, completionSchema, fail } from "./schemas.j
 
 export const hash = value => crypto.createHash("sha256").update(value).digest("hex");
 const now = () => new Date().toISOString();
-const allowedByLayer = {
-  design: p => /^(src\/components\/|src\/[^/]+\.css$|src\/App\.tsx$|public\/|index\.html$|\.agent-hub\/design\/)/.test(p),
-  backend: p => /^(backend\/|src\/lib\/(aiService|db|railway[^/]*)\.ts$|\.agent-hub\/backend\/)/.test(p),
-  database: p => /^(supabase\/migrations\/|backend\/supabase\.ts$|\.agent-hub\/database\/)/.test(p),
-};
 export function validateDraft(draft, library, requireTraceability=false) {
   const parsed = draftSchema.parse(draft);
   parsed.allowedPaths = [...new Set(parsed.allowedPaths)];
-  const ownedByLayer = parsed.layer === "cross-layer" ? p => Object.values(allowedByLayer).some(fn => fn(p)) : allowedByLayer[parsed.layer];
-  // Existing project test fixtures are valid scope, but never CI/config files.
-  const projectTest=p=>/^tests\/(browser|agent-lab)\/[a-zA-Z0-9_./-]+\.[cm]?[jt]sx?$/.test(p)&&library.sourcePaths.includes(p);
-  const owned=p=>ownedByLayer(p)||library.documents.some(d=>d.path===p)||projectTest(p)||/^tests\/agent-lab\/[^/]+\.(spec|test)\.[cm]?[jt]sx?$/.test(p);
-  if (!parsed.allowedPaths.every(owned)) fail("Phạm vi file không thuộc layer đã chọn.", 400);
+  const rejected=rejectedScopePaths(parsed,library);
+  if(rejected.length)throw Object.assign(new Error('Phạm vi file không thuộc layer đã chọn.'),{status:400,code:'SCOPE_POLICY',details:rejected.map(path=>({path,reason:'outside-layer-or-test-policy'}))});
   // New files are allowed within declared layer boundaries; the reviewer must inspect them.
   const newFiles = parsed.allowedPaths.filter(p => !library.sourcePaths.includes(p));
   const sensitiveWords = new Set(["auth", "oauth", "authentication", "authorization", "permission", "permissions", "billing", "storage", "payment", "payments", "login", "session", "supabase", "migration", "migrations", "provider", "providers"]);
@@ -89,6 +82,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
       fail("Không thể sửa request đã duyệt hoặc đang thực thi. Tạo scope revision trước.");
   }
   function withRiskFloor(r, draft) {
+    if(intentRisk([r.feedback,r.screen,r.expected].join(' '))==='high')return {...draft,risk:'high',riskReasons:[...draft.riskReasons,'Feedback liên quan thay đổi nhạy cảm; cần admin xác nhận.']};
     return r.riskFloor === "high" || r.riskFloor === "medium" && draft.risk === "low" ? { ...draft, risk: r.riskFloor } : draft;
   }
   function cancelPreparation(r) {
@@ -253,7 +247,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
       return transaction(db, () => {
         const r = get(id); mutable(r);
         if (hash(JSON.stringify(publicRequest(r))) !== expectedHash) fail("Request đã thay đổi trong lúc chuẩn bị.");
-        let d = validateDraft(r.draft, library(r.libraryVersionId),Boolean(r.contractProtocol));
+        let d = withRiskFloor(r,validateDraft(r.draft, library(r.libraryVersionId),Boolean(r.contractProtocol)));
         r.unresolvedCheckpoints=[...d.questions];
         // Unresolved model questions become visible review checkpoints, never fabricated answers.
         if (d.questions.length) d = { ...d, risk: d.risk === "low" ? "medium" : d.risk,

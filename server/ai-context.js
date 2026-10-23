@@ -12,7 +12,7 @@ export function feedbackLayer(request) {
 }
 export function codingPacket(request, library) {
   const { sourcePaths, ...pinned } = compactLibrary(library, request.draft?.layer || 'cross-layer');
-  return { request: Object.fromEntries(['id','projectId','repository','branch','baseCommit','libraryVersionId','contractProtocol','feedback','screen','reproduction','expected','draft'].map(k => [k, request[k]])), library: pinned };
+  return { request: Object.fromEntries(['id','projectId','repository','branch','baseCommit','libraryVersionId','contractProtocol','governanceProtocol','feedback','screen','reproduction','expected','draft'].map(k => [k, request[k]])), library: pinned };
 }
 // Exact, deliberately narrow recipe. Additional prose/requirements always use analysis.
 export function displayRecipe(request, library) {
@@ -24,3 +24,5 @@ export function displayRecipe(request, library) {
   return { title: 'Hiển thị dấu gạch ngang ngắn trong Draft', problem: text + '. Chỉ đổi khi hiển thị; giữ nguyên dữ liệu lưu, API và nội dung xuất.', layer: 'design', module: 'Draft', allowedPaths: paths,
     acceptanceCriteria: ["Bài viết Draft hiển thị ký tự '—' thành '-'.", 'Nội dung lưu và xuất giữ nguyên; các phần khác không thay đổi.'], assumptions: ['Chỉ chuẩn hóa phần hiển thị Draft.'], questions: [], risk: 'low', migrationNotes: '' };
 }
+
+export function planningLibrary(library){return {...library,documents:library.documents.map(d=>{const lines=d.content.split('\n');let size=0;const excerpt=[];for(const line of lines){if(size+line.length+1>3000)break;excerpt.push(line);size+=line.length+1;}return {path:d.path,content:excerpt.join('\n'),excerpt:excerpt.length<lines.length,startLine:1,endLine:excerpt.length,totalLines:lines.length,readFullFromCheckout:excerpt.length<lines.length};})};}
