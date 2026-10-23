@@ -121,7 +121,7 @@ export async function executeRequest({ packet, call, config, signal, run = comma
   await noSymlinks(worktree, r.draft.allowedPaths);
   const head = await git(worktree, ["rev-parse", "HEAD"]);
   let claimed;
-  try { claimed = await call("claim_request", { requestId: r.id, agentName: "mac-runner", observedBaseCommit: head, ...(r.contractProtocol?{contractProtocol:r.contractProtocol}:{}) }); }
+  try { claimed = await call("claim_request", { requestId: r.id, agentName: config.workerName || "mac-runner", observedBaseCommit: head, ...(r.contractProtocol?{contractProtocol:r.contractProtocol}:{}) }); }
   catch (e) {
     // No agent has edited this worktree; failed claims must not leak a worktree per poll.
     if (!resumed) await git(config.repoPath, ["worktree", "remove", worktree]).then(() => git(config.repoPath, ["branch", "-d", branch])).catch(() => {});
@@ -137,7 +137,7 @@ export async function executeRequest({ packet, call, config, signal, run = comma
   const heartbeat = setInterval(() => {
     if (heartbeatBusy) return;
     heartbeatBusy = true;
-    heartbeatTask = reportStatus({ phase: "running", requestId: r.id }).then(() => call("report_progress", { requestId: r.id, claimToken: token, note: "Mac runner đang chạy Codex và kiểm tra trong worktree riêng." }))
+    heartbeatTask = reportStatus({ phase: "running", requestId: r.id }).then(() => call("report_progress", { requestId: r.id, claimToken: token, note: "Worker " + (config.workerName || "mac-runner") + " đang chạy Codex và kiểm tra trong worktree riêng." }))
       .catch(() => controller.abort()).finally(() => { heartbeatBusy = false; });
   }, 60000);
   const stopHeartbeat = async () => { clearInterval(heartbeat); await heartbeatTask; };

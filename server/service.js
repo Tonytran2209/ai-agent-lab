@@ -350,6 +350,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
           other.draft.allowedPaths.concat(r.draft.allowedPaths).some(p => /^(supabase\/migrations\/|backend\/supabase\.ts$)/.test(p))));
         if (conflict) fail("Phạm vi đang được request " + conflict.id + " sử dụng.");
         const token = crypto.randomBytes(32).toString("hex");
+        r.executionWorker={name:owner,kind:owner==='github-cloud-worker'?'cloud':owner==='mac-runner'?'mac':'mcp',at:now()};
         r.lease = { owner, tokenHash: hash(token), expiresAt: new Date(Date.now() + 15 * 60000).toISOString() };
         r.status = "claimed"; changed(r, "request_claimed", owner);
         return { ...packet(r), claimToken: token, expiresAt: r.lease.expiresAt };
