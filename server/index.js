@@ -47,7 +47,8 @@ export function createApp(config, options = {}) {
   app.set("trust proxy", 1);
   app.disable("x-powered-by");
   app.use(helmet({ contentSecurityPolicy: { directives: { defaultSrc: ["'self'"], scriptSrc: ["'self'"], styleSrc: ["'self'", "'unsafe-inline'"],
-    imgSrc: ["'self'", "data:"], connectSrc: ["'self'"], frameAncestors: ["'none'"] } } }));
+    imgSrc: ["'self'", "data:","blob:"], connectSrc: ["'self'"], frameAncestors: ["'none'"] } } }));
+  app.post('/api/requests',auth.require,rateLimit({limit:20,windowMs:60000}),express.json({limit:'17mb'}));
   app.use('/api/data/restore-preview',express.json({limit:'8mb'}));
   app.use(express.json({ limit: "128kb",verify:(req,res,buf)=>{if(req.originalUrl==='/hooks/github')req.rawBody=buf;} }));
   const appOrigin = config.APP_URL ? new URL(config.APP_URL).origin : null;
@@ -60,7 +61,7 @@ export function createApp(config, options = {}) {
     next();
   });
   app.get("/health", (req, res) => {
-    try { db.prepare("SELECT 1").get(); res.json({ ok: true, policyVersion: "risk-v2", runnerProtocol: "execution-failure-v1", releaseProtocol: "release-v1", browserProtocol: "github-browser-v1", aiPolicyVersion: "economy-v1", projectProtocol:"multi-project-v1", ciSetupProtocol:"ci-setup-v1",planningProtocol:"local-planning-v1",memoryProtocol:"verified-memory-v1",deliveryProtocol:"single-approval-v1",recheckProtocol:"artifact-recheck-v1",contractProtocol:"md-trace-v1",governanceProtocol:"impact-v1",notificationProtocol:"lark-card-v1",orchestratorProtocol:"lab-orchestrator-v1",feedbackRoutingProtocol:"feedback-routing-v1",knowledgeProtocol:"hybrid-concepts-v1",dataProtocol:"lab-project-export-v1" }); } catch { res.status(503).json({ ok: false }); }
+    try { db.prepare("SELECT 1").get(); res.json({ ok: true, policyVersion: "risk-v2", runnerProtocol: "execution-failure-v1", releaseProtocol: "release-v1", browserProtocol: "github-browser-v1", aiPolicyVersion: "economy-v1", projectProtocol:"multi-project-v1", ciSetupProtocol:"ci-setup-v1",planningProtocol:"local-planning-v1",memoryProtocol:"verified-memory-v1",deliveryProtocol:"single-approval-v1",recheckProtocol:"artifact-recheck-v1",contractProtocol:"md-trace-v1",governanceProtocol:"impact-v1",notificationProtocol:"lark-card-v1",orchestratorProtocol:"lab-orchestrator-v1",feedbackRoutingProtocol:"feedback-routing-v1",attachmentProtocol:"feedback-images-v1",knowledgeProtocol:"hybrid-concepts-v1",dataProtocol:"lab-project-export-v1" }); } catch { res.status(503).json({ ok: false }); }
   });
   const limiter = (limit, windowMs = 60000) => rateLimit({ limit, windowMs, standardHeaders: "draft-8", legacyHeaders: false,
     message: { error: "Quá nhiều yêu cầu. Vui lòng thử lại sau." } });
@@ -97,6 +98,9 @@ export function createApp(config, options = {}) {
     if (created.duplicate) return res.status(200).json(created);
     res.status(201).json(pipeline.enqueue(created.id, req.user.name));
   });
+  const sendFeedbackImage=(req,res)=>{const {metadata,bytes}=service.image(req.params.id,req.params.imageId);res.set({'Content-Type':metadata.mime,'Content-Length':String(bytes.length),'Cache-Control':'private, no-store','Content-Disposition':'inline; filename="'+metadata.id+'.'+({'image/png':'png','image/jpeg':'jpg','image/webp':'webp'})[metadata.mime]+'"'}).send(bytes);};
+  app.get('/api/requests/:id/images/:imageId',sendFeedbackImage);
+  app.get('/runner/requests/:id/images/:imageId',auth.mcp,sendFeedbackImage);
   app.get("/api/requests/:id", (req, res) => res.json({ request: service.get(req.params.id), events: service.events(req.params.id) }));
   const editable = (req, res, next) => {
     // Members can submit feedback; contract preparation and execution authority remain admin-only.
@@ -195,7 +199,7 @@ export function createApp(config, options = {}) {
   app.post('/api/requests/:id/planning/replay',auth.admin,(req,res)=>{const b=z.object({expectedRevision:z.string().min(1)}).strict().parse(req.body);res.json(service.localPlanning.replay(req.params.id,req.user.name,b.expectedRevision));});
   app.get('/runner/planning',auth.mcp,limiter(60),(req,res)=>res.json({jobs:service.localPlanning.queue()}));
   const planningClaim=z.object({jobId:z.string().uuid(),planningToken:z.string().regex(/^[a-f0-9]{64}$/)});
-  app.post('/runner/planning/:id/claim',auth.mcp,(req,res)=>{const b=z.object({jobId:z.string().uuid(),observedBaseCommit:z.string().regex(/^[a-f0-9]{40}$/),contractProtocol:z.literal('md-trace-v1').optional(),governanceProtocol:z.literal('impact-v1').optional(),replayProtocol:z.literal('planning-replay-v1').optional()}).strict().parse(req.body);const result=service.localPlanning.claim(req.params.id,b.jobId,b.observedBaseCommit,20,b.contractProtocol,b.governanceProtocol,b.replayProtocol);service.reportRunner({phase:"running",requestId:req.params.id});res.json(result);});
+  app.post('/runner/planning/:id/claim',auth.mcp,(req,res)=>{const b=z.object({jobId:z.string().uuid(),observedBaseCommit:z.string().regex(/^[a-f0-9]{40}$/),contractProtocol:z.literal('md-trace-v1').optional(),governanceProtocol:z.literal('impact-v1').optional(),replayProtocol:z.literal('planning-replay-v1').optional(),attachmentProtocol:z.literal('feedback-images-v1').optional()}).strict().parse(req.body);const result=service.localPlanning.claim(req.params.id,b.jobId,b.observedBaseCommit,20,b.contractProtocol,b.governanceProtocol,b.replayProtocol,b.attachmentProtocol);service.reportRunner({phase:"running",requestId:req.params.id});res.json(result);});
   app.post('/runner/planning/:id/heartbeat',auth.mcp,(req,res)=>{const b=planningClaim.parse(req.body);const result=service.localPlanning.heartbeat(req.params.id,b.jobId,b.planningToken);service.reportRunner({phase:'running',requestId:req.params.id});res.json(result);});
   app.post('/runner/planning/:id/report',auth.mcp,(req,res)=>{const b=planningClaim.extend({report:planReport}).strict().parse(req.body);try{res.json(service.localPlanning.complete(req.params.id,b.jobId,b.planningToken,b.report));}catch(e){if(e.code==='SCOPE_POLICY')service.localPlanning.validationFailure(req.params.id,b.jobId,b.planningToken,e.details.map(d=>d.path));throw e;}});
   app.post('/runner/planning/:id/fail',auth.mcp,(req,res)=>{const b=planningClaim.extend({reason:z.enum(['scope','validation','report','codex','worker','artifact']).optional()}).strict().parse(req.body);res.json(service.localPlanning.failed(req.params.id,b.jobId,b.planningToken,b.reason));});
@@ -220,7 +224,7 @@ export function createApp(config, options = {}) {
   });
   app.get("/runner/status", auth.mcp, limiter(30), (req, res) => res.json(service.runnerStatus()));
   app.post("/runner/status", auth.mcp, limiter(30), (req, res) => {
-    const input = z.object({ phase: z.enum(["idle", "running", "polling", "error"]), contractProtocol:z.literal("md-trace-v1").optional(), governanceProtocol:z.literal("impact-v1").optional(), requestId: z.string().regex(/^REQ-[A-F0-9]{8}$/).nullable().default(null), projects:z.array(z.object({projectId:z.string().max(64),repository:repositorySchema,repoReady:z.boolean(),note:z.string().max(300).optional()})).max(50).optional() }).parse(req.body);
+    const input = z.object({ phase: z.enum(["idle", "running", "polling", "error"]), contractProtocol:z.literal("md-trace-v1").optional(), governanceProtocol:z.literal("impact-v1").optional(),attachmentProtocol:z.literal("feedback-images-v1").optional(), requestId: z.string().regex(/^REQ-[A-F0-9]{8}$/).nullable().default(null), projects:z.array(z.object({projectId:z.string().max(64),repository:repositorySchema,repoReady:z.boolean(),note:z.string().max(300).optional()})).max(50).optional() }).parse(req.body);
     if (input.phase === "running" && !input.requestId) fail("Running status requires a request.", 400);
     res.json(service.reportRunner(input));
   });

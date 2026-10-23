@@ -1,3 +1,4 @@
+import {normalizeImages} from '../server/feedback-images.js';
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, rm, writeFile, mkdir, readFile } from "node:fs/promises";
@@ -58,6 +59,7 @@ test("Mac runner claims once, runs checks, commits locally, reports and preserve
     const run = async (exe, args, opts) => {
       if (exe === "fake-codex") {
         assert.ok(!opts.input.includes("test-private-token"));
+        if(args.includes("--image"))assert.equal((await readFile(args[args.indexOf("--image")+1])).toString("base64"),"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aWh8AAAAASUVORK5CYII=");
         await writeFile(path.join(opts.cwd, "file.txt"), "after\n");
         await writeFile(args[args.indexOf("--output-last-message") + 1], JSON.stringify({ blocked: false, summary: "Đã cập nhật file trong phạm vi được duyệt.", criterionEvidence:[{criterionIndex:0,outcome:"passed",method:"inspection",command:"",files:["file.txt"],detail:"Inspected the exact approved file and observed the expected result."}], documentationReview:{updatesNeeded:false,documents:[],reason:"Only the existing bounded rendering behavior changed, no documentation contract changed."}, checks: [] }));
       }
@@ -95,6 +97,10 @@ test("Mac runner claims once, runs checks, commits locally, reports and preserve
     const stopped = JSON.parse(await readFile(path.join(stateDir, operationalRequest.id + ".json"), "utf8"));
     const resumed = await executeRequest({ packet: { ...packet, request: operationalRequest }, call: operationalCall, config: { repoPath: repo, stateDir, codexPath: "fake-codex" }, run });
     assert.equal(resumed.worktree, stopped.worktree);
+    const png="iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aWh8AAAAASUVORK5CYII=",[img]=normalizeImages([{name:'screenshot.png',type:'image/png',data:png}]);
+    const imageRequest={...request,id:'REQ-ABCDEF16',attachments:[img.metadata]},cache=path.join(stateDir,'feedback-images',imageRequest.id);await mkdir(cache,{recursive:true});await writeFile(path.join(cache,img.metadata.id+'.png'),img.bytes);
+    let imageSeen=false;await executeRequest({packet:{...packet,request:imageRequest},imageToken:'test-image-token',call:async(name)=>name==='claim_request'?{...packet,request:imageRequest,claimToken:'test-private-token'}:{},config:{repoPath:repo,stateDir,codexPath:'fake-codex',mcpUrl:'https://lab.up.railway.app/mcp'},run:async(exe,args,opts)=>{if(exe==='fake-codex'){imageSeen=args.includes('--image');assert.match(opts.input,/screenshot.png/);}return run(exe,args,opts);}});assert.equal(imageSeen,true);
+
 
   } finally { await rm(dir, { recursive: true, force: true }); }
 });

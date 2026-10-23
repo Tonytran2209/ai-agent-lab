@@ -53,7 +53,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: lab-cloud-state-${{ github.run_id }}
-          path: cloud-state
+          path: |
+            cloud-state
+            !cloud-state/**/feedback-images/**
           include-hidden-files: true
           if-no-files-found: ignore
           retention-days: 7
