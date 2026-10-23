@@ -260,6 +260,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
         if (r.riskFloor === "high" || r.riskFloor === "medium" && d.risk === "low") d = { ...d, risk: r.riskFloor };
         r.riskFloor = d.risk;
         r.draft = d; r.policyVersion = "risk-v2";
+        r.riskAssessment={protocol:'verified-triage-v1',assessor:r.ai?.source||'admin',preliminaryRisk:r.classification?.risk||null,finalRisk:d.risk,disagrees:Boolean(r.classification&&r.classification.risk!==d.risk),reason:(d.impact?.summary||d.problem).slice(0,1200),evidencePaths:(r.ai?.evidence||[]).map(e=>e.path),baseCommit:r.baseCommit,rubricVersion:'risk-brief-v1',at:now()};
         r.automation=decideAutomation(r,projects.get(r.projectId));
         r.review = { required: r.automation.mode === "automatic" ? "none" : d.risk !== "high" ? "check" : "approve-high" };
         if (r.automation.mode === "automatic") {
@@ -527,6 +528,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
         Object.assign(rel, update, { updatedAt: now(), lease: null });
         if (previous !== rel.phase) rel.phaseStartedAt = now();
         save(r);
+        if(update.phase==='deployed')service.memory.list(r.projectId);
         if (previous !== rel.phase || update.phase === "failed") return changed(r, "release_" + update.phase, owner, update.note);
         return publicRequest(r);
       });
@@ -536,6 +538,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
         const r = get(id); if (r.release?.phase !== "deployed") fail("Chưa xác nhận deploy.");
         r.release.librarySync = succeeded ? "synced" : "failed";
         if (!succeeded) r.release.note += " Chưa đồng bộ library mới; admin cần Đồng bộ tài liệu trước feedback tiếp theo.";
+        if(succeeded){save(r);service.memory.list(r.projectId);}
         return changed(r, succeeded ? "release_library_synced" : "release_library_sync_failed", "publisher", succeeded ? "Library cho feedback mới đã cập nhật theo main; packet cũ giữ nguyên." : "Deploy thành công nhưng chưa làm mới library. Kiểm tra quyền GitHub và đồng bộ lại.");
       });
     },

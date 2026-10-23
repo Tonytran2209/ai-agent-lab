@@ -11,7 +11,7 @@ export function WorkerSettings({api,runner}){
   <SettingsRow title="Mac" description="Nhận feedback, đọc code/MD và thực thi theo quyền của từng project."><span className="settings-state">{runner?.connected?'Đã kết nối':'Chưa kết nối'}</span></SettingsRow>
   {cloud&&<><SettingsRow title="Cloud dự phòng" description="Tự nhận việc khi Mac mất kết nối. Thay đổi được lưu ngay."><SettingsSwitch label="Worker cloud dự phòng" checked={cloud.enabled} disabled={busy||!cloud.dispatchTokenConfigured} onChange={enabled=>update({enabled})}/></SettingsRow>
   <SettingsRow title="Cho phép cloud phát hành" description="Áp dụng cùng phạm vi, quyền duyệt và kiểm tra CI của project."><SettingsSwitch label="Publisher cloud" checked={cloud.publishEnabled===true} disabled={busy||!cloud.enabled} onChange={publishEnabled=>update({publishEnabled})}/></SettingsRow></>}
- </div>{cloud&&!cloud.dispatchTokenConfigured&&<p className="settings-hint">Chưa có kết nối GitHub để gọi cloud. Xem Nâng cao → Chẩn đoán.</p>}{error&&<p role="alert" className="settings-alert error">{error}</p>}</section>;
+ </div>{cloud&&!cloud.dispatchTokenConfigured&&<p className="settings-hint">Chưa có kết nối GitHub để gọi cloud. Xem Luna → Chẩn đoán.</p>}{error&&<p role="alert" className="settings-alert error">{error}</p>}</section>;
 }
 
 export default function LabAgent({projects,api}){
@@ -26,8 +26,8 @@ export default function LabAgent({projects,api}){
  const evaluated=model=>['regression','holdout'].every(suite=>data?.evaluations.some(e=>e.model===model&&e.version===settings.version&&e.suite===suite&&e.passed));
  const validModel=/^[a-zA-Z0-9._-]{1,100}$/.test(candidate);
  return <>
- <section className="settings-group"><h2>AI phân loại trên Lab</h2><div className="settings-list">
-  <SettingsRow title="Model đang dùng" description="Chỉ phân loại feedback một lượt; không sửa code hoặc xem ảnh."><span>{saved.model}</span></SettingsRow>
+ <section className="settings-group"><h2>Luna trên Lab</h2><div className="settings-list">
+  <SettingsRow title="Model đang dùng" description="Một lượt phân loại với trích đoạn MD và kinh nghiệm liên quan; không sửa code hoặc xem ảnh."><span>{saved.model}</span></SettingsRow>
   <SettingsRow title="Kết nối API"><span className="settings-state">{settings.keyConfigured?'Đã cấu hình':'Thiếu OPENAI_API_KEY'}</span></SettingsRow>
  </div><details className="settings-extra"><summary>Thay model phân loại</summary><p>Kiểm tra model ứng viên trước khi áp dụng. Model đang dùng tiếp tục xử lý feedback; mỗi bộ đánh giá dùng API và ngân sách của project đã chọn.</p>
  <div className="settings-list"><SettingsRow title="Model ứng viên"><input aria-label="Model ứng viên" value={candidate} disabled={busy} onChange={e=>setCandidate(e.target.value)}/></SettingsRow><SettingsRow title="Project tính ngân sách"><select aria-label="Project đánh giá model" value={id} disabled={busy} onChange={e=>setId(e.target.value)}>{projects.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></SettingsRow></div>
