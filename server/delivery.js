@@ -1,3 +1,4 @@
+import {collectCriterionCi} from './criterion-ci.js';
 import {assessCi} from './ci-evidence.js';
 // Independent server reconciliation. No model calls or coding/publishing credentials.
 export async function validateDelivery(r, token, fetcher=fetch) {
@@ -20,6 +21,9 @@ export async function validateDelivery(r, token, fetcher=fetch) {
 export function createDelivery(service,config,{validate=validateDelivery}={}) {
   let timer,active;
   async function reconcile(){
+    for(const candidate of service.criterionCiCandidates()){
+      try{const proof=await collectCriterionCi(candidate,config.GITHUB_TOKEN);if(proof)service.reconcileCriterionCi(candidate.id,candidate.resultRevision,proof);else service.criterionCiWaiting(candidate.id,candidate.resultRevision);}catch{service.criterionCiWaiting(candidate.id,candidate.resultRevision,true);}
+    }
     for(const candidate of service.deliveryCandidates()){
       try {const r=service.beginDelivery(candidate.id);const evidence=await validate(r,config.GITHUB_TOKEN);service.finishDelivery(r.id,r.resultRevision,evidence);}
       catch(e){service.deliveryFailed(candidate.id,e.message,Boolean(e.retryable||['TimeoutError','TypeError'].includes(e.name)));}

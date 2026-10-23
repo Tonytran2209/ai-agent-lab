@@ -47,7 +47,8 @@
             "type": "string",
             "enum": [
               "passed",
-              "failed"
+              "failed",
+              "pending-ci"
             ]
           },
           "method": {

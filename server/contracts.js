@@ -5,7 +5,7 @@ const docPath=path.refine(p=>p.startsWith('.agent-hub/')&&p.endsWith('.md'));
 export const documentationReviewSchema=z.object({updatesNeeded:z.boolean(),documents:z.array(docPath).max(11),reason:z.string().trim().min(20).max(2000)});
 export const ruleReferenceSchema=z.object({path:docPath,startLine:z.number().int().positive(),endLine:z.number().int().positive(),quote:z.string().min(15).max(1500),contentHash:z.string().regex(/^[a-f0-9]{64}$/).optional(),libraryCommit:z.string().optional()});
 export const traceSchema=z.array(z.object({criterionIndex:z.number().int().min(0).max(11),criterion:z.string().min(5).max(1000),rules:z.array(ruleReferenceSchema).min(1).max(3),verification:z.object({method:z.enum(['test','inspection']),command:z.string().max(200),files:z.array(path).min(1).max(5),expected:z.string().min(15).max(1000)})})).min(1).max(12);
-export const criterionEvidenceSchema=z.array(z.object({criterionIndex:z.number().int().min(0).max(11),outcome:z.enum(['passed','failed']),method:z.enum(['test','inspection']),command:z.string().max(200),files:z.array(path).min(1).max(5),detail:z.string().min(30).max(2000)})).max(12);
+export const criterionEvidenceSchema=z.array(z.object({criterionIndex:z.number().int().min(0).max(11),outcome:z.enum(['passed','failed','pending-ci']),method:z.enum(['test','inspection']),command:z.string().max(200),files:z.array(path).min(1).max(5),detail:z.string().min(30).max(2000)})).max(12);
 const fail=message=>{throw Object.assign(new Error(message),{status:400});};
 export function validateContract(draft,library,required=false){
  if(!draft.traceability){if(required)fail('Kế hoạch cần liên kết từng tiêu chí với quy định MD và cách kiểm tra.');return draft;}
@@ -25,13 +25,14 @@ export function assessContract(r){
  if(!r.contractProtocol)return {required:false,complete:true,criteria:[]};
  const rows=r.draft?.traceability||[],evidence=r.result?.criterionEvidence||[],indices=new Set(),duplicates=evidence.some(e=>indices.has(e.criterionIndex)||!indices.add(e.criterionIndex));
  const criteria=rows.map(row=>{const e=evidence.find(e=>e.criterionIndex===row.criterionIndex);let status=r.result?'missing':'planned',reason=r.result?'Chưa có bằng chứng cho tiêu chí.':'Chờ thực hiện kế hoạch kiểm tra.';
-  if(e){status='failed';reason='Bằng chứng không khớp kế hoạch kiểm tra.';const v=row.verification;if(e.method===v.method&&e.command===v.command&&e.files.length&&e.files.length===v.files.length&&e.files.every(p=>v.files.includes(p))&&e.detail?.trim().length>=30){if(e.outcome==='passed'&&(v.method==='inspection'||r.result.checks.some(c=>c.command===e.command&&c.passed))){status='reported';reason='Agent đã báo cáo; chưa phải kiểm chứng độc lập cho riêng tiêu chí.';}else reason='Agent hoặc check báo tiêu chí chưa đạt.';}}
-  return {criterionIndex:row.criterionIndex,criterion:row.criterion,status,reason,attestation:e?'agent-reported':null,evidence:e||null};
+  if(e){status='failed';reason='Bằng chứng không khớp kế hoạch kiểm tra.';const v=row.verification;if(e.method===v.method&&e.command===v.command&&e.files.length&&e.files.length===v.files.length&&e.files.every(p=>v.files.includes(p))&&e.detail?.trim().length>=30){if(e.outcome==='pending-ci'){status='pending-ci';reason='Test hành vi đã chuẩn bị; chờ GitHub CI thực thi trên đúng commit.';}else if(e.outcome==='passed'&&(v.method==='inspection'||r.result.checks.some(c=>c.command===e.command&&c.passed))){status='reported';reason='Agent đã báo cáo; chưa phải kiểm chứng độc lập cho riêng tiêu chí.';}else reason='Agent hoặc check báo tiêu chí chưa đạt.';}}
+  const proof=r.criterionCi?.commit===r.result?.commit&&r.criterionCi?.criteria.find(p=>p.criterionIndex===row.criterionIndex&&p.command===row.verification.command&&JSON.stringify(p.files)===JSON.stringify(row.verification.files));if(status==='reported'&&proof){status='verified';reason='Đã đối chiếu ca test desktop/mobile trong job GitHub CI của đúng commit.';}
+  return {criterionIndex:row.criterionIndex,criterion:row.criterion,status,reason,attestation:status==='verified'?'github-actions':e?'agent-reported':null,evidence:e||null};
  });
  const review=r.result?.documentationReview,planned=r.draft?.documentationReview;
  let documentationStatus='missing';
  if(review&&review.reason?.trim().length>=20){const docs=[...new Set([...(planned?.updatesNeeded?planned.documents:[]),...(review.updatesNeeded?review.documents:[])])];documentationStatus=docs.length?docs.every(p=>r.result.changedPaths.includes(p))?'updated':'required':'reviewed';if(review.updatesNeeded&&!review.documents.length)documentationStatus='required';}
- return {required:true,complete:!duplicates&&criteria.length===r.draft?.acceptanceCriteria.length&&criteria.length>0&&evidence.length===criteria.length&&criteria.every(c=>c.status==='reported')&&['updated','reviewed'].includes(documentationStatus),criteria,documentationStatus};
+ return {required:true,complete:!duplicates&&criteria.length===r.draft?.acceptanceCriteria.length&&criteria.length>0&&evidence.length===criteria.length&&criteria.every(c=>['reported','verified'].includes(c.status))&&['updated','reviewed'].includes(documentationStatus),criteria,documentationStatus};
 }
 export const contractSatisfied=r=>assessContract(r).complete;
 export function documentationImpact(r,library){

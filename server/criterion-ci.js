@@ -1,0 +1,29 @@
+import {assessCi} from './ci-evidence.js';
+// Only the supported, explicit browser command shape can be reconciled from CI.
+export function browserCriterion(command){
+ const m=/^node node_modules\/@playwright\/test\/cli\.js test (tests\/(?:browser|agent-lab)\/[A-Za-z0-9_./-]+\.spec\.[cm]?[jt]sx?) --grep ([A-Za-z0-9_-]+)$/.exec(command);
+ return m?{file:m[1],grep:m[2]}:null;
+}
+export function criterionLogEvidence(rows,logs){
+ return rows.map(row=>{const spec=browserCriterion(row.verification.command);if(!spec)throw Error('Tiêu chí chưa có command browser được hỗ trợ.');
+ const lines=logs.replace(/\x1b\[[0-9;]*m/g,'').split('\n');
+ if(lines.some(l=>/\s-\s+\d+\s+\[(desktop|mobile)\]/.test(l)&&l.includes(spec.file+':')&&l.split(' › ').at(-1).includes(spec.grep)))throw Error('Có ca test tiêu chí bị bỏ qua.');
+ const names=['desktop','mobile'].flatMap(device=>{const matches=lines.filter(l=>/✓|✔/.test(l)&&l.includes('['+device+']')&&l.includes(spec.file+':')&&l.includes(' › ')&&l.split(' › ').at(-1).includes(spec.grep));if(!matches.length)throw Error('Chưa có bằng chứng browser cho '+spec.grep+' trên '+device);return matches.map(l=>l.slice(l.indexOf('['+device+']')).trim());});
+ return {criterionIndex:row.criterionIndex,command:row.verification.command,files:row.verification.files,names};});
+}
+export async function collectCriterionCi(r,token,fetcher=fetch){
+ const api=async(suffix,text=false)=>{const response=await fetcher(`https://api.github.com/repos/${r.repository}/${suffix}`,{signal:AbortSignal.timeout(20000),headers:{Accept:'application/vnd.github+json','User-Agent':'ai-agent-lab',...(token?{Authorization:'Bearer '+token}:{})}});if(!response.ok)throw Error('Chưa đọc được GitHub CI: '+response.status);return text?response.text():response.json();};
+ const rows=r.draft.traceability;if(!rows?.length||rows.some(t=>!browserCriterion(t.verification.command)))return null;
+ const branch=r.result.localArtifact.branch;if(!new RegExp('^lab/'+r.id+'-[0-9]+$').test(branch))throw Error('Sai nhánh artifact.');
+ const prs=await api('pulls?state=open&head='+encodeURIComponent(r.repository.split('/')[0]+':'+branch)+'&base='+encodeURIComponent(r.branch));if(prs.length!==1)return null;
+ const pr=prs[0],commit=pr.head?.sha;
+ if(pr.head?.ref!==branch||pr.head?.repo?.full_name!==r.repository||pr.base?.repo?.full_name!==r.repository||pr.base?.ref!==r.branch)throw Error('PR không khớp project.');
+ const files=await api('pulls/'+pr.number+'/files?per_page=100');
+ if(!files.length||files.length!==pr.changed_files||files.some(f=>!r.draft.allowedPaths.includes(f.filename)||f.previous_filename&&!r.draft.allowedPaths.includes(f.previous_filename)))throw Error('Artifact vượt phạm vi đã duyệt.');
+ const head=await api('commits/'+commit);if(head.parents?.length!==1||head.parents[0].sha!==r.baseCommit)throw Error('Artifact phải là một commit từ base đã duyệt.');
+ const checks=await api('commits/'+commit+'/check-runs?per_page=100'),evidence=assessCi(checks,await api('commits/'+commit+'/status'),commit);if(!evidence.ready)return null;
+ const url=evidence.evidenceUrl,match=new RegExp('^https://github.com/'+r.repository+'/actions/runs/[0-9]+/job/([0-9]+)$').exec(url||'');if(!match)throw Error('Thiếu job browser độc lập.');
+ const job=await api('actions/jobs/'+match[1]);if(job.head_sha!==commit||job.name!=='browser-check'||job.conclusion!=='success'||job.status!=='completed')throw Error('Job browser sai commit hoặc chưa đạt.');
+ const criteria=criterionLogEvidence(rows,await api('actions/jobs/'+match[1]+'/logs',true));
+ return {commit,branch,changedPaths:files.map(f=>f.filename),prNumber:pr.number,prUrl:pr.html_url,evidenceUrl:url,criteria,source:'github-actions'};
+}

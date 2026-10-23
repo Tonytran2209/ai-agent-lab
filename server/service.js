@@ -412,7 +412,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
         if(r.delivery?.approvalHash)result.browserVerification="ci";
         r.result = { ...result, attestation: "agent-reported", reportedAt: now() };
         const owner = r.lease.owner;
-        const ci = result.browserVerification === "ci" && localChecksPassed(r) && contractSatisfied(r);
+        const ci = result.browserVerification === "ci" && localChecksPassed(r);
         if (ci) r.verification = newVerification(r, owner);
         r.status = ci ? "verifying" : passed && contractSatisfied(r) ? "review" : "failed"; r.lease = null;
         return changed(r, ci ? "browser_verification_queued" : passed && contractSatisfied(r) ? "ready_for_review" : "verification_failed", owner, result.summary);
@@ -439,7 +439,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
     },
     queueVerification(id, actor) {
       return transaction(db, () => {
-        const r=get(id);if(r.status!=="failed" || !contractSatisfied(r) || !localChecksPassed(r) || r.verification?.lease && Date.parse(r.verification.lease.expiresAt)>Date.now()) fail("Chỉ thử lại kiểm tra trình duyệt sau khi worker dừng.");
+        const r=get(id);if(r.status!=="failed" || !localChecksPassed(r) || r.verification?.lease && Date.parse(r.verification.lease.expiresAt)>Date.now()) fail("Chỉ thử lại kiểm tra trình duyệt sau khi worker dừng.");
         const old=r.verification;r.verification={...newVerification(r,actor),...(old?.prNumber?{phase:"ci",prNumber:old.prNumber,prUrl:old.prUrl}: {})};r.status="verifying";
         return changed(r,"browser_verification_queued",actor,r.verification.note);
       });
@@ -464,10 +464,18 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
         if(input.phase==="passed"&&(!input.evidenceUrl||!new RegExp("^https://github.com/"+r.repository+"/actions/runs/[0-9]+(?:/job/[0-9]+)?$").test(input.evidenceUrl)))fail("Cần bằng chứng CI đúng repository.");
         const owner=v.lease.owner,previous=v.phase;Object.assign(v,input,{lease:null,at:now(),source:input.phase==="passed"?"github-actions":"mac-worker"});
         if(previous!==v.phase)v.phaseStartedAt=now();
-        if(input.phase==="passed")r.status="review";if(input.phase==="failed")r.status="failed";save(r);
+        if(input.phase==="passed")r.status=contractSatisfied(r)?"review":"verifying";if(input.phase==="failed")r.status="failed";save(r);
         return previous!==v.phase?changed(r,"browser_verification_"+v.phase,owner,v.note):publicRequest(r);
       });
     },
+    criterionCiCandidates:()=>list().filter(r=>['failed','verifying','review'].includes(r.status)&&r.contractProtocol&&!contractSatisfied(r)&&localChecksPassed(r)&&!r.lease&&!r.verification?.lease&&r.delivery?.approvalHash&&(!r.criterionCiNextAt||Date.parse(r.criterionCiNextAt)<=Date.now())).map(publicRequest),
+    criterionCiWaiting(id,expectedRevision,failed=false){const r=get(id);if(resultRevision(r)!==expectedRevision)return;r.criterionCiNextAt=new Date(Date.now()+60000).toISOString();r.criterionCiStatus=failed?'Chưa đối chiếu được ca test GitHub CI; giữ nguyên kết quả cũ. Hệ thống sẽ kiểm tra lại, không gọi AI.':'Đang chờ PR và CI đúng commit để bổ sung bằng chứng từng tiêu chí.';save(r);},
+    reconcileCriterionCi(id,expectedRevision,proof){return transaction(db,()=>{const r=get(id);deliveryAuthority(r);if(!['failed','verifying','review'].includes(r.status)||r.lease||r.verification?.lease||resultRevision(r)!==expectedRevision||!localChecksPassed(r))fail('Kết quả đã đổi hoặc worker còn chạy.');
+      if(proof.source!=='github-actions'||proof.branch!==r.result.localArtifact.branch||!proof.changedPaths.every(p=>r.draft.allowedPaths.includes(p)))fail('Bằng chứng CI không khớp scope.');
+      const old=r.result;r.resultHistory=[...(r.resultHistory||[]),{...old,planTraceability:r.draft.traceability,verification:r.verification,at:now()}].slice(-3);
+      r.result={...old,commit:proof.commit,changedPaths:proof.changedPaths,summary:'Đã bổ sung và xác minh test hành vi trên GitHub CI desktop/mobile. Xem bằng chứng từng tiêu chí.',checks:[...old.checks.filter(c=>!r.draft.traceability.some(t=>t.verification.command===c.command)),...proof.criteria.map(c=>({command:c.command,passed:true,output:'GitHub CI độc lập: '+proof.evidenceUrl}))],criterionEvidence:proof.criteria.map(c=>({criterionIndex:c.criterionIndex,outcome:'passed',method:'test',command:c.command,files:c.files,detail:'GitHub CI đã chạy thành công desktop/mobile: '+c.names.join('; ').slice(0,1700)}))};
+      r.criterionCi={...proof,at:now()};delete r.criterionCiStatus;delete r.criterionCiNextAt;if(!contractSatisfied(r))fail('Bằng chứng CI chưa đủ hợp đồng tiêu chí/tài liệu.');
+      r.verification={...newVerification(r,'GitHub CI'),phase:'passed',source:'github-actions',prNumber:proof.prNumber,prUrl:proof.prUrl,evidenceUrl:proof.evidenceUrl,at:now()};r.status='review';r.delivery={...r.delivery,phase:'authorized',attempts:0,nextAttemptAt:null};return changed(r,'criterion_ci_verified','AI Agent Lab','Đã xác minh từng nhóm test đã duyệt trên desktop/mobile, giữ lịch sử kết quả cũ.');});},
     deliveryCandidates: () => list().filter(r=>r.status==="review"&&r.delivery?.approvalHash&&!["failed","released"].includes(r.delivery.phase)&&(!r.delivery.nextAttemptAt||Date.parse(r.delivery.nextAttemptAt)<=Date.now())).map(publicRequest),
     beginDelivery(id) {
       return transaction(db,()=>{const r=get(id);deliveryAuthority(r);if(r.status!=="review"||!r.delivery?.approvalHash||["failed","released"].includes(r.delivery.phase)||(r.delivery.attempts||0)>=3)fail("Không có tiến trình tự phát hành.");r.delivery.attempts=(r.delivery.attempts||0)+1;r.delivery.phase="checking";r.delivery.nextAttemptAt=new Date(Date.now()+180000).toISOString();save(r);return publicRequest(r);});
