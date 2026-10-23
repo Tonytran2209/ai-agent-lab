@@ -7,6 +7,10 @@ on:
         description: Lab dispatch correlation id
         required: false
         default: manual
+      check_only:
+        description: Check credentials and read permissions without claiming work or calling a model
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
@@ -25,9 +29,19 @@ jobs:
         with:
           node-version: 24
           cache: npm
+      - name: Check cloud credentials and CI/deploy read permissions
+        run: node cloud/preflight.js
+        env:
+          LAB_MCP_URL: ${{ vars.LAB_MCP_URL }}
+          AI_AGENT_LAB_MCP_TOKEN: ${{ secrets.LAB_MCP_TOKEN }}
+          OPENAI_API_KEY: ${{ secrets.LAB_OPENAI_API_KEY }}
+          GH_TOKEN: ${{ secrets.LAB_GITHUB_TOKEN }}
       - run: npm ci
+        if: ${{ !inputs.check_only }}
       - run: npm install --global @openai/codex@0.163.0
+        if: ${{ !inputs.check_only }}
       - name: Run one approved work item
+        if: ${{ !inputs.check_only }}
         run: node cloud/worker.js
         env:
           LAB_MCP_URL: ${{ vars.LAB_MCP_URL }}
