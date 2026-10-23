@@ -49,3 +49,29 @@ test('classification-only routing calls AI once without source/embedding/plan an
 test('classification defaults migrate to routing-only, ignore invented paths and never lower high intent',async()=>{
  const f=fixture(async()=>({...decision({}),category:'security',risk:'low',paths:['.env'],references:['invented']}));try{f.db.prepare("UPDATE settings SET value=? WHERE key='orchestrator-v1'").run(JSON.stringify({...settings,strategy:undefined}));assert.equal(f.agent.settings().strategy,'classify');const r=f.s.create({feedback:'Change authentication permission behavior.'},'Member');f.agent.enqueue(r.id,'Member');await f.agent.tick();const next=f.s.get(r.id);assert.equal(next.classification.risk,'high');assert.equal(f.s.rawForAnalysis(r.id).riskFloor,'high');assert.equal(next.approval,null);assert.equal(next.draft,null);assert.equal(f.s.localPlanning.queue().length,1);assert.deepEqual(f.agent.job(r.id).decision.paths,[]);}finally{f.close();}
 });
+
+test('candidate evaluation preserves active model, charges the candidate and does not pause feedback routing',async()=>{
+ const {evaluationCases,holdoutCases}=await import('../server/agent-evals.js');
+ let release,entered;const waiting=new Promise(r=>{release=r;}),started=new Promise(r=>{entered=r;});let first=true;const seen=[];
+ const f=fixture(async({model,input})=>{seen.push(model);if(model==='candidate-model'&&first){first=false;entered();await waiting;}return {...decision(input),action:'survey',category:'ui',risk:[...evaluationCases,...holdoutCases].find(c=>c.feedback===input.feedback)?.risk||'low',paths:[],references:[]};});
+ try{
+  f.db.prepare("UPDATE settings SET value=? WHERE key='orchestrator-v1'").run(JSON.stringify({...settings,strategy:'classify'}));
+  const running=f.agent.evaluate('writer-studio','regression','candidate-model');await started;
+  assert.equal(f.agent.settings().model,'fake-model');assert.equal(f.agent.settings().mode,'active');
+  const r=f.s.create({feedback:'Adjust display preview safely without changing saved data.'},'Member');f.agent.enqueue(r.id,'Member');await f.agent.tick();
+  assert.equal(f.s.get(r.id).classification.model,'fake-model');assert.equal(f.s.get(r.id).preparation.engine,'codex-local');
+  release();const regression=await running;assert.equal(regression.model,'candidate-model');assert.equal(regression.passed,true);
+  assert.throws(()=>f.agent.update({...settings,model:'candidate-model'}),/đánh giá/);
+  await f.agent.evaluate('writer-studio','holdout','candidate-model');
+  assert.equal(f.agent.settings().model,'fake-model');assert.equal(f.agent.update({...settings,model:'candidate-model'}).model,'candidate-model');
+  const usage=f.db.prepare("SELECT data FROM agent_usage").all().map(v=>JSON.parse(v.data));assert.equal(usage.filter(v=>v.model==='candidate-model').length,20);
+  assert.equal(seen.filter(v=>v==='fake-model').length,1);
+  await assert.rejects(()=>f.agent.evaluate('writer-studio','regression','invalid model'));
+ }finally{release();f.close();}
+});
+test('failed candidate evaluation leaves production settings intact and retains paid-attempt accounting',async()=>{
+ const f=fixture(async()=>{throw Object.assign(new Error('private provider detail'),{providerStatus:404});});
+ try{const before=f.agent.settings();await assert.rejects(()=>f.agent.evaluate('writer-studio','regression','unavailable-candidate'),/HTTP 404/);
+ assert.deepEqual(f.agent.settings(),before);const last=f.agent.evaluations().find(e=>e.model==='unavailable-candidate');assert.equal(last.passed,false);assert.doesNotMatch(last.error,/private provider detail/);assert.equal(f.agent.usage('writer-studio').calls,1);
+ }finally{f.close();}
+});
