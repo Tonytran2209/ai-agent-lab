@@ -128,3 +128,4 @@ test("operational failure preserves approval and questions, retries without chan
     assert.throws(() => service.retryExecution(r.id, "Admin"));
   } finally { db.close(); await rm(dir, { recursive: true, force: true }); }
 });
+test('one project worker failure never starves independent projects or planning; shutdown stops further work',async()=>{const {pollIndependentWorkers}=await import('../mac/runner.js');const seen=[],errors=[];await pollIndependentWorkers([{name:'project-a/release',run:async()=>{throw Error('private child output');}},{name:'project-b/ci',run:async()=>seen.push('b')},{name:'planning',run:async()=>seen.push('planning')}],undefined,n=>errors.push(n));assert.deepEqual(seen,['b','planning']);assert.deepEqual(errors,['project-a/release']);const stop=new AbortController();await pollIndependentWorkers([{name:'first',run:async()=>stop.abort()},{name:'must-not-run',run:async()=>assert.fail('shutdown ignored')}],stop.signal);});
