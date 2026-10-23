@@ -19,6 +19,8 @@ export function requestSignal(request) {
   return request.status + (request.delivery ? ":delivery:"+request.delivery.phase : "") + (request.verification ? ":browser:" + request.verification.phase : "") + (request.release ? ":release:" + request.release.phase : "") + (request.preparation ? ":" + request.preparation.status : "");
 }
 export function workflowMessage(request, runner, aiConfigured = true) {
+  if(request.preparation?.engine==='lab-agent'&&['queued','running'].includes(request.preparation.status))return 'Lab Agent đang đối chiếu kiến thức và source GitHub để chọn bước tiếp theo. Chưa cấp quyền sửa code.';
+  if(request.executionWorker?.kind==='cloud'&&['claimed','running'].includes(request.status))return 'Cloud worker đã nhận request và đang thực thi trong worktree riêng. Kết quả sẽ gửi về Lab để kiểm tra CI và bằng chứng.';
   if(request.status==='failed'&&request.result&&request.contract?.required&&!request.contract.complete)return "Liên kết tiêu chí/bằng chứng hoặc đánh giá tài liệu chưa đủ. Xem Quy định MD → tiêu chí → bằng chứng; CI chung không thay thế phần còn thiếu.";
   if(request.contractProtocol&&request.preparation?.status==='queued'&&runner?.contractProtocol!==request.contractProtocol)return "Feedback đã lưu. Chờ Mac runner nạp bản hỗ trợ liên kết MD; chưa gọi khảo sát AI.";
   if(request.status==="rechecking")return "Mac sẽ kiểm tra lại artifact trên đúng commit, nhận diện CRLF. Không gọi AI hoặc sửa code; lỗi cũ vẫn nằm trong lịch sử.";
