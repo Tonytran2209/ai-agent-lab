@@ -68,7 +68,7 @@ export async function publishStep({ request: r, config, run, api, signal, purpos
       if(Date.now()-Date.parse(release.phaseStartedAt||release.authorizedAt)>30*60000)throw new Error('Hết thời gian chờ CI. Kiểm tra PR rồi thử phát hành lại.');
       return {phase:'ci',note:'Đang chờ writer-check và browser-check đạt trên đúng commit.'};
     }
-    if (purpose === 'verification') return {phase:'passed',evidenceUrl:browser.details_url,note:'writer-check và browser-check đã đạt trên đúng commit. Chờ admin nghiệm thu tiêu chí của request; chưa merge/deploy.'};
+    if (purpose === 'verification') return {phase:'passed',evidenceUrl:browser.details_url,note:r.delivery?.approvalHash?'CI đã đạt trên đúng commit. Đang đối chiếu tiêu chí để tự phát hành.':'CI đã đạt trên đúng commit. Chờ nghiệm thu tiêu chí trước khi phát hành.'};
     if (pr.draft) {
       await api('graphql','POST',{query:'mutation($id:ID!){markPullRequestReadyForReview(input:{pullRequestId:$id}){pullRequest{id}}}',variables:{id:pr.node_id}});
       return {phase:'ci',note:'Admin đã nghiệm thu; draft PR đã chuyển sang ready. Đang chờ GitHub xác nhận điều kiện merge.'};

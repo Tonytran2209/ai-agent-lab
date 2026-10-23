@@ -1,4 +1,5 @@
 import {z} from 'zod';
+import {browserCriterion} from './criterion-ci.js';
 const file=z.string().min(1).max(240).regex(/^[a-zA-Z0-9_./-]+$/).refine(p=>!p.includes('..')&&!p.startsWith('/'));
 export const impactSchema=z.object({
  summary:z.string().trim().min(20).max(1500),
@@ -11,7 +12,7 @@ export const impactSchema=z.object({
 }).strict();
 const major=new Set(['authentication','authorization','billing','data-loss','migration','infrastructure','secrets','policy']);
 export function impactRisk(draft){return draft.impact?.domains.some(d=>major.has(d))?'high':draft.risk==='low'&&draft.impact?.domains.some(d=>['business','api','performance'].includes(d))?'medium':draft.risk;}
-export function hasBehavioralTest(t){const v=t.verification,c=v.command.trim();return v.method==='test'&&!/[;&|`$<>\n]/.test(c)&&/^(node |npx (?:--no-install )?(?:playwright|vitest|jest) |npm (?:run )?test |pnpm (?:exec )?(?:test|vitest|playwright) )/.test(c)&&v.files.some(f=>/\.(spec|test)\.[cm]?[jt]sx?$/.test(f)&&c.includes(f));}
+export function hasBehavioralTest(t){const v=t.verification,c=v.command.trim();return v.method==='test'&&(Boolean(browserCriterion(c))||!/[;&|`$<>\n]/.test(c))&&/^(node |npx (?:--no-install )?(?:playwright|vitest|jest) |npm (?:run )?test |pnpm (?:exec )?(?:test|vitest|playwright) )/.test(c)&&v.files.some(f=>/\.(spec|test)\.[cm]?[jt]sx?$/.test(f)&&c.includes(f));}
 export function decideAutomation(r,p){
  const i=r.draft?.impact,reasons=[];
  if(r.draft?.risk==='high')reasons.push('Thay đổi nhạy cảm/rủi ro cao cần admin xác nhận.');

@@ -1,19 +1,27 @@
 import {assessCi} from './ci-evidence.js';
 // Only the supported, explicit browser command shape can be reconciled from CI.
 export function browserCriterion(command){
- const m=/^node node_modules\/@playwright\/test\/cli\.js test (tests\/(?:browser|agent-lab)\/[A-Za-z0-9_./-]+\.spec\.[cm]?[jt]sx?) --grep ([A-Za-z0-9_-]+)$/.exec(command);
- return m?{file:m[1],grep:m[2]}:null;
+ const m=/^node node_modules\/@playwright\/test\/cli\.js test (tests\/(?:browser|agent-lab)\/[A-Za-z0-9_./-]+\.spec\.[cm]?[jt]sx?) --grep (?:([A-Za-z0-9_-]+)|'([A-Za-z0-9_-]+(?:\|[A-Za-z0-9_-]+)*)'|"([A-Za-z0-9_-]+(?:\|[A-Za-z0-9_-]+)*)")$/.exec(command);
+ if(!m||m[1].split('/').includes('..'))return null;
+ const grep=m[2]||m[3]||m[4],tags=[...new Set(grep.split('|'))];
+ return tags.length<=8?{file:m[1],grep,tags}:null;
 }
 export function criterionLogEvidence(rows,logs){
- return rows.map(row=>{const spec=browserCriterion(row.verification.command);if(!spec)throw Error('Tiêu chí chưa có command browser được hỗ trợ.');
  const lines=logs.replace(/\x1b\[[0-9;]*m/g,'').split('\n');
- if(lines.some(l=>/\s-\s+\d+\s+\[(desktop|mobile)\]/.test(l)&&l.includes(spec.file+':')&&l.split(' › ').at(-1).includes(spec.grep)))throw Error('Có ca test tiêu chí bị bỏ qua.');
- const names=['desktop','mobile'].flatMap(device=>{const matches=lines.filter(l=>/✓|✔/.test(l)&&l.includes('['+device+']')&&l.includes(spec.file+':')&&l.includes(' › ')&&l.split(' › ').at(-1).includes(spec.grep));if(!matches.length)throw Error('Chưa có bằng chứng browser cho '+spec.grep+' trên '+device);return matches.map(l=>l.slice(l.indexOf('['+device+']')).trim());});
- return {criterionIndex:row.criterionIndex,command:row.verification.command,files:row.verification.files,names};});
+ return rows.map(row=>{const spec=browserCriterion(row.verification.command);if(!spec)throw Error('Tiêu chí chưa có command browser được hỗ trợ.');
+ const names=[];
+ for(const tag of spec.tags)for(const device of ['desktop','mobile']){
+  const relevant=lines.filter(l=>l.includes('['+device+']')&&l.includes(spec.file+':')&&l.includes(' › ')&&l.split(' › ').at(-1).includes(tag));
+  if(relevant.some(l=>/\s-\s+\d+\s+\[(desktop|mobile)\]/.test(l)))throw Error('Có ca test tiêu chí bị bỏ qua.');
+  const passed=relevant.filter(l=>/✓|✔/.test(l));
+  if(!passed.length)throw Error('Chưa có bằng chứng browser cho '+tag+' trên '+device);
+  names.push(...passed.map(l=>l.slice(l.indexOf('['+device+']')).trim()));
+ }
+ return {criterionIndex:row.criterionIndex,command:row.verification.command,files:row.verification.files,names:[...new Set(names)]};});
 }
 export async function collectCriterionCi(r,token,fetcher=fetch){
  const api=async(suffix,text=false)=>{const response=await fetcher(`https://api.github.com/repos/${r.repository}/${suffix}`,{signal:AbortSignal.timeout(20000),headers:{Accept:'application/vnd.github+json','User-Agent':'ai-agent-lab',...(token?{Authorization:'Bearer '+token}:{})}});if(!response.ok)throw Error('Chưa đọc được GitHub CI: '+response.status);return text?response.text():response.json();};
- const rows=r.draft.traceability;if(!rows?.length||rows.some(t=>!browserCriterion(t.verification.command)))return null;
+ const rows=r.draft.traceability;if(!rows?.length)throw Error('Thiếu tiêu chí để đối chiếu CI.');if(rows.some(t=>!browserCriterion(t.verification.command)))throw Error('Tiêu chí chưa có command browser được hỗ trợ.');
  const branch=r.result.localArtifact.branch;if(!new RegExp('^lab/'+r.id+'-[0-9]+$').test(branch))throw Error('Sai nhánh artifact.');
  const prs=await api('pulls?state=open&head='+encodeURIComponent(r.repository.split('/')[0]+':'+branch)+'&base='+encodeURIComponent(r.branch));if(prs.length!==1)return null;
  const pr=await api('pulls/'+prs[0].number),commit=pr.head?.sha;

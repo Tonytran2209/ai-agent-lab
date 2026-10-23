@@ -87,3 +87,15 @@ Runner không khởi chạy Chrome/headless trong LaunchAgent macOS. Kết quả
 Writer Studio chạy Chromium Playwright trên Ubuntu, desktop và mobile, với fixture của component thật và CSS thật. Suite hiện tập trung Draft: giữ thân bài, chỉnh sửa đầy đủ, giữ source và xuất .txt; đo clamp sáu dòng khi có chế độ preview. Đây là bộ regression, không thay thế admin nghiệm thu mọi tiêu chí của một thay đổi UI khác. CI lưu screenshot, HTML report và failure trace trong artifact của workflow trong 14 ngày. Không dùng credentials hoặc dữ liệu production.
 
 Request cũ lỗi riêng ở browser có hai cách xử lý: **Kiểm tra lại trên CI** (không chạy lại Codex) hoặc admin **Ghi nhận kiểm tra bổ sung** sau khi thực sự kiểm tra đúng commit. Bằng chứng bổ sung gắn với hash kết quả và commit; lỗi Chrome ban đầu không bị sửa thành Passed. Kiểm tra frontend/backend không đạt không được thay thế bằng bằng chứng browser. Nghiệm thu vẫn cần thực hiện riêng; bổ sung bằng chứng không cấp quyền phát hành.
+
+### Bounded latency and model selection
+
+Mac and cloud now pass an explicit `--model gpt-6.1-sol` for both read-only planning and implementation. Local runner config may override `codexModel`, `planningModel`, or `executionModel`; the Codex UI/user config is intentionally not inherited. Planning still owns no edit authority and execution still needs a separate exact-scope claim. The implementation packet includes pinned survey evidence so Codex can verify the relevant locations instead of repeating a repository-wide investigation.
+
+CI/deployment observation has its own non-overlapping 15-second monitor loop, independent of a long coding/survey process. A slow GitHub operation can delay that monitor cycle but no longer waits for model completion. Server claims, scope checks, exact-head CI, consent and shutdown draining remain in force. The coding lane remains serial. On shutdown the monitor is cancelled and drained before releasing the instance lock.
+
+Dependencies use `npm ci --prefer-offline --no-audit --no-fund`: reuse the npm download cache, but never share mutable node_modules across worktrees or skip lockfile installation. Codex runs targeted checks; the supervisor runs the full `npm run check` once independently and GitHub CI remains an independent release gate.
+
+### Criterion CI reconciliation
+
+Supported browser commands accept a literal grep tag or quoted alternatives, e.g. `--grep 'qc-display-preservation|qc-status-display'`. Every alternative needs successful records on **both** desktop and mobile, with no matching skipped records. Shell pipelines, substitutions and arbitrary regular expressions remain unsupported. Unsupported commands are reported as a criterion configuration error rather than an indefinite wait for CI. A green generic job never substitutes for missing criterion records.

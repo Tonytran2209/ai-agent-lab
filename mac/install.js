@@ -32,7 +32,7 @@ if (!dryRun) {
     await cp(path.join(sourceRoot,"mac","ci-templates"),path.join(root,"mac","ci-templates"),{recursive:true});
     await cp(path.join(sourceRoot, "package.json"), path.join(root, "package.json"));
     await mkdir(path.join(root, "mac"), { recursive: true });
-    for (const name of ["images.js", "runner.js", "recheck.js", "release.js", "verify.js", "projects.js", "ci-setup.js", "ci-template.js", "planning.js", "plan-schema.json", "install.js", "result-schema.json"]) await cp(path.join(sourceRoot, "mac", name), path.join(root, "mac", name));
+    for (const name of ["codex.js", "monitor.js", "images.js", "runner.js", "recheck.js", "release.js", "verify.js", "projects.js", "ci-setup.js", "ci-template.js", "planning.js", "plan-schema.json", "install.js", "result-schema.json"]) await cp(path.join(sourceRoot, "mac", name), path.join(root, "mac", name));
   }
   repoPath = path.join(root, "repository");
   let exists = true;
@@ -52,7 +52,7 @@ if (!dryRun) {
 }
 const stateDir = path.join(root, "mac", "state");
 await mkdir(stateDir, { recursive: true, mode: 0o700 });
-const config = { releaseEnabled: args.includes("--enable-release"), ghPath: "/opt/homebrew/bin/gh", releaseEnvironment: args.includes("--release-environment") ? option("--release-environment") : "", repoPath, mcpUrl: url, codexPath, stateDir, pollIntervalMs: 15000 };
+const config = { codexModel:"gpt-6.1-sol", releaseEnabled: args.includes("--enable-release"), ghPath: "/opt/homebrew/bin/gh", releaseEnvironment: args.includes("--release-environment") ? option("--release-environment") : "", repoPath, mcpUrl: url, codexPath, stateDir, pollIntervalMs: 15000 };
 const configPath = path.join(root, "mac", "config.local.json");
 await writeFile(configPath, JSON.stringify(config, null, 2) + "\n", { mode: 0o600 });
 const quote = value => "'" + value.replaceAll("'", "'\\''") + "'";

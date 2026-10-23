@@ -1,3 +1,4 @@
+import {codexModelArgs} from './codex.js';
 import {feedbackImageArgs} from './images.js';
 import {impactInstructions} from '../server/impact.js';
 import {planningContractInstructions} from '../server/contract-json.js';
@@ -37,7 +38,7 @@ export async function surveyFeedback({job,config,api,run,signal,environment,imag
   if(job.mode!=='report-only'){
    failureReason="codex";
    const imageArgs=await feedbackImageArgs(claim.request,config,imageToken);
-   const result=await run(config.codexPath,['exec',...imageArgs,'--ignore-user-config','--sandbox','read-only','-C',worktree,'--output-schema',fileURLToPath(new URL('./plan-schema.json',import.meta.url)),'--output-last-message',outputPath,'-'],{cwd:worktree,env:environment,input:planningPrompt(claim),signal:controller.signal,timeout:10*60000});
+   const result=await run(config.codexPath,['exec',...imageArgs,...codexModelArgs(config,'planning'),'--ignore-user-config','--sandbox','read-only','-C',worktree,'--output-schema',fileURLToPath(new URL('./plan-schema.json',import.meta.url)),'--output-last-message',outputPath,'-'],{cwd:worktree,env:environment,input:planningPrompt(claim),signal:controller.signal,timeout:10*60000});
    if(result.code||controller.signal.aborted)throw new Error('Codex khảo sát đã dừng.');
   }
   failureReason=job.mode==='report-only'?'artifact':'validation';
