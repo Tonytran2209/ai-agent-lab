@@ -23,6 +23,7 @@ export const draftSchema = z.object({
   migrationNotes: z.string().max(4000).default(""),
 });
 export const feedbackSchema = z.object({
+  images:z.array(z.object({name:z.string().max(200),type:z.enum(["image/png","image/jpeg","image/webp"]),data:z.string().max(4194304)}).strict()).max(4).default([]),
   projectId: z.string().regex(/^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$/).optional(),
   feedback: z.string().min(10).max(10000),
   screen: z.string().max(300).default(""),

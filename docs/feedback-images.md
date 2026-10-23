@@ -1,0 +1,11 @@
+# Feedback images
+
+A feedback can contain original text plus up to four PNG/JPEG/WebP images, maximum 3 MiB per image, 8192 pixels per side and 32 megapixels. The composer supports file selection, dropping files and pasting clipboard images, with previews/removal before submitting. Text remains required (at least ten characters). Submit creates one task and all its image BLOBs in one SQLite transaction; server-detected format/dimensions and SHA-256 are stored as immutable metadata. Changing the image set prevents accidental deduplication with an earlier feedback.
+
+Images live inside DATA_DIR/lab.sqlite, hence inside /data when DATA_DIR=/data and in verified SQLite backups. JSON project export contains image metadata only, not bytes; use a SQLite backup to preserve full image data. Existing session/member visibility matches the workspace request visibility. Image routes require a session or the MCP bearer; no public static files or unbounded remote URLs are accepted. The upload parser's larger limit applies only to authenticated/CSRF-valid feedback submission.
+
+The Lab text classifier sees attachment count only and cannot claim to have inspected the images. The pinned planning/execution packets include metadata. A feedback-images-v1 worker downloads them from the configured Lab origin into its private state directory, verifies bounded bytes and SHA-256 and supplies repeated `--image` arguments to Codex for both read-only survey and approved implementation. Cached images are not put in the project worktree or committed. Cloud fallback uses the same worker when enabled, but raw image caches are excluded from cloud-state artifacts. The same image bytes remain available across retries; report-only planning replay does not call the model or need to resend vision input.
+
+Old workers are refused at claim time for attached tasks, before a model call. Reinstall/update the runner and reload its LaunchAgent once after this update; no reload per feedback. No change to risk, exact scope, CI or release authority follows from images.
+
+CLI support verified against [OpenAI image inputs](https://learn.chatgpt.com/docs/image-inputs?surface=cli) and the installed `codex exec --help`. Passing image inputs can increase Codex model usage; there is no additional vision API call on Lab.
