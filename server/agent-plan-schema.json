@@ -1,0 +1,289 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "draft": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "title": {
+          "type": "string"
+        },
+        "problem": {
+          "type": "string"
+        },
+        "layer": {
+          "type": "string",
+          "enum": [
+            "design",
+            "backend",
+            "database",
+            "cross-layer"
+          ]
+        },
+        "module": {
+          "type": "string"
+        },
+        "allowedPaths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "acceptanceCriteria": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "assumptions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "questions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "risk": {
+          "type": "string",
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ]
+        },
+        "migrationNotes": {
+          "type": "string"
+        },
+        "traceability": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "criterionIndex": {
+                "type": "integer"
+              },
+              "criterion": {
+                "type": "string"
+              },
+              "rules": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    },
+                    "startLine": {
+                      "type": "integer"
+                    },
+                    "endLine": {
+                      "type": "integer"
+                    },
+                    "quote": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "startLine",
+                    "endLine",
+                    "quote"
+                  ]
+                }
+              },
+              "verification": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "method": {
+                    "type": "string",
+                    "enum": [
+                      "test",
+                      "inspection"
+                    ]
+                  },
+                  "command": {
+                    "type": "string"
+                  },
+                  "files": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "expected": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "method",
+                  "command",
+                  "files",
+                  "expected"
+                ]
+              }
+            },
+            "required": [
+              "criterionIndex",
+              "criterion",
+              "rules",
+              "verification"
+            ]
+          }
+        },
+        "documentationReview": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "updatesNeeded": {
+              "type": "boolean"
+            },
+            "documents": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "reason": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "updatesNeeded",
+            "documents",
+            "reason"
+          ]
+        },
+        "impact": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "summary": {
+              "type": "string"
+            },
+            "domains": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "ui",
+                  "content",
+                  "documentation",
+                  "tests",
+                  "business",
+                  "api",
+                  "performance",
+                  "authentication",
+                  "authorization",
+                  "billing",
+                  "data-loss",
+                  "migration",
+                  "infrastructure",
+                  "secrets",
+                  "policy"
+                ]
+              }
+            },
+            "affectedFlows": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "dependencies": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "evidencePaths": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "uncertainty": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "reversible": {
+              "type": "boolean"
+            },
+            "rollback": {
+              "type": "string"
+            },
+            "preservesDataAndContracts": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "summary",
+            "domains",
+            "affectedFlows",
+            "dependencies",
+            "evidencePaths",
+            "uncertainty",
+            "reversible",
+            "rollback",
+            "preservesDataAndContracts"
+          ]
+        }
+      },
+      "required": [
+        "title",
+        "problem",
+        "layer",
+        "module",
+        "allowedPaths",
+        "acceptanceCriteria",
+        "assumptions",
+        "questions",
+        "risk",
+        "migrationNotes",
+        "traceability",
+        "documentationReview",
+        "impact"
+      ]
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "startLine": {
+            "type": "integer"
+          },
+          "endLine": {
+            "type": "integer"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "startLine",
+          "endLine",
+          "reason"
+        ]
+      }
+    }
+  },
+  "required": [
+    "draft",
+    "evidence"
+  ]
+}
