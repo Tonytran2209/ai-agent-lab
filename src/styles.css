@@ -86,3 +86,24 @@
 @media(prefers-reduced-motion:reduce){.settings-switch,.settings-switch span,.settings-extra>summary:before{transition:none}}
 
 .lab-agent-section{border-top:1px solid #2d2d2d;padding:8px 0;margin:8px 0}.lab-agent-section>summary{cursor:pointer;font-size:12px;color:#d3d5d9;padding:12px 0}.lab-agent-section>p,.lab-agent-section>small{display:block;font-size:11px;line-height:1.8;color:#969da7;margin:14px 0}.lab-agent-section>form,.lab-agent-section>input,.lab-agent-section>.settings-inline{margin:16px 0}.lab-agent-section pre{font-size:11px;line-height:1.7;white-space:pre-wrap;overflow-wrap:anywhere;padding:14px;background:#202020;border-radius:8px;margin:10px 0}.lab-agent-section details{margin:10px 0;font-size:11px;line-height:1.8}.lab-agent-section details summary{cursor:pointer;color:#bbc0c9;padding:6px 0}.lab-agent-section .settings-row{border-bottom:0}.lab-agent-section>.settings-log{gap:10px}
+
+/* Task content: one stage indicator, one overview; diagnostics are opt-in. */
+[hidden]{display:none!important}
+.task-progress{padding:24px 0 8px}
+.task-progress ol{display:flex;list-style:none;padding:0;margin:0 0 24px;gap:0}
+.task-progress li{position:relative;flex:1;display:flex;flex-direction:column;align-items:center;gap:8px;color:var(--muted,#929292);min-width:0}
+.task-progress li:not(:last-child):after{content:'';position:absolute;left:calc(50% + 18px);right:calc(-50% + 18px);top:13px;height:1px;background:var(--border,#333)}
+.task-progress li>span{width:27px;height:27px;display:grid;place-items:center;border:1px solid var(--border,#444);border-radius:50%;font-size:11px;z-index:1;background:var(--bg,#141414)}
+.task-progress li.current>span{background:#dedede;color:#151515;border-color:#dedede}
+.task-progress li.done>span{color:#a3bea9;border-color:#617b68}
+.task-progress li small{font-size:11px;white-space:nowrap}
+.task-progress-message{padding:0 0 12px}.task-progress-message strong{font-size:14px}.task-progress-message p{margin:6px 0 0;color:var(--muted,#999);font-size:13px;line-height:1.6}
+.task-progress.has-error .task-progress-message strong{color:#e2a69c}.task-progress.is-waiting .task-progress-message strong{color:#d7bd86}
+.task-tabs{display:flex;gap:24px;border-bottom:1px solid var(--border,#333);margin:4px 0 24px}
+.task-tabs button{border:0;border-radius:0;background:none;padding:14px 0;color:var(--muted,#999);border-bottom:2px solid transparent}
+.task-tabs button[aria-selected=true]{color:var(--text,#eee);border-bottom-color:currentColor}
+.task-overview{padding-bottom:24px}.task-feedback{margin:0;font-size:15px;line-height:1.8;white-space:pre-wrap}.task-overview>.subtle{font-size:12px;margin:16px 0 0}
+.task-outcome,.task-review{margin-top:28px;padding-top:24px;border-top:1px solid var(--border,#333)}
+.task-outcome h3,.task-review h3{font-size:14px;margin:0 0 12px}.task-outcome p,.task-review p{font-size:14px;line-height:1.7;white-space:pre-wrap}.task-outcome small{color:var(--muted,#999);font-size:12px}.task-review ul{padding-left:20px;line-height:1.8;font-size:14px}
+@media(max-width:600px){.task-progress li small{font-size:10px}.task-progress{padding-top:20px}.task-feedback{font-size:14px}}
+.task-outcome>p{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:4;overflow:hidden}

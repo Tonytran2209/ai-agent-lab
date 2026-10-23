@@ -1,3 +1,18 @@
+# Current feedback flow: classification on Lab, reasoning on Codex
+
+The default strategy is now `classify`, including existing stored settings that lack a strategy. Lab makes one short structured classification call: category, preliminary low/medium/high, confidence and reason. Input contains original feedback, context fields, project identity and at most 40 MD topic paths. It does not embed the feedback, retrieve document bodies, scan source or generate a second plan. Classification never authorizes execution. Provider failures, budget limits and uncertainty hand off the untouched feedback to Codex once, without a paid retry.
+
+Codex on Mac reads the pinned codebase and full relevant canonical MD in an isolated checkout, considers verified project memories, establishes the smallest scope including tests and necessary MD, then reports a plan. Existing automatic low/medium policy validates the actual code-grounded plan and starts execution without extra admin steps when eligible; high and material unresolved risks require admin. Internal planning and execution remain distinct claim boundaries. This is not a promise of one model invocation on Mac, nor an exact copy of interactive Codex chat. Codex handles implementation and approved MD updates; an independent supervisor pushes a branch/PR, validates exact-head CI, merges authorized changes and observes Railway. No direct blind push to main or skip of CI.
+
+Necessary canonical MD updates belong to the same scoped commit as code. Changes to canonical policy still require high-risk review. Lab reloads the library from main after successful deployment; existing pinned requests are unchanged. Background library sync is read-only and not itself a writer of canonical docs. Memory stores verified outcomes as retrieval examples, not model training.
+
+Inbox task view now uses five stage markers with a brief status, original feedback and concise outcome. Technical scope, source quotes, checks and chronological events live in the separate Nhật ký tab. Stages are not time-based percentages; a merged commit remains deploying until Railway confirms the expected commit. Errors remain visible in the overview with a link to details.
+
+Semantic search remains available for deliberate library lookup; it is not invoked by classification. Historical legacy planner support below is retained for old evaluations/tests and explicit `strategy=plan` configurations, not the default feedback path. Cloud remains an explicitly opted-in fallback when Mac is offline, with the same claims and release gates.
+
+---
+Previous architecture and operational setup reference:
+
 # Lab agent, knowledge and cloud operations
 
 ## Rollout order and implemented boundaries
