@@ -48,6 +48,7 @@ export function createApp(config, options = {}) {
   app.disable("x-powered-by");
   app.use(helmet({ contentSecurityPolicy: { directives: { defaultSrc: ["'self'"], scriptSrc: ["'self'"], styleSrc: ["'self'", "'unsafe-inline'"],
     imgSrc: ["'self'", "data:"], connectSrc: ["'self'"], frameAncestors: ["'none'"] } } }));
+  app.use('/api/data/restore-preview',express.json({limit:'8mb'}));
   app.use(express.json({ limit: "128kb",verify:(req,res,buf)=>{if(req.originalUrl==='/hooks/github')req.rawBody=buf;} }));
   const appOrigin = config.APP_URL ? new URL(config.APP_URL).origin : null;
   if (config.NODE_ENV === "production" && (!appOrigin || !appOrigin.startsWith("https://"))) throw new Error("Production requires an https APP_URL.");
