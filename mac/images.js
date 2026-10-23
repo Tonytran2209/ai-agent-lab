@@ -3,7 +3,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 const extensions={'image/png':'png','image/jpeg':'jpg','image/webp':'webp'},maxBytes=3*1024*1024;
 export async function feedbackImageArgs(request,config,token,{fetcher=fetch}={}){
- const images=request.attachments||[];if(!images.length)return [];
+ const images=request.attachments??[];if(!Array.isArray(images)||images.length>4)throw Error("Metadata ảnh không hợp lệ.");if(!images.length)return [];
  if(!/^REQ-[A-F0-9]{8}$/.test(request.id)||!Array.isArray(images)||images.length>4||!token)throw Error('Ảnh feedback thiếu định danh hoặc thông tin xác thực.');
  const origin=new URL(config.mcpUrl);if(origin.protocol!=='https:'||origin.username||origin.password||origin.pathname!=='/mcp')throw Error('MCP URL không hợp lệ.');
  const root=path.join(config.stateDir,'feedback-images'),directory=path.join(root,request.id);await mkdir(directory,{recursive:true,mode:0o700});for(const p of [root,directory])if((await lstat(p)).isSymbolicLink())throw Error('Thư mục ảnh không được là symlink.');
