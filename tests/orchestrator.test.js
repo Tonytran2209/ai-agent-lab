@@ -75,3 +75,14 @@ test('failed candidate evaluation leaves production settings intact and retains 
  assert.deepEqual(f.agent.settings(),before);const last=f.agent.evaluations().find(e=>e.model==='unavailable-candidate');assert.equal(last.passed,false);assert.doesNotMatch(last.error,/private provider detail/);assert.equal(f.agent.usage('writer-studio').calls,1);
  }finally{f.close();}
 });
+test('contextual Luna classification remains provisional; source-grounded Codex can correct an unsupported high prediction',async()=>{
+ let received;const f=fixture(async({input})=>{received=input;return {...decision(input),action:'survey',risk:'high',paths:[],references:[]};});
+ try{f.db.prepare("UPDATE settings SET value=? WHERE key='orchestrator-v1'").run(JSON.stringify({...settings,strategy:'classify'}));
+ f.k.retrieve=()=>{throw Error('No embeddings for triage');};
+ const r=f.s.create({feedback:'Adjust display preview layout while preserving saved content.'},'Member');f.agent.enqueue(r.id,'Member');await f.agent.tick();
+ const pending=f.s.get(r.id);assert.equal(pending.classification.risk,'high');assert.notEqual(pending.riskFloor,'high');assert.equal(received.context.commit,r.baseCommit);assert.ok(received.context.documents.length);assert.ok(JSON.stringify(received.context).length<11000);
+ const j=f.s.localPlanning.get(r.id),c=f.s.localPlanning.claim(r.id,j.id,r.baseCommit,20,'md-trace-v1','impact-v1','planning-replay-v1');const report=plan();report.evidence[0].contentHash='a'.repeat(64);
+ const done=f.s.localPlanning.complete(r.id,j.id,c.planningToken,report);assert.equal(done.draft.risk,'low');assert.equal(done.riskAssessment.disagrees,true);assert.equal(done.riskAssessment.preliminaryRisk,'high');assert.equal(done.riskAssessment.assessor,'codex-local');assert.ok(done.riskAssessment.evidencePaths.includes(file));assert.equal(done.status,'approved');
+ f.s.updateProject(r.projectId,{classifierContextEnabled:false});const another=f.s.create({feedback:'Adjust another display preview layout.'},'Member');f.agent.enqueue(another.id,'Member');await f.agent.tick();assert.deepEqual(received.context.documents,[]);assert.equal(f.agent.usage(r.projectId).calls,2);
+ }finally{f.close();}
+});
