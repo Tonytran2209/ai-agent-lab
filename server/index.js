@@ -81,7 +81,7 @@ export function createApp(config, options = {}) {
   app.put('/api/settings/agent',auth.admin,(req,res)=>res.json(agent.update(req.body)));
   app.get('/api/projects/:id/agent',auth.admin,async(req,res)=>{const id=req.params.id;res.json({knowledge:knowledge.snapshot(id),jobs:agent.jobs(id),usage:agent.usage(id),maintenance:maintenance.get(id),metrics:operationalMetrics(db,service,id),evaluations:agent.evaluations(),policyEvaluation:agent.policyEvaluation(),backups:await dataManagement.backups()});});
   app.get('/api/requests/:id/agent',auth.admin,(req,res)=>res.json(agent.job(req.params.id)));
-  app.post('/api/projects/:id/agent/evaluate',auth.admin,limiter(2,3600000),async(req,res)=>res.json(await agent.evaluate(req.params.id)));
+  app.post('/api/projects/:id/agent/evaluate',auth.admin,limiter(2,3600000),async(req,res)=>res.json(await agent.evaluate(req.params.id,z.object({suite:z.enum(['regression','holdout']).default('regression')}).strict().parse(req.body||{}).suite)));
   app.post('/api/projects/:id/knowledge/search',auth.admin,async(req,res)=>{const b=z.object({query:z.string().min(3).max(3000)}).strict().parse(req.body);res.json(await knowledge.retrieve(req.params.id,b.query));});
   app.post('/api/projects/:id/knowledge/semantic/reset',auth.admin,limiter(2,3600000),(req,res)=>res.json(semantic.reset(req.params.id)));
   app.put('/api/projects/:id/knowledge/lessons/:lessonId',auth.admin,(req,res)=>res.json(knowledge.review(req.params.id,req.params.lessonId,req.body,req.user.name)));
