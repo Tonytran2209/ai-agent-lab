@@ -30,6 +30,7 @@ export function workflowMessage(request, runner, aiConfigured = true) {
     if(request.preparation.status==='failed')return request.preparation.error||'Khảo sát trên Mac đã dừng; kiểm tra trước khi thử lại.';
     return preparationRunning(request)?'Codex đang đọc code và kinh nghiệm liên quan. Chưa có quyền sửa file; server sẽ kiểm tra rủi ro của kế hoạch.':'Claim khảo sát đã hết hạn. Admin cần xác nhận planner cũ đã dừng trước khi khôi phục.';
   }
+  if (request.status === 'verifying' && request.criterionCiStatus) return request.criterionCiStatus;
   if (request.status === "verifying" && request.delivery?.approvalHash) return "Đang kiểm tra CI trên PR. Khi đạt, hệ thống tự merge và theo dõi deploy theo quyền đã duyệt.";
   if (request.status === "verifying") return request.verification?.note || "Đang chờ GitHub kiểm tra trình duyệt trước nghiệm thu. Chưa merge/deploy.";
   if (request.status === "review" && request.delivery?.approvalHash) return request.delivery.phase==="failed" ? "Tự phát hành đã dừng: "+request.delivery.note : "Đang xác minh CI độc lập để tự phát hành theo quyền đã duyệt.";
@@ -86,6 +87,7 @@ export function taskProgress(r,runner){
   const reason=expired?'Phiên xử lý đã hết hạn; cần kiểm tra worker trước khi tiếp tục.':r.release?.phase==='failed'?r.release.note:r.preparation?.status==='failed'?r.preparation.error:r.executionFailure?.note||(!r.contract?.complete&&r.contract?.required?'Thiếu bằng chứng tiêu chí hoặc đánh giá tài liệu.':badCheck?'Kiểm tra chưa đạt: '+badCheck.command:null);
   if(reason)message=String(reason).replace(/\s+/g,' ').slice(0,200)+' Xem Nhật ký.';
  }
+ if(current===3&&!failed&&!waiting&&r.criterionCiStatus)message=r.criterionCiStatus;
  if(current===2&&!runner?.connected&&r.executionWorker?.kind!=='cloud'&&!failed&&!waiting)message+=' Mac chưa kết nối; cloud dự phòng xử lý khi đủ điều kiện.';
  return {steps,current,done,failed,waiting,title,message};
 }

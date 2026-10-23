@@ -32,7 +32,7 @@ if(process.argv[1]&&path.resolve(process.argv[1])===new URL(import.meta.url).pat
  const stateDir=path.resolve('cloud-state');await mkdir(stateDir,{recursive:true,mode:0o700});
  const locate=async name=>{const r=await command('/usr/bin/which',[name]);if(r.code)throw Error('Missing required cloud binary.');return r.stdout.trim();};
  const policyResponse=await fetch(new URL('/runner/cloud-policy',mcpUrl),{headers:{Authorization:'Bearer '+token},signal:AbortSignal.timeout(15000)});if(!policyResponse.ok)throw Error('Cloud policy unavailable.');const policy=await policyResponse.json();if(!policy.enabled)throw Error('Cloud worker is disabled in Lab settings.');
- const config={mcpUrl,stateDir,workerName:'github-cloud-worker',repoPath:path.join(stateDir,'writer-studio','repository'),ghPath:await locate('gh'),codexPath:await locate('codex'),releaseEnabled:policy.publishEnabled===true};
+ const config={codexModel:'gpt-6.1-sol',mcpUrl,stateDir,workerName:'github-cloud-worker',repoPath:path.join(stateDir,'writer-studio','repository'),ghPath:await locate('gh'),codexPath:await locate('codex'),releaseEnabled:policy.publishEnabled===true};
  // Authentication uses stdin, then remove the key before any repo script/model runs.
  const key=process.env.OPENAI_API_KEY;if(!key)throw Error('Missing cloud OPENAI_API_KEY secret.');
  const auth=await command(config.codexPath,['login','--with-api-key'],{input:key+'\n',timeout:30000});delete process.env.OPENAI_API_KEY;if(auth.code)throw Error('Cloud Codex authentication failed.');

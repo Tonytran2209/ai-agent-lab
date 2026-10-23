@@ -58,6 +58,7 @@ test("Mac runner claims once, runs checks, commits locally, reports and preserve
     const call = async (name, args) => { calls.push({ name, args }); return name === "claim_request" ? { ...packet, claimToken: "test-private-token" } : {}; };
     const run = async (exe, args, opts) => {
       if (exe === "fake-codex") {
+        assert.equal(args[args.indexOf("--model")+1],"gpt-6.1-sol");
         assert.ok(!opts.input.includes("test-private-token"));
         if(args.includes("--image"))assert.equal((await readFile(args[args.indexOf("--image")+1])).toString("base64"),"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aWh8AAAAASUVORK5CYII=");
         await writeFile(path.join(opts.cwd, "file.txt"), "after\n");
@@ -111,7 +112,7 @@ test("dependency preparation installs frontend and backend and stops on backend 
     await mkdir(path.join(dir, "backend"));
     for (const root of [dir, path.join(dir, "backend")]) await writeFile(path.join(root, "package-lock.json"), "{}");
     const installed = [];
-    await prepareDependencies(dir, async (exe, args, opts) => { installed.push(opts.cwd); assert.equal(exe, "npm"); assert.deepEqual(args, ["ci"]); return { code: 0 }; });
+    await prepareDependencies(dir, async (exe, args, opts) => { installed.push(opts.cwd); assert.equal(exe, "npm"); assert.deepEqual(args, ["ci", "--prefer-offline", "--no-audit", "--no-fund"]); return { code: 0 }; });
     assert.deepEqual(installed, [dir, path.join(dir, "backend")]);
     await assert.rejects(prepareDependencies(dir, async (_, __, opts) => ({ code: opts.cwd.endsWith("backend") ? 1 : 0 })), /backend/);
   } finally { await rm(dir, { recursive: true, force: true }); }
