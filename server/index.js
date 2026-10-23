@@ -1,3 +1,11 @@
+import {createSemantic} from './semantic.js';
+import {createCloudDispatch} from './cloud-dispatch.js';
+import crypto from 'node:crypto';
+import {createKnowledge} from './knowledge.js';
+import {createOrchestrator} from './orchestrator.js';
+import {createMaintenance} from './knowledge-maintenance.js';
+import {createDataManagement} from './data-management.js';
+import {operationalMetrics} from './agent-evals.js';
 import {createLark} from './lark.js';
 import {createDelivery} from './delivery.js';
 import {planReport} from './local-planning.js';
@@ -24,7 +32,14 @@ export function createApp(config, options = {}) {
   const auth = createAuth(config);
   const db = options.db ?? openDatabase(config.DATA_DIR || path.join(root, "data"));
   const service = createService(db, {...options,requireTraceability:config.MD_TRACEABILITY_ENABLED!=="false"});
-  const pipeline = createPipeline(service, config, { analyze: options.analyze });
+  const knowledge=createKnowledge(db,service);
+  const agent=createOrchestrator(db,service,knowledge,config,options.agentOptions);
+  const semantic=createSemantic(db,knowledge,service,agent,config,options.semanticOptions);knowledge.configureRetriever(semantic.retrieve);
+  const maintenance=createMaintenance(db,service,knowledge,agent,config,options.maintenanceOptions);
+  const dataManagement=createDataManagement(db,service,knowledge,config.DATA_DIR||path.join(root,'data'));
+  const cloud=createCloudDispatch(db,service,config,options.cloudOptions);
+  const legacyPipeline=createPipeline(service,config,{analyze:options.analyze});
+  const pipeline={enqueue:(id,actor)=>agent.enabled(service.get(id).projectId)?agent.enqueue(id,actor):legacyPipeline.enqueue(id,actor),start(){legacyPipeline.start();agent.start();maintenance.start();dataManagement.start();cloud.start();},async stop(){await cloud.stop();await agent.stop();await maintenance.stop();await dataManagement.stop();await legacyPipeline.stop();},async tick(){await agent.tick();await legacyPipeline.tick();}};
   const delivery=createDelivery(service,config);
   const lark=createLark(db,service,config);
   const app = express();
@@ -33,7 +48,7 @@ export function createApp(config, options = {}) {
   app.disable("x-powered-by");
   app.use(helmet({ contentSecurityPolicy: { directives: { defaultSrc: ["'self'"], scriptSrc: ["'self'"], styleSrc: ["'self'", "'unsafe-inline'"],
     imgSrc: ["'self'", "data:"], connectSrc: ["'self'"], frameAncestors: ["'none'"] } } }));
-  app.use(express.json({ limit: "128kb" }));
+  app.use(express.json({ limit: "128kb",verify:(req,res,buf)=>{if(req.originalUrl==='/hooks/github')req.rawBody=buf;} }));
   const appOrigin = config.APP_URL ? new URL(config.APP_URL).origin : null;
   if (config.NODE_ENV === "production" && (!appOrigin || !appOrigin.startsWith("https://"))) throw new Error("Production requires an https APP_URL.");
   app.use((req, res, next) => {
@@ -44,7 +59,7 @@ export function createApp(config, options = {}) {
     next();
   });
   app.get("/health", (req, res) => {
-    try { db.prepare("SELECT 1").get(); res.json({ ok: true, policyVersion: "risk-v2", runnerProtocol: "execution-failure-v1", releaseProtocol: "release-v1", browserProtocol: "github-browser-v1", aiPolicyVersion: "economy-v1", projectProtocol:"multi-project-v1", ciSetupProtocol:"ci-setup-v1",planningProtocol:"local-planning-v1",memoryProtocol:"verified-memory-v1",deliveryProtocol:"single-approval-v1",recheckProtocol:"artifact-recheck-v1",contractProtocol:"md-trace-v1",governanceProtocol:"impact-v1",notificationProtocol:"lark-card-v1" }); } catch { res.status(503).json({ ok: false }); }
+    try { db.prepare("SELECT 1").get(); res.json({ ok: true, policyVersion: "risk-v2", runnerProtocol: "execution-failure-v1", releaseProtocol: "release-v1", browserProtocol: "github-browser-v1", aiPolicyVersion: "economy-v1", projectProtocol:"multi-project-v1", ciSetupProtocol:"ci-setup-v1",planningProtocol:"local-planning-v1",memoryProtocol:"verified-memory-v1",deliveryProtocol:"single-approval-v1",recheckProtocol:"artifact-recheck-v1",contractProtocol:"md-trace-v1",governanceProtocol:"impact-v1",notificationProtocol:"lark-card-v1",orchestratorProtocol:"lab-orchestrator-v1",knowledgeProtocol:"hybrid-concepts-v1",dataProtocol:"lab-project-export-v1" }); } catch { res.status(503).json({ ok: false }); }
   });
   const limiter = (limit, windowMs = 60000) => rateLimit({ limit, windowMs, standardHeaders: "draft-8", legacyHeaders: false,
     message: { error: "Quá nhiều yêu cầu. Vui lòng thử lại sau." } });
@@ -53,10 +68,27 @@ export function createApp(config, options = {}) {
     res.json({ user: auth.login(name, password, res) });
   });
   app.get("/api/auth/me", (req, res) => { const user = auth.session(req); if (!user) return res.status(401).json({ error: "Vui lòng đăng nhập." }); res.json({ user }); });
+  app.post('/hooks/github',limiter(10), (req,res)=>{const supplied=req.headers['x-hub-signature-256'];if(!config.GITHUB_WEBHOOK_SECRET||typeof supplied!=='string'||!/^sha256=[a-f0-9]{64}$/.test(supplied))return res.sendStatus(401);const expected='sha256='+crypto.createHmac('sha256',config.GITHUB_WEBHOOK_SECRET).update(req.rawBody||Buffer.alloc(0)).digest('hex');if(!crypto.timingSafeEqual(Buffer.from(expected),Buffer.from(supplied)))return res.sendStatus(401);if(req.headers['x-github-event']==='push'){const p=service.projects().find(p=>p.enabled&&p.repository===req.body?.repository?.full_name&&req.body?.ref==='refs/heads/'+p.branch);if(p)maintenance.schedule(p.id);}res.status(202).json({queued:true});});
   app.use("/api", auth.require, limiter(180));
   app.post("/api/auth/logout", (req, res) => { auth.logout(res); res.json({ ok: true }); });
-  app.get("/api/config", (req, res) => res.json({ aiConfigured: config.LAB_PLANNING_MODE!=="server"||Boolean(config.OPENAI_API_KEY), planningMode:config.LAB_PLANNING_MODE==="server"?"server":"codex-local", model: config.LAB_PLANNING_MODE==="server"?(config.OPENAI_MODEL||"gpt-4.1-mini"):"Codex trên Mac",
-    aiUsage: req.user.role === "admin" ? service.aiLedger.summary(config) : undefined, policyVersion: "risk-v2", runner: service.runnerStatus(), mcpUrl: (config.APP_URL || "http://localhost:3000").replace(/\/$/, "") + "/mcp", project: service.project("writer-studio") }));
+  app.get("/api/config", (req, res) => res.json({ aiConfigured: agent.enabled()?agent.settings().keyConfigured:config.LAB_PLANNING_MODE!=="server"||Boolean(config.OPENAI_API_KEY), planningMode:agent.enabled()?"lab-agent":config.LAB_PLANNING_MODE==="server"?"server":"codex-local", model: agent.enabled()?agent.settings().model:config.LAB_PLANNING_MODE==="server"?(config.OPENAI_MODEL||"gpt-4.1-mini"):"Codex trên Mac",
+    aiUsage: req.user.role === "admin" ? {...service.aiLedger.summary(config),coordinatorUsage:service.projects().map(p=>({projectId:p.id,...agent.usage(p.id)}))} : undefined, policyVersion: "risk-v2", runner: service.runnerStatus(), mcpUrl: (config.APP_URL || "http://localhost:3000").replace(/\/$/, "") + "/mcp", project: service.project("writer-studio") }));
+  app.get('/api/settings/cloud',auth.admin,(req,res)=>res.json(cloud.get()));
+  app.put('/api/settings/cloud',auth.admin,(req,res)=>res.json(cloud.update(req.body)));
+  app.post('/api/settings/cloud/dispatch',auth.admin,limiter(2,3600000),async(req,res)=>res.json(await cloud.dispatch()));
+  app.get('/api/settings/agent',auth.admin,(req,res)=>res.json(agent.settings()));
+  app.put('/api/settings/agent',auth.admin,(req,res)=>res.json(agent.update(req.body)));
+  app.get('/api/projects/:id/agent',auth.admin,async(req,res)=>{const id=req.params.id;res.json({knowledge:knowledge.snapshot(id),jobs:agent.jobs(id),usage:agent.usage(id),maintenance:maintenance.get(id),metrics:operationalMetrics(db,service,id),evaluations:agent.evaluations(),policyEvaluation:agent.policyEvaluation(),backups:await dataManagement.backups()});});
+  app.get('/api/requests/:id/agent',auth.admin,(req,res)=>res.json(agent.job(req.params.id)));
+  app.post('/api/projects/:id/agent/evaluate',auth.admin,limiter(2,3600000),async(req,res)=>res.json(await agent.evaluate(req.params.id)));
+  app.post('/api/projects/:id/knowledge/search',auth.admin,async(req,res)=>{const b=z.object({query:z.string().min(3).max(3000)}).strict().parse(req.body);res.json(await knowledge.retrieve(req.params.id,b.query));});
+  app.post('/api/projects/:id/knowledge/semantic/reset',auth.admin,limiter(2,3600000),(req,res)=>res.json(semantic.reset(req.params.id)));
+  app.put('/api/projects/:id/knowledge/lessons/:lessonId',auth.admin,(req,res)=>res.json(knowledge.review(req.params.id,req.params.lessonId,req.body,req.user.name)));
+  app.post('/api/projects/:id/knowledge/propose',auth.admin,limiter(3,3600000),(req,res)=>{const {expectedCommit}=z.object({expectedCommit:z.string().regex(/^[a-f0-9]{40}$/)}).strict().parse(req.body),id=req.params.id,lib=service.currentLibrary(id),state=maintenance.get(id);if(lib.sourceCommit!==expectedCommit||state.commit!==expectedCommit||!state.documentationCandidates?.length)fail('Không còn đề xuất MD khớp phiên bản hiện tại.');const feedback='Rà soát tính chính xác của MD so với code tại '+expectedCommit+'. Tài liệu cần đối chiếu: '+state.documentationCandidates.map(c=>c.path).join(', ')+'. Source thay đổi: '+state.changedPaths.slice(0,12).join(', ')+'. Chỉ cập nhật MD nếu có bằng chứng nội dung không còn đúng; giữ nguyên hợp đồng code và không thay đổi quyền/chính sách.';const r=service.create({projectId:id,feedback},req.user.name,{deduplicate:true});res.status(r.duplicate?200:201).json(r.duplicate?r:pipeline.enqueue(r.id,req.user.name));});
+  app.post('/api/projects/:id/knowledge/sync',auth.admin,limiter(3,600000),async(req,res)=>res.json(await maintenance.refresh(req.params.id)));
+  app.post('/api/data/backup',auth.admin,limiter(2,3600000),async(req,res)=>res.json(await dataManagement.backup()));
+  app.get('/api/projects/:id/export',auth.admin,(req,res)=>res.attachment(req.params.id+'-lab.json').json(dataManagement.export(req.params.id)));
+  app.post('/api/data/restore-preview',auth.admin,(req,res)=>res.json(dataManagement.preview(req.body)));
   app.get("/api/ai/usage", auth.admin, (req, res) => res.json(service.aiLedger.summary(config)));
   app.get("/api/requests", (req, res) => res.json({ requests: service.list() }));
   app.post("/api/requests", limiter(20), (req, res) => {
@@ -166,6 +198,7 @@ export function createApp(config, options = {}) {
   app.post('/runner/planning/:id/heartbeat',auth.mcp,(req,res)=>{const b=planningClaim.parse(req.body);const result=service.localPlanning.heartbeat(req.params.id,b.jobId,b.planningToken);service.reportRunner({phase:'running',requestId:req.params.id});res.json(result);});
   app.post('/runner/planning/:id/report',auth.mcp,(req,res)=>{const b=planningClaim.extend({report:planReport}).strict().parse(req.body);try{res.json(service.localPlanning.complete(req.params.id,b.jobId,b.planningToken,b.report));}catch(e){if(e.code==='SCOPE_POLICY')service.localPlanning.validationFailure(req.params.id,b.jobId,b.planningToken,e.details.map(d=>d.path));throw e;}});
   app.post('/runner/planning/:id/fail',auth.mcp,(req,res)=>{const b=planningClaim.extend({reason:z.enum(['scope','validation','report','codex','worker','artifact']).optional()}).strict().parse(req.body);res.json(service.localPlanning.failed(req.params.id,b.jobId,b.planningToken,b.reason));});
+  app.get('/runner/cloud-policy',auth.mcp,(req,res)=>res.json({enabled:cloud.get().enabled,publishEnabled:cloud.get().publishEnabled}));
   app.get("/runner/projects",auth.mcp,limiter(60),(req,res)=>res.json({projects:service.projects()}));
   app.get("/runner/verifications",auth.mcp,limiter(60),(req,res)=>res.json({requests:service.verifications()}));
   app.post("/runner/verifications/:id/claim",auth.mcp,limiter(60),(req,res)=>res.json(service.claimVerification(req.params.id,"mac-browser-ci")));
@@ -202,7 +235,7 @@ export function createApp(config, options = {}) {
       status >= 500 && e.status === undefined ? "Không xử lý được yêu cầu. Dữ liệu đã lưu vẫn được giữ." : e.message;
     res.status(status).json({ error,...(e.code==='SCOPE_POLICY'?{code:e.code,details:e.details}:{}) });
   });
-  return { app, db, service, pipeline, delivery, lark };
+  return { app, db, service, pipeline, delivery, lark, agent, knowledge, maintenance, dataManagement, cloud };
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const { app, db, pipeline, delivery, lark } = createApp(process.env);

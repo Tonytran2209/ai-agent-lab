@@ -1,6 +1,6 @@
 import { matchesProject } from './projects.js';
 import { githubClient, publishStep } from './release.js';
-export async function pollVerifications(config,token,run,signal,onPullRequest=async()=>{}) {
+export async function pollVerifications(config,token,run,signal,onPullRequest=async()=>{},allowedRequestIds) {
   const endpoint=new URL('/runner/verifications',config.mcpUrl);
   const request=async(suffix='',body)=>{
     const res=await fetch(endpoint.href+suffix,{method:body?'POST':'GET',signal:AbortSignal.timeout(15000),headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});
@@ -9,7 +9,7 @@ export async function pollVerifications(config,token,run,signal,onPullRequest=as
   };
   const {requests}=await request();
   for(const row of [...requests].reverse()){
-    if(signal?.aborted)return;
+    if(signal?.aborted)return;if(allowedRequestIds&&!allowedRequestIds.has(row.id))continue;
     if(!matchesProject(row,config))continue;
     let claim;try{claim=await request('/'+row.id+'/claim',{});}catch{continue;}
     let update;

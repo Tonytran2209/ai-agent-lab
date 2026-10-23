@@ -1,0 +1,45 @@
+name: Lab cloud worker
+run-name: Lab cloud worker ${{ inputs.dispatch_id }}
+on:
+  workflow_dispatch:
+    inputs:
+      dispatch_id:
+        description: Lab dispatch correlation id
+        required: false
+        default: manual
+permissions:
+  contents: read
+concurrency:
+  group: lab-cloud-worker
+  cancel-in-progress: false
+jobs:
+  worker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: lab-cloud-worker
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm install --global @openai/codex@0.163.0
+      - name: Run one approved work item
+        run: node cloud/worker.js
+        env:
+          LAB_MCP_URL: ${{ vars.LAB_MCP_URL }}
+          AI_AGENT_LAB_MCP_TOKEN: ${{ secrets.LAB_MCP_TOKEN }}
+          OPENAI_API_KEY: ${{ secrets.LAB_OPENAI_API_KEY }}
+          GH_TOKEN: ${{ secrets.LAB_GITHUB_TOKEN }}
+      - name: Preserve scoped local commits and journals before the ephemeral runner exits
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lab-cloud-state-${{ github.run_id }}
+          path: cloud-state
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 7

@@ -104,7 +104,7 @@ export async function publishStep({ request: r, config, run, api, signal, purpos
   }
   throw new Error('Sai giai đoạn phát hành.');
 }
-export async function pollReleases(config, token, run, signal, onPullRequest = async () => {}) {
+export async function pollReleases(config, token, run, signal, onPullRequest = async () => {}, allowedRequestIds) {
   if (config.releaseEnabled !== true) return;
   const endpoint = new URL('/runner/releases', config.mcpUrl);
   const request = async (suffix = '', body) => {
@@ -115,7 +115,7 @@ export async function pollReleases(config, token, run, signal, onPullRequest = a
   };
   const { requests } = await request();
   for (const row of [...requests].reverse()) {
-    if (signal?.aborted) return;
+    if (signal?.aborted) return;if(allowedRequestIds&&!allowedRequestIds.has(row.id))continue;
     if (!matchesProject(row,config)) continue;
     let claimed;
     try { claimed = await request('/' + row.id + '/claim', {}); } catch { continue; }

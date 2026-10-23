@@ -211,7 +211,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
     },
     takePreparation() {
       return transaction(db, () => {
-        const r = list().reverse().find(r => r.preparation?.status === "queued" &&
+        const r = list().reverse().find(r => r.preparation?.status === "queued" && !["lab-agent","codex-local"].includes(r.preparation.engine) &&
           (!r.preparation.retryAt || Date.parse(r.preparation.retryAt) <= Date.now()) &&
           ["feedback", "needs-triage", "draft", "awaiting-approval"].includes(r.status));
         if (!r) return null;
@@ -233,7 +233,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
     },
     recoverPreparations() {
       return transaction(db, () => {
-        for (const r of list().filter(r => r.preparation?.jobId && r.preparation.status === "running")) {
+        for (const r of list().filter(r => r.preparation?.jobId && !["lab-agent","codex-local"].includes(r.preparation.engine) && r.preparation.status === "running")) {
           if (["approved", "claimed", "running", "review", "completed"].includes(r.status)) {
             r.preparation.status = "completed";
           } else {
