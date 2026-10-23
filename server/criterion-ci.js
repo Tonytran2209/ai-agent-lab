@@ -16,7 +16,7 @@ export async function collectCriterionCi(r,token,fetcher=fetch){
  const rows=r.draft.traceability;if(!rows?.length||rows.some(t=>!browserCriterion(t.verification.command)))return null;
  const branch=r.result.localArtifact.branch;if(!new RegExp('^lab/'+r.id+'-[0-9]+$').test(branch))throw Error('Sai nhánh artifact.');
  const prs=await api('pulls?state=open&head='+encodeURIComponent(r.repository.split('/')[0]+':'+branch)+'&base='+encodeURIComponent(r.branch));if(prs.length!==1)return null;
- const pr=prs[0],commit=pr.head?.sha;
+ const pr=await api('pulls/'+prs[0].number),commit=pr.head?.sha;
  if(pr.head?.ref!==branch||pr.head?.repo?.full_name!==r.repository||pr.base?.repo?.full_name!==r.repository||pr.base?.ref!==r.branch)throw Error('PR không khớp project.');
  const files=await api('pulls/'+pr.number+'/files?per_page=100');
  if(!files.length||files.length!==pr.changed_files||files.some(f=>!r.draft.allowedPaths.includes(f.filename)||f.previous_filename&&!r.draft.allowedPaths.includes(f.previous_filename)))throw Error('Artifact vượt phạm vi đã duyệt.');
