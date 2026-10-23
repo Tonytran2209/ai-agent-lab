@@ -24,7 +24,9 @@ export function validateDraft(draft, library, requireTraceability=false) {
   const parsed = draftSchema.parse(draft);
   parsed.allowedPaths = [...new Set(parsed.allowedPaths)];
   const ownedByLayer = parsed.layer === "cross-layer" ? p => Object.values(allowedByLayer).some(fn => fn(p)) : allowedByLayer[parsed.layer];
-  const owned=p=>ownedByLayer(p)||library.documents.some(d=>d.path===p)||/^tests\/agent-lab\/[^/]+\.(spec|test)\.[cm]?[jt]sx?$/.test(p);
+  // Existing project test fixtures are valid scope, but never CI/config files.
+  const projectTest=p=>/^tests\/(browser|agent-lab)\/[a-zA-Z0-9_./-]+\.[cm]?[jt]sx?$/.test(p)&&library.sourcePaths.includes(p);
+  const owned=p=>ownedByLayer(p)||library.documents.some(d=>d.path===p)||projectTest(p)||/^tests\/agent-lab\/[^/]+\.(spec|test)\.[cm]?[jt]sx?$/.test(p);
   if (!parsed.allowedPaths.every(owned)) fail("Phạm vi file không thuộc layer đã chọn.", 400);
   // New files are allowed within declared layer boundaries; the reviewer must inspect them.
   const newFiles = parsed.allowedPaths.filter(p => !library.sourcePaths.includes(p));

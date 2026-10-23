@@ -25,3 +25,5 @@ Repeated feedback groups are deterministic review proposals with source request 
 ## Validation
 
 No live provider credentials are required for tests. Survey worker tests use actual temporary Git worktrees and a fake Codex process to verify the read-only CLI, token isolation, original feedback transport and evidence hashes. Service/HTTP tests cover stale output, risk escalation, exclusive/expired leases, bounded retries/budgets, transactional rollback, memory provenance/isolation and admin permissions.
+
+Planning diagnostics use bounded failure categories (scope, validation, report, codex, worker); child output, tokens and arbitrary API messages are never copied into request events. Existing JS/TS test fixtures under tests/browser or tests/agent-lab may accompany a scoped source change when present in the pinned library. This does not authorize CI/config changes or skip medium review. Failed plans stay on disk; retrying a survey remains an explicit, budgeted action.
