@@ -80,6 +80,11 @@ export function taskProgress(r,runner){
  const waiting=['awaiting-approval','needs-triage','rejected'].includes(r.status)||r.status==='review'&&!r.delivery?.approvalHash;
  let title=done?'Đã cập nhật ứng dụng':failed?'Cần xử lý':waiting?r.status==='rejected'?'Đã dừng':'Cần xác nhận':steps[current];
  let message=done?'Thay đổi đã được triển khai.':failed?'Có bước chưa hoàn tất. Xem Nhật ký để biết nguyên nhân và cách tiếp tục.':waiting?r.status==='rejected'?'Request đã được dừng.':'Xem phạm vi và xác nhận bên dưới để tiếp tục.':current===0?'Feedback đã được lưu.':current===1?'AI phân loại nội dung và mức độ rủi ro.':current===2?r.preparation?.engine==='codex-local'?(r.preparation.status==='queued'?'Đã chuyển feedback; chờ Codex nhận việc.':'Codex đọc code và MD, xác định phương án sửa.'):r.status==='approved'?'Đã có kế hoạch; chờ worker nhận việc.':'Codex đang thực hiện thay đổi và cập nhật tài liệu nếu cần.':current===3?'Đang kiểm tra kết quả trước khi phát hành.':'Đã merge; đang xác nhận Railway deploy.';
+ if(failed){
+  const badCheck=r.result?.checks?.find(c=>!c.passed);
+  const reason=expired?'Phiên xử lý đã hết hạn; cần kiểm tra worker trước khi tiếp tục.':r.release?.phase==='failed'?r.release.note:r.preparation?.status==='failed'?r.preparation.error:r.executionFailure?.note||(!r.contract?.complete&&r.contract?.required?'Thiếu bằng chứng tiêu chí hoặc đánh giá tài liệu.':badCheck?'Kiểm tra chưa đạt: '+badCheck.command:null);
+  if(reason)message=String(reason).replace(/\s+/g,' ').slice(0,200)+' Xem Nhật ký.';
+ }
  if(current===2&&!runner?.connected&&r.executionWorker?.kind!=='cloud'&&!failed&&!waiting)message+=' Mac chưa kết nối; cloud dự phòng xử lý khi đủ điều kiện.';
  return {steps,current,done,failed,waiting,title,message};
 }
