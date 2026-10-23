@@ -19,14 +19,14 @@ export function requestSignal(request) {
   return request.status + (request.delivery ? ":delivery:"+request.delivery.phase : "") + (request.verification ? ":browser:" + request.verification.phase : "") + (request.release ? ":release:" + request.release.phase : "") + (request.preparation ? ":" + request.preparation.status : "");
 }
 export function workflowMessage(request, runner, aiConfigured = true) {
-  if(request.preparation?.engine==='lab-agent'&&['queued','running'].includes(request.preparation.status))return 'Lab Agent đang đối chiếu kiến thức và source GitHub để chọn bước tiếp theo. Chưa cấp quyền sửa code.';
+  if(request.preparation?.engine==='lab-agent'&&['queued','running'].includes(request.preparation.status))return 'Lab Agent đang phân loại feedback để chuyển Codex; chưa đọc source hoặc lập kế hoạch.';
   if(request.executionWorker?.kind==='cloud'&&['claimed','running'].includes(request.status))return 'Cloud worker đã nhận request và đang thực thi trong worktree riêng. Kết quả sẽ gửi về Lab để kiểm tra CI và bằng chứng.';
   if(request.status==='failed'&&request.result&&request.contract?.required&&!request.contract.complete)return "Liên kết tiêu chí/bằng chứng hoặc đánh giá tài liệu chưa đủ. Xem Quy định MD → tiêu chí → bằng chứng; CI chung không thay thế phần còn thiếu.";
   if(request.contractProtocol&&request.preparation?.status==='queued'&&runner?.contractProtocol!==request.contractProtocol)return "Feedback đã lưu. Chờ Mac runner nạp bản hỗ trợ liên kết MD; chưa gọi khảo sát AI.";
   if(request.status==="rechecking")return "Mac sẽ kiểm tra lại artifact trên đúng commit, nhận diện CRLF. Không gọi AI hoặc sửa code; lỗi cũ vẫn nằm trong lịch sử.";
   if(request.preparation?.engine==='codex-local'&&['queued','running','failed'].includes(request.preparation.status)){
     if(request.preparation.status==='queued'&&request.planning?.budgetRemaining===0)return 'Project đã dùng hết 20 lượt khảo sát hôm nay (UTC). Feedback vẫn được giữ và sẽ tiếp tục khi ngân sách ngày mới mở; không gọi thêm AI.';
-    if(request.preparation.status==='queued')return runner?.connected?'Đã lưu feedback. Mac sẽ khảo sát code chỉ đọc khi rảnh; Lab không gọi AI API.':'Đã lưu feedback. Chờ Mac runner kết nối để khảo sát code; Lab không gọi AI API.';
+    if(request.preparation.status==='queued')return runner?.connected?'Đã lưu feedback. Codex sẽ đọc code và MD khi worker rảnh.':'Đã lưu feedback. Chờ worker kết nối để đọc code và MD.';
     if(request.preparation.status==='failed')return request.preparation.error||'Khảo sát trên Mac đã dừng; kiểm tra trước khi thử lại.';
     return preparationRunning(request)?'Codex đang đọc code và kinh nghiệm liên quan. Chưa có quyền sửa file; server sẽ kiểm tra rủi ro của kế hoạch.':'Claim khảo sát đã hết hạn. Admin cần xác nhận planner cũ đã dừng trước khi khôi phục.';
   }
@@ -65,4 +65,26 @@ export function requiresAttention(r) {
   if([r.lease,r.planning?.lease,r.verification?.lease,r.recheck?.lease,r.release?.lease].some(l=>l&&Date.parse(l.expiresAt)<=Date.now()))return true;
   if(r.status==='review')return !r.delivery?.approvalHash||r.delivery.phase==='failed';
   return ['awaiting-approval','failed','needs-triage'].includes(r.status)||r.release?.phase==='failed'||r.preparation?.status==='failed';
+}
+
+// Stage progress, never a fabricated elapsed-time percentage or proof of deployment.
+export function taskProgress(r,runner){
+ const steps=['Tiếp nhận','Phân loại','Codex','Kiểm tra','Phát hành'];
+ let current=0,done=r.release?.phase==='deployed';
+ if(r.preparation?.engine==='lab-agent'||r.classification)current=1;
+ if(r.preparation?.engine==='codex-local'||r.draft||['approved','claimed','running'].includes(r.status))current=2;
+ if(r.result||['verifying','review','completed','rechecking'].includes(r.status))current=3;
+ if(r.release?.phase==='deploying'||r.release?.mergeCommit||done)current=4;
+ const expired=[r.lease,r.planning?.lease,r.verification?.lease,r.recheck?.lease,r.release?.lease].some(l=>l&&Date.parse(l.expiresAt)<=Date.now());
+ const failed=expired||r.status==='failed'||r.release?.phase==='failed'||r.delivery?.phase==='failed'||r.preparation?.status==='failed';
+ const waiting=['awaiting-approval','needs-triage','rejected'].includes(r.status)||r.status==='review'&&!r.delivery?.approvalHash;
+ let title=done?'Đã cập nhật ứng dụng':failed?'Cần xử lý':waiting?r.status==='rejected'?'Đã dừng':'Cần xác nhận':steps[current];
+ let message=done?'Thay đổi đã được triển khai.':failed?'Có bước chưa hoàn tất. Xem Nhật ký để biết nguyên nhân và cách tiếp tục.':waiting?r.status==='rejected'?'Request đã được dừng.':'Xem phạm vi và xác nhận bên dưới để tiếp tục.':current===0?'Feedback đã được lưu.':current===1?'AI phân loại nội dung và mức độ rủi ro.':current===2?r.preparation?.engine==='codex-local'?(r.preparation.status==='queued'?'Đã chuyển feedback; chờ Codex nhận việc.':'Codex đọc code và MD, xác định phương án sửa.'):r.status==='approved'?'Đã có kế hoạch; chờ worker nhận việc.':'Codex đang thực hiện thay đổi và cập nhật tài liệu nếu cần.':current===3?'Đang kiểm tra kết quả trước khi phát hành.':'Đã merge; đang xác nhận Railway deploy.';
+ if(failed){
+  const badCheck=r.result?.checks?.find(c=>!c.passed);
+  const reason=expired?'Phiên xử lý đã hết hạn; cần kiểm tra worker trước khi tiếp tục.':r.release?.phase==='failed'?r.release.note:r.preparation?.status==='failed'?r.preparation.error:r.executionFailure?.note||(!r.contract?.complete&&r.contract?.required?'Thiếu bằng chứng tiêu chí hoặc đánh giá tài liệu.':badCheck?'Kiểm tra chưa đạt: '+badCheck.command:null);
+  if(reason)message=String(reason).replace(/\s+/g,' ').slice(0,200)+' Xem Nhật ký.';
+ }
+ if(current===2&&!runner?.connected&&r.executionWorker?.kind!=='cloud'&&!failed&&!waiting)message+=' Mac chưa kết nối; cloud dự phòng xử lý khi đủ điều kiện.';
+ return {steps,current,done,failed,waiting,title,message};
 }

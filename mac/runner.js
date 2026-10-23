@@ -150,6 +150,7 @@ export async function executeRequest({ packet, call, config, signal, run = comma
     const outputPath = path.join(config.stateDir, branch.slice(4) + "-result.json");
     // Feed only data and scoped instructions, never a token. MCP is disabled for this child.
     const prompt = [
+      "Read AGENTS.md, original user feedback, relevant canonical MD and actual source/dependencies before implementing. The plan is a bounded starting point, not a substitute for understanding code. Update the approved canonical MD with code whenever behavior changes; preserve accurate existing rules and explain when no document change is needed.",
       "Implement this approved request in this isolated worktree. The Mac runner has ALREADY claimed it. Existing scoped edits may be recovered from a stopped attempt; inspect and preserve correct work.",
       "Do not call Lab tools, claim, commit, push, merge, deploy, alter git metadata, or apply production migrations.",
       "Edit only the exact allowedPaths. If any additional file is required, stop and return blocked=true with the reason.",

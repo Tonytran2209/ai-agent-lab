@@ -53,3 +53,14 @@ test('runner presence is durable, expires offline and does not change request ap
     assert.ok(service.claim(next.id, "Mac", ready.baseCommit).claimToken);
   } finally { db.close(); rmSync(dir, {recursive:true,force:true}); }
 });
+
+test('task progress distinguishes a merged commit from a deployed release and reports failures without hiding the stage',async()=>{
+ const {taskProgress}=await import('../src/workflow.js');
+ assert.equal(taskProgress({status:'feedback',preparation:{engine:'lab-agent',status:'queued'}}).current,1);
+ assert.equal(taskProgress({status:'feedback',preparation:{engine:'codex-local',status:'running'}}).current,2);
+ const ci=taskProgress({status:'verifying',result:{}});assert.equal(ci.current,3);assert.equal(ci.done,false);
+ const merged=taskProgress({status:'completed',release:{phase:'deploying',mergeCommit:'a'}});assert.equal(merged.current,4);assert.equal(merged.done,false);
+ assert.equal(taskProgress({status:'completed',release:{phase:'deployed'}}).done,true);
+ const fail=taskProgress({status:'completed',release:{phase:'failed',mergeCommit:'a'}});assert.equal(fail.current,4);assert.equal(fail.failed,true);assert.equal(fail.done,false);
+ assert.equal(taskProgress({status:'awaiting-approval',draft:{}}).waiting,true);
+});
