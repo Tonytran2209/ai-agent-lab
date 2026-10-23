@@ -54,11 +54,11 @@ test("Mac runner claims once, runs checks, commits locally, reports and preserve
     await git("remote", "add", "origin", "https://github.com/Tonytran2209/RebuildWriterStudioTool.git");
     await git("config", `url.${repo}.insteadOf`, "https://github.com/Tonytran2209/RebuildWriterStudioTool.git");
     const request = { id: "REQ-ABCDEF12", contractProtocol:"md-trace-v1", repository: "Tonytran2209/RebuildWriterStudioTool", status: "approved", approval: {}, baseCommit, draft: { allowedPaths: ["file.txt"] } };
-    const packet = { executable: true, request, library: {} }, calls = [];
+    const packet = { ai:{mainModel:"selected-main-model"}, executable: true, request, library: {} }, calls = [];
     const call = async (name, args) => { calls.push({ name, args }); return name === "claim_request" ? { ...packet, claimToken: "test-private-token" } : {}; };
     const run = async (exe, args, opts) => {
       if (exe === "fake-codex") {
-        assert.equal(args[args.indexOf("--model")+1],"gpt-6.1-sol");
+        assert.equal(args[args.indexOf("--model")+1],"selected-main-model");
         assert.ok(!opts.input.includes("test-private-token"));
         if(args.includes("--image"))assert.equal((await readFile(args[args.indexOf("--image")+1])).toString("base64"),"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aWh8AAAAASUVORK5CYII=");
         await writeFile(path.join(opts.cwd, "file.txt"), "after\n");

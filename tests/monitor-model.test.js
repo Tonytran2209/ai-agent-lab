@@ -20,6 +20,9 @@ test('Mac and cloud model arguments are explicit and independent of user config'
  assert.deepEqual(codexModelArgs({codexModel:'gpt-6.1-sol',planningModel:'gpt-6-luna'},'planning'),['--model','gpt-6-luna']);
  assert.deepEqual(codexModelArgs({executionModel:'gpt-6.1-sol'},'execution'),['--model','gpt-6.1-sol']);
  assert.throws(()=>codexModelArgs({codexModel:'x --yolo'},'execution'));
+ assert.deepEqual(codexModelArgs({planningModel:'local-model'},'planning',{mainModel:'selected-model'}),['--model','selected-model']);
+ assert.deepEqual(codexModelArgs({},'execution',{mainModel:'selected-model'}),['--model','selected-model']);
+ assert.throws(()=>codexModelArgs({},'execution',{mainModel:'x --yolo'}));
 });
 test('medium accepts safe quoted alternatives but rejects shell pipelines; UI distinguishes CI pass from criterion reconciliation',()=>{
  const command="node node_modules/@playwright/test/cli.js test tests/browser/draft.spec.ts --grep 'qc-one|qc-two'";
