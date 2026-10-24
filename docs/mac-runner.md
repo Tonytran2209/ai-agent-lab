@@ -99,3 +99,7 @@ Dependencies use `npm ci --prefer-offline --no-audit --no-fund`: reuse the npm d
 ### Criterion CI reconciliation
 
 Supported browser commands accept a literal grep tag or quoted alternatives, e.g. `--grep 'qc-display-preservation|qc-status-display'`. Every alternative needs successful records on **both** desktop and mobile, with no matching skipped records. Shell pipelines, substitutions and arbitrary regular expressions remain unsupported. Unsupported commands are reported as a criterion configuration error rather than an indefinite wait for CI. A green generic job never substitutes for missing criterion records.
+
+## Thiết lập AI trên Lab
+
+Tab AI cho phép chọn model Main AI Codex (khảo sát và thực thi trên Mac/cloud) và model Sub AI agent phân loại trên Lab. Main AI để trống dùng cấu hình runner hiện tại; lựa chọn trên Lab ưu tiên cho các lượt chạy mới. Cập nhật và khởi động lại runner để nhận cấu hình này. Model Sub AI vẫn cần đạt regression và holdout trước khi kích hoạt. Lab không còn giới hạn số lượt API/project/ngày UTC; cấu hình dailyCalls cũ không còn chặn lời gọi. Giới hạn token, số bước mỗi request và hạn mức nhà cung cấp vẫn áp dụng.

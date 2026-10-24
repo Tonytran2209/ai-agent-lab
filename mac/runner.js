@@ -169,7 +169,7 @@ export async function executeRequest({ packet, call, config, signal, run = comma
     const env = childEnvironment(process.env);
     await prepareDependencies(worktree, run, { env, signal: controller.signal });
     const imageArgs=await feedbackImageArgs(claimed.request,config,imageToken);
-    const executed = await run(config.codexPath, ["exec", ...imageArgs, ...codexModelArgs(config,"execution"), "--ignore-user-config", "--sandbox", "workspace-write", "-C", worktree, "--output-schema", schemaPath, "--output-last-message", outputPath, "-"],
+    const executed = await run(config.codexPath, ["exec", ...imageArgs, ...codexModelArgs(config,"execution",packet.ai), "--ignore-user-config", "--sandbox", "workspace-write", "-C", worktree, "--output-schema", schemaPath, "--output-last-message", outputPath, "-"],
       { cwd: worktree, env, input: prompt, signal: controller.signal });
     // Do not persist child stdout/stderr: it can contain private source or inherited credentials.
     if (executed.code) throw new Error("Codex thoát với mã " + executed.code + ". Kiểm tra đăng nhập/quyền sandbox.");
