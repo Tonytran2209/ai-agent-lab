@@ -19,6 +19,7 @@ export function requestSignal(request) {
   return request.status + (request.delivery ? ":delivery:"+request.delivery.phase : "") + (request.verification ? ":browser:" + request.verification.phase : "") + (request.release ? ":release:" + request.release.phase : "") + (request.preparation ? ":" + request.preparation.status : "");
 }
 export function workflowMessage(request, runner, aiConfigured = true) {
+  if(request.projectQueue?.blocked)return 'Chờ '+request.projectQueue.blockedBy+' hoàn tất deploy và đồng bộ MD; sau đó cập nhật base mới trước khi xử lý.';
   if(request.preparation?.engine==='lab-agent'&&['queued','running'].includes(request.preparation.status))return 'Lab Agent đang phân loại feedback để chuyển Codex; chưa đọc source hoặc lập kế hoạch.';
   if(request.executionWorker?.kind==='cloud'&&['claimed','running'].includes(request.status))return 'Cloud worker đã nhận request và đang thực thi trong worktree riêng. Kết quả sẽ gửi về Lab để kiểm tra CI và bằng chứng.';
   if(request.status==='failed'&&request.result&&request.contract?.required&&!request.contract.complete)return "Liên kết tiêu chí/bằng chứng hoặc đánh giá tài liệu chưa đủ. Xem Quy định MD → tiêu chí → bằng chứng; CI chung không thay thế phần còn thiếu.";
@@ -63,6 +64,8 @@ export function requestChanges(previous, current) {
 }
 
 export function requiresAttention(r) {
+  if(r.projectQueue?.blocked)return false;
+  if(r.projectQueue?.staleBase&&r.draft)return true;
   if([r.lease,r.planning?.lease,r.verification?.lease,r.recheck?.lease,r.release?.lease].some(l=>l&&Date.parse(l.expiresAt)<=Date.now()))return true;
   if(r.status==='review')return !r.delivery?.approvalHash||r.delivery.phase==='failed';
   return ['awaiting-approval','failed','needs-triage'].includes(r.status)||r.release?.phase==='failed'||r.preparation?.status==='failed';
@@ -70,6 +73,8 @@ export function requiresAttention(r) {
 
 // Stage progress, never a fabricated elapsed-time percentage or proof of deployment.
 export function taskProgress(r,runner){
+ if(r.projectQueue?.blocked)return {steps:['Tiếp nhận','Phân loại','Codex','Kiểm tra','Phát hành'],current:0,done:false,failed:false,waiting:true,title:'Chờ lượt · vị trí '+r.projectQueue.position,message:'Project đang xử lý '+r.projectQueue.blockedBy+'. Chỉ bắt đầu sau khi request trước hoàn tất deploy và đồng bộ MD; không ghi đè lên bản đang chạy.'};
+ if(r.projectQueue?.staleBase&&r.draft&&!r.lease)return {steps:['Tiếp nhận','Phân loại','Codex','Kiểm tra','Phát hành'],current:2,done:false,failed:false,waiting:true,title:'Cần cập nhật base',message:'Main đã thay đổi. Chuẩn bị lại kế hoạch trên base mới trước khi thực thi; quyền cũ không được dùng cho nội dung mới.'};
  const steps=['Tiếp nhận','Phân loại','Codex','Kiểm tra','Phát hành'];
  let current=0,done=r.release?.phase==='deployed';
  if(r.preparation?.engine==='lab-agent'||r.classification)current=1;

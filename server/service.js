@@ -1,3 +1,4 @@
+import {projectQueueState} from './project-queue.js';
 import {normalizeImages,createFeedbackImages} from './feedback-images.js';
 import {rejectedScopePaths} from './scope.js';
 import {impactRisk,decideAutomation} from './impact.js';
@@ -24,10 +25,14 @@ export function validateDraft(draft, library, requireTraceability=false) {
   if(rejected.length)throw Object.assign(new Error('Phạm vi file không thuộc layer đã chọn.'),{status:400,code:'SCOPE_POLICY',details:rejected.map(path=>({path,reason:'outside-layer-or-test-policy'}))});
   // New files are allowed within declared layer boundaries; the reviewer must inspect them.
   const newFiles = parsed.allowedPaths.filter(p => !library.sourcePaths.includes(p));
+  const testPath=p=>/^tests\/(browser|agent-lab)\/.*\.[cm]?[jt]sx?$/.test(p)&&(library.sourcePaths.includes(p)||/\.(spec|test)\.[cm]?[jt]sx?$/.test(p)&&library.sourcePaths.some(f=>f.startsWith(p.split('/').slice(0,2).join('/')+'/')&&/\.(spec|test)\.[cm]?[jt]sx?$/.test(f)));
   const sensitiveWords = new Set(["auth", "oauth", "authentication", "authorization", "permission", "permissions", "billing", "storage", "payment", "payments", "login", "session", "supabase", "migration", "migrations", "provider", "providers"]);
-  const sensitive = parsed.allowedPaths.some(p=>p.startsWith('.agent-hub/policies/')) || parsed.allowedPaths.some(p => p.replace(/([a-z])([A-Z])/g,"$1/$2").toLowerCase().split(/[\/_.-]+/).some(word => sensitiveWords.has(word)));
-  const boundedUi = parsed.layer === "design" && !newFiles.length && parsed.allowedPaths.length <= 5 &&
-    parsed.allowedPaths.every(p => /^(src\/components\/.*\.(tsx|jsx)|src\/[^/]+\.css)$/.test(p));
+  const sensitive = parsed.allowedPaths.some(p=>p.startsWith('.agent-hub/policies/')) || parsed.allowedPaths.filter(p=>!testPath(p)).some(p => p.replace(/([a-z])([A-Z])/g,"$1/$2").toLowerCase().split(/[\/_.-]+/).some(word => sensitiveWords.has(word)));
+
+  const uiDoc=p=>/^\.agent-hub\/(design\/.*|project)\.md$/.test(p)&&library.sourcePaths.includes(p);
+  const productionPaths=parsed.allowedPaths.filter(p=>!testPath(p)&&!uiDoc(p));
+  const boundedUi = parsed.layer === "design" && !newFiles.some(p=>!testPath(p)&&!uiDoc(p)) && productionPaths.length>0 && productionPaths.length<=5 && parsed.allowedPaths.length<=8 &&
+    productionPaths.every(p => /^(src\/components\/.*\.(tsx|jsx)|src\/[^/]+\.css|src\/App\.[tj]sx)$/.test(p));
   const proposedRisk=impactRisk(parsed);
   const risk = sensitive || parsed.layer === "database" ? "high" : !boundedUi && proposedRisk === "low" ? "medium" : proposedRisk;
   const riskReasons = sensitive || parsed.layer === "database" ? ["Liên quan dữ liệu hoặc chức năng nhạy cảm"] :
@@ -71,12 +76,18 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
   const list = () => db.prepare("SELECT data FROM requests ORDER BY rowid DESC").all().map(row => JSON.parse(row.data));
   const event = (id, type, actor, detail = "") => db.prepare("INSERT INTO events(request_id,data) VALUES (?,?)")
     .run(id, JSON.stringify({ type, actor, detail, at: now() }));
-  const publicRequest = r => {
+  const serialized=options.serializeProjects===true;
+  if(serialized){db.exec('CREATE TABLE IF NOT EXISTS local_planning (request_id TEXT PRIMARY KEY,data TEXT NOT NULL); CREATE TABLE IF NOT EXISTS project_queue_order(ticket INTEGER PRIMARY KEY AUTOINCREMENT,request_id TEXT UNIQUE NOT NULL,draining INTEGER NOT NULL,historical_deployed INTEGER NOT NULL DEFAULT 0)');for(const r of list().reverse())db.prepare('INSERT OR IGNORE INTO project_queue_order(request_id,draining,historical_deployed) VALUES (?,?,?)').run(r.id,Number(!r.queueProtocol&&r.status!=='rejected'&&(r.status!=='completed'||Boolean(r.release&&r.release.phase!=='deployed'))&&Boolean(r.draft||r.result||r.lease||r.preparation?.status==='running')),Number(r.release?.phase==='deployed'));}
+  const queueTicket=(r,renew=false)=>{if(!serialized)return;if(renew)db.prepare('DELETE FROM project_queue_order WHERE request_id=?').run(r.id);db.prepare('INSERT OR IGNORE INTO project_queue_order(request_id,draining) VALUES (?,0)').run(r.id);};
+  const queueRows=rows=>{if(!serialized)return rows;const order=new Map(db.prepare('SELECT request_id,ticket,draining,historical_deployed FROM project_queue_order').all().map(x=>[x.request_id,x]));const leases=new Map(db.prepare("SELECT request_id,json_extract(data,'$.lease.expiresAt') AS expiresAt FROM local_planning WHERE json_extract(data,'$.lease') IS NOT NULL").all().map(j=>[j.request_id,j.expiresAt]));return rows.map(r=>({...r,historicalDeployment:Boolean(order.get(r.id)?.historical_deployed),queueTicket:order.get(r.id)?.ticket||0,queuePriority:order.get(r.id)?.draining||0,planningLease:leases.get(r.id)||null}));};
+  const queueState=(r,rows)=>serialized?projectQueueState(r,Array.isArray(rows)?rows:queueRows(list().reverse()),projects.get(r.projectId),currentLibrary(r.projectId).sourceCommit):null;
+  const assertTurn=r=>{if(queueState(r)?.blocked)fail('Project đang xử lý '+queueState(r).blockedBy+'; chờ deploy và đồng bộ MD trước khi nhận việc tiếp.',409);};
+  const publicRequest = (r,queueRows) => {
     const { lease, ...rest } = r;
     const release = rest.release ? { ...rest.release, lease: rest.release.lease ? { owner: rest.release.lease.owner, expiresAt: rest.release.lease.expiresAt } : null } : undefined;
     const recheck=rest.recheck?{...rest.recheck,lease:rest.recheck.lease?{owner:rest.recheck.lease.owner,expiresAt:rest.recheck.lease.expiresAt}:null}:undefined;
     const verification = rest.verification ? { ...rest.verification, lease: rest.verification.lease ? {owner:rest.verification.lease.owner,expiresAt:rest.verification.lease.expiresAt} : null } : undefined;
-    return { ...rest, ...(r.contractProtocol?{contract:assessContract(r),documentationImpact:documentationImpact(r,library(r.libraryVersionId))}:{}), ...(recheck?{recheck}:{}), ...(service.localPlanning?.get(r.id)?{planning:service.localPlanning.get(r.id)}:{}), ...(rest.result ? {resultRevision:resultRevision(r)} : {}), ...(verification ? {verification} : {}), ...(release ? { release } : {}), lease: lease ? { owner: lease.owner, expiresAt: lease.expiresAt } : null };
+    return { ...rest, ...(serialized?{projectQueue:queueState(r,queueRows)}:{}), ...(r.contractProtocol?{contract:assessContract(r),documentationImpact:documentationImpact(r,library(r.libraryVersionId))}:{}), ...(recheck?{recheck}:{}), ...(service.localPlanning?.get(r.id)?{planning:service.localPlanning.get(r.id)}:{}), ...(rest.result ? {resultRevision:resultRevision(r)} : {}), ...(verification ? {verification} : {}), ...(release ? { release } : {}), lease: lease ? { owner: lease.owner, expiresAt: lease.expiresAt } : null };
   };
   function changed(r, type, actor, detail) { r.updatedAt = now(); save(r); event(r.id, type, actor, detail); return publicRequest(r); }
   function mutable(r) {
@@ -126,7 +137,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
     aiLedger: createAiLedger(db),
     ciSetup,
     projects:()=>projects.list().map(p=>({...p,ciSetup:ciSetup.get(p.id)})), project:id=>({...projects.get(id),ciSetup:ciSetup.get(id)}), updateProject:projects.update,
-    currentLibrary, library, list: () => list().map(publicRequest),
+    currentLibrary, library, list: () => {const rows=list(),ordered=queueRows([...rows].reverse());return rows.map(r=>publicRequest(r,ordered));},
     reportRunner(input) {
       const value = { ...input, projects:input.projects ?? this.runnerStatus().projects ?? [], contractProtocol:input.contractProtocol??this.runnerStatus().contractProtocol, governanceProtocol:input.governanceProtocol??this.runnerStatus().governanceProtocol, attachmentProtocol:input.attachmentProtocol??this.runnerStatus().attachmentProtocol, lastSeenAt: now() };
       db.prepare("INSERT OR REPLACE INTO settings(key,value) VALUES ('mac_runner',?)").run(JSON.stringify(value));
@@ -152,12 +163,12 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
         const r = { id: "REQ-" + crypto.randomUUID().slice(0, 8).toUpperCase(), projectId: lib.projectId,
           repository: lib.repository, baseCommit: lib.sourceCommit, libraryVersionId: lib.id,
           ...data, ...(attachments.length?{attachments}:{}), projectId:lib.projectId, branch:lib.branch, title: data.feedback.slice(0, 100), author: actor, status: "feedback",
-          draft: null, approval: null, lease: null, result: null, ai: null, createdAt: now(), updatedAt: now() };
+          ...(serialized?{queueProtocol:"project-fifo-v1"}:{}), draft: null, approval: null, lease: null, result: null, ai: null, createdAt: now(), updatedAt: now() };
         if(options.requireTraceability)r.contractProtocol="md-trace-v1";
         if(options.requireTraceability)r.governanceProtocol="impact-v1";
         const project=projects.get(r.projectId);
         if(project.autoCompleteAfterApproval)r.delivery={mode:"single-approval-v1",phase:"pending-approval",environment:project.releaseEnvironment,configurationRevision:project.configurationRevision};
-        save(r); feedbackImages.put(r.id,preparedImages); event(r.id, "feedback_received", actor); return publicRequest(r);
+        save(r); queueTicket(r); feedbackImages.put(r.id,preparedImages); event(r.id, "feedback_received", actor); return publicRequest(r);
       });
     },
     edit(id, input, actor) {
@@ -215,10 +226,11 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
     },
     takePreparation() {
       return transaction(db, () => {
-        const r = list().reverse().find(r => r.preparation?.status === "queued" && !["lab-agent","codex-local"].includes(r.preparation.engine) &&
+        let r = list().reverse().find(r => !queueState(r)?.blocked && !(queueState(r)?.staleBase&&r.draft) && r.preparation?.status === "queued" && !["lab-agent","codex-local"].includes(r.preparation.engine) &&
           (!r.preparation.retryAt || Date.parse(r.preparation.retryAt) <= Date.now()) &&
           ["feedback", "needs-triage", "draft", "awaiting-approval"].includes(r.status));
         if (!r) return null;
+        r=service.prepareProjectHead(r.id);
         r.preparation = { ...r.preparation, status: "running", attempts: (r.preparation.attempts || 0) + 1, startedAt: now() };
         changed(r, "preparation_started", "AI Agent Lab");
         return { requestId: r.id, jobId: r.preparation.jobId };
@@ -261,7 +273,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
         if (r.riskFloor === "high" || r.riskFloor === "medium" && d.risk === "low") d = { ...d, risk: r.riskFloor };
         r.riskFloor = d.risk;
         r.draft = d; r.policyVersion = "risk-v2";
-        r.riskAssessment={protocol:'verified-triage-v1',assessor:r.ai?.source||'admin',preliminaryRisk:r.classification?.risk||null,codexRisk:r.ai?.codexRisk||null,finalRisk:d.risk,policyAdjusted:Boolean(r.ai?.codexRisk&&r.ai.codexRisk!==d.risk),policyReasons:[...new Set([...d.riskReasons,...(r.ai?.intentRisk&&r.ai.intentRisk!==r.ai.codexRisk?['Mức tối thiểu theo nội dung feedback: '+r.ai.intentRisk]:[]),...(previousRiskFloor&&previousRiskFloor!==r.ai?.codexRisk?['Mức tối thiểu đã ghim: '+previousRiskFloor]:[])])],disagrees:Boolean(r.classification&&r.ai?.codexRisk&&r.classification.risk!==r.ai.codexRisk),reason:(d.impact?.summary||d.problem).slice(0,1200),evidencePaths:(r.ai?.evidence||[]).map(e=>e.path),baseCommit:r.baseCommit,rubricVersion:'risk-brief-v1',at:now()};
+        r.riskAssessment={protocol:'verified-triage-v1',assessor:r.ai?.source||'admin',preliminaryRisk:r.classification?.modelRisk||r.classification?.risk||null,routingRisk:r.classification?.risk||null,codexRisk:r.ai?.codexRisk||null,finalRisk:d.risk,policyAdjusted:Boolean(r.ai?.codexRisk&&r.ai.codexRisk!==d.risk),policyReasons:[...new Set([...d.riskReasons,...(r.ai?.intentRisk&&r.ai.intentRisk!==r.ai.codexRisk?['Mức tối thiểu theo nội dung feedback: '+r.ai.intentRisk]:[]),...(previousRiskFloor&&previousRiskFloor!==r.ai?.codexRisk?['Mức tối thiểu đã ghim: '+previousRiskFloor]:[])])],disagrees:Boolean(r.classification&&r.ai?.codexRisk&&(r.classification.modelRisk||r.classification.risk)!==r.ai.codexRisk),reason:(d.impact?.summary||d.problem).slice(0,1200),evidencePaths:(r.ai?.evidence||[]).map(e=>e.path),baseCommit:r.baseCommit,rubricVersion:'risk-brief-v2',at:now()};
         r.automation=decideAutomation(r,projects.get(r.projectId));
         r.review = { required: r.automation.mode === "automatic" ? "none" : d.risk !== "high" ? "check" : "approve-high" };
         if (r.automation.mode === "automatic") {
@@ -287,6 +299,13 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
         });
     },
     rawForAnalysis: id => get(id),
+    projectQueue:id=>queueState(get(id)),
+    assertProjectTurn:id=>assertTurn(get(id)),
+    prepareProjectHead(id){return transaction(db,()=>{const r=get(id);assertTurn(r);if(!serialized)return r;const lib=currentLibrary(r.projectId);if(!r.queueProtocol&&!r.draft&&!r.result&&!r.approval&&!r.lease&&r.preparation?.status!=='running'){r.queueProtocol='project-fifo-v1';save(r);}if(r.baseCommit===lib.sourceCommit)return r;
+      if(r.draft||r.result||r.approval||r.lease||service.localPlanning?.get(r.id)?.lease||r.preparation?.status==='running')fail('Base đã thay đổi; cần chuẩn bị lại kế hoạch trước khi thực thi.',409);
+      if(lib.repository!==r.repository||lib.branch!==r.branch)fail('Cấu hình repository/branch đã thay đổi; cần kiểm tra project.',409);
+      r.baseCommit=lib.sourceCommit;r.libraryVersionId=lib.id;if(r.classification)r.classification={...r.classification,contextStale:true};changed(r,'queue_base_refreshed','AI Agent Lab','Đến lượt xử lý; cập nhật base và MD theo main mới.');return get(id);
+    });},
     submit(id, input, actor, options = {}) {
       return transaction(db, () => {
         const r = get(id); mutable(r);
@@ -342,10 +361,10 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
         r.status = "rejected"; r.approval = null; return changed(r, "request_rejected", actor, note);
       });
     },
-    ready: () => list().filter(r => r.status === "approved" && projects.get(r.projectId).enabled).map(publicRequest),
+    ready: () => list().filter(r => r.status === "approved" && !queueState(r)?.blocked && !queueState(r)?.staleBase && projects.get(r.projectId).enabled).map(publicRequest),
     claim(id, owner, observedBaseCommit, contractProtocol, attachmentProtocol) {
       return transaction(db, () => {
-        const r = get(id); if(r.attachments?.length&&attachmentProtocol!=="feedback-images-v1")fail("Runner cần hỗ trợ ảnh feedback trước khi thực thi."); if(r.contractProtocol&&contractProtocol!==r.contractProtocol)fail("Agent cần khai báo contractProtocol md-trace-v1 trước khi thực thi."); if(!projects.get(r.projectId).enabled)fail("Project đang tạm dừng."); if (r.status !== "approved") fail("Request chưa được duyệt hoặc đã được claim.");
+        const r = get(id); assertTurn(r);if(serialized&&r.baseCommit!==currentLibrary(r.projectId).sourceCommit)fail("Base đã thay đổi; cần khảo sát lại trước thực thi.",409); if(r.attachments?.length&&attachmentProtocol!=="feedback-images-v1")fail("Runner cần hỗ trợ ảnh feedback trước khi thực thi."); if(r.contractProtocol&&contractProtocol!==r.contractProtocol)fail("Agent cần khai báo contractProtocol md-trace-v1 trước khi thực thi."); if(!projects.get(r.projectId).enabled)fail("Project đang tạm dừng."); if (r.status !== "approved") fail("Request chưa được duyệt hoặc đã được claim.");
         if (r.baseCommit !== observedBaseCommit) fail("HEAD không khớp baseCommit. Không được thực thi.");
         if(r.delivery?.approvalHash)deliveryAuthority(r);
         const fingerprint = hash(JSON.stringify({ draft: r.draft, baseCommit: r.baseCommit, libraryVersionId: r.libraryVersionId }));
@@ -494,12 +513,12 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
       });
     },
     publish(id, actor, options = {}) {
-      return transaction(db, () => { const r = get(id); if(!projects.get(r.projectId).enabled||!projects.get(r.projectId).releaseEnabled)fail("Project chưa bật phát hành sau nghiệm thu."); queueRelease(r, actor, options); return changed(r, "release_queued", actor); });
+      return transaction(db, () => { const r = get(id); if(!projects.get(r.projectId).enabled||!projects.get(r.projectId).releaseEnabled)fail("Project chưa bật phát hành sau nghiệm thu."); if(serialized&&queueState(r)?.position===0)queueTicket(r,true); queueRelease(r, actor, options); return changed(r, "release_queued", actor); });
     },
-    releases: () => list().filter(r => r.status === "completed" && r.release && !["deployed", "failed"].includes(r.release.phase)).map(publicRequest),
+    releases: () => list().filter(r => r.status === "completed" && !queueState(r)?.blocked && r.release && !["deployed", "failed"].includes(r.release.phase)).map(publicRequest),
     claimRelease(id, owner) {
       return transaction(db, () => {
-        const r = get(id), release = r.release;
+        const r = get(id), release = r.release; assertTurn(r);
         if(r.acceptance?.mode==="automated-ci")deliveryAuthority(r);
         if(!projects.get(r.projectId).enabled||!projects.get(r.projectId).releaseEnabled)fail("Project đã tắt phát hành.");
         if (r.status !== "completed" || !release || ["deployed", "failed"].includes(release.phase) || release.requestHash !== releaseFingerprint(r)) fail("Không có quyền phát hành nội dung này.");
@@ -546,7 +565,8 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
     rebase(id, actor) {
       return transaction(db, () => {
         const r = get(id);
-        if (["claimed", "running", "completed", "review", "verifying", "rechecking"].includes(r.status)||r.recheck?.lease||r.verification?.lease||r.release?.lease) fail("Không thể cập nhật base của request đang chạy/đã có kết quả.");
+        if (["claimed", "running", "completed", "review", "verifying", "rechecking"].includes(r.status)||service.localPlanning?.get(r.id)?.lease||r.recheck?.lease||r.verification?.lease||r.release?.lease) fail("Không thể cập nhật base của request đang chạy/đã có kết quả.");
+        if(r.status==='rejected')queueTicket(r,true);if(serialized){r.queueProtocol='project-fifo-v1';db.prepare('UPDATE project_queue_order SET historical_deployed=0 WHERE request_id=?').run(r.id);}
         cancelPreparation(r);
         if(r.result)r.resultHistory=[...(r.resultHistory||[]),{...r.result,criterionCi:r.criterionCi,criterionCiStatus:r.criterionCiStatus,riskAssessment:r.riskAssessment,planTraceability:r.draft?.traceability,plannedDocumentationReview:r.draft?.documentationReview,libraryVersionId:r.libraryVersionId,baseCommit:r.baseCommit,at:now()}];
         delete r.verification;delete r.release;delete r.acceptance;delete r.recheck;delete r.riskAssessment;delete r.criterionCi;delete r.criterionCiStatus;delete r.criterionCiNextAt;

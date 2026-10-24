@@ -31,7 +31,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 export function createApp(config, options = {}) {
   const auth = createAuth(config);
   const db = options.db ?? openDatabase(config.DATA_DIR || path.join(root, "data"));
-  const service = createService(db, {...options,requireTraceability:config.MD_TRACEABILITY_ENABLED!=="false"});
+  const service = createService(db, {...options,serializeProjects:options.serializeProjects??true,requireTraceability:config.MD_TRACEABILITY_ENABLED!=="false"});
   const knowledge=createKnowledge(db,service);
   const agent=createOrchestrator(db,service,knowledge,config,options.agentOptions);
   const semantic=createSemantic(db,knowledge,service,agent,config,options.semanticOptions);knowledge.configureRetriever(semantic.retrieve);
@@ -61,7 +61,7 @@ export function createApp(config, options = {}) {
     next();
   });
   app.get("/health", (req, res) => {
-    try { db.prepare("SELECT 1").get(); res.json({ ok: true, policyVersion: "risk-v2", runnerProtocol: "execution-failure-v1", releaseProtocol: "release-v1", browserProtocol: "github-browser-v1", aiPolicyVersion: "economy-v1", projectProtocol:"multi-project-v1", ciSetupProtocol:"ci-setup-v1",planningProtocol:"local-planning-v1",memoryProtocol:"verified-memory-v1",deliveryProtocol:"single-approval-v1",recheckProtocol:"artifact-recheck-v1",contractProtocol:"md-trace-v1",governanceProtocol:"impact-v1",notificationProtocol:"lark-card-v1",orchestratorProtocol:"lab-orchestrator-v1",feedbackRoutingProtocol:"feedback-routing-v1",attachmentProtocol:"feedback-images-v1",knowledgeProtocol:"hybrid-concepts-v1",dataProtocol:"lab-project-export-v1" }); } catch { res.status(503).json({ ok: false }); }
+    try { db.prepare("SELECT 1").get(); res.json({ ok: true, policyVersion: "risk-v2", projectQueueProtocol:"project-fifo-v1", riskRubricVersion:"risk-brief-v2", runnerProtocol: "execution-failure-v1", releaseProtocol: "release-v1", browserProtocol: "github-browser-v1", aiPolicyVersion: "economy-v1", projectProtocol:"multi-project-v1", ciSetupProtocol:"ci-setup-v1",planningProtocol:"local-planning-v1",memoryProtocol:"verified-memory-v1",deliveryProtocol:"single-approval-v1",recheckProtocol:"artifact-recheck-v1",contractProtocol:"md-trace-v1",governanceProtocol:"impact-v1",notificationProtocol:"lark-card-v1",orchestratorProtocol:"lab-orchestrator-v1",feedbackRoutingProtocol:"feedback-routing-v1",attachmentProtocol:"feedback-images-v1",knowledgeProtocol:"hybrid-concepts-v1",dataProtocol:"lab-project-export-v1" }); } catch { res.status(503).json({ ok: false }); }
   });
   const limiter = (limit, windowMs = 60000) => rateLimit({ limit, windowMs, standardHeaders: "draft-8", legacyHeaders: false,
     message: { error: "Quá nhiều yêu cầu. Vui lòng thử lại sau." } });

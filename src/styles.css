@@ -182,3 +182,5 @@
 .journal-history-toggle{margin:0 0 0 50px;font-size:11px}
 .task-logbook .technical-fold>p{margin:12px 4px 12px 24px;font-size:11px;line-height:1.8}
 @media(max-width:600px){.journal-group{margin-bottom:28px}.task-logbook .request-disclosure>summary{padding:16px 0;gap:9px}.task-logbook .request-disclosure>summary>span{font-size:10px;max-width:32%}.criterion-detail>summary{grid-template-columns:18px minmax(0,1fr);gap:8px}.criterion-status{grid-column:2;justify-self:start}.criterion-content{padding-left:26px;gap:22px}.activity-entry>summary{flex-direction:column;gap:3px}.task-logbook .activity-timeline li{padding-left:16px}.task-logbook .request-disclosure>p,.task-logbook .result,.task-logbook .evidence-line,.contract-criteria,.task-logbook .contract-docs{margin-left:18px}}
+
+.task-logbook .triage-checklist{margin:20px 4px 20px 24px}.triage-checklist ul{padding-left:18px;margin:0;display:grid;gap:10px}.triage-checklist li{font-size:12px;line-height:1.8;color:#aaa}

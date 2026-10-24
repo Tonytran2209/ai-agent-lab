@@ -21,6 +21,7 @@ export function decideAutomation(r,p){
  if(r.governanceProtocol==='impact-v1'&&!i)reasons.push('Thiếu đánh giá tác động có cấu trúc.');
  if(i?.uncertainty.length)reasons.push('Agent ghi nhận tình huống chưa chắc chắn.');
  if(i&&(!i.reversible||!i.preservesDataAndContracts))reasons.push('Chưa chứng minh có thể phục hồi và giữ hợp đồng dữ liệu/API.');
+ if(r.governanceProtocol==='impact-v1'&&r.ai?.source!=='codex-local'&&!(r.ai?.source==='lab-agent'&&r.ai.sourceVerified===true&&r.ai.observedBaseCommit===r.baseCommit))reasons.push('Cần khảo sát source để xác nhận rủi ro trước khi cấp quyền chạy.');
  if(r.draft?.risk==='low')return {mode:reasons.length?'review':'automatic',reasons:reasons.length?reasons:['UI nhỏ trong phạm vi chính sách low.'],policy:'impact-v1'};
  if(r.governanceProtocol!=='impact-v1'||p.automationMode!=='impact-auto')reasons.push('Project yêu cầu kiểm tra medium trước khi chạy.');
  if(!r.delivery||!p.autoCompleteAfterApproval||!p.releaseEnabled||!p.ciReady)reasons.push('Chưa đủ cấu hình CI và tự phát hành.');
