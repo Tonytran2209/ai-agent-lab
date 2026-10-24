@@ -29,7 +29,7 @@ test('server promotes broad/sensitive scope; medium check and explicit high appr
   const highRetry=await process({...draft,layer:'backend',allowedPaths:['backend/auth.ts']});
   f.service.clarify(highRetry.id,'Chỉ thay hiển thị Draft, không thay quyền.', 'Member');
   const retryWorker=createPipeline(f.service,{}, {analyze:analyzer(draft)});retryWorker.enqueue(highRetry.id,'Member');retryWorker.start();await retryWorker.tick();await retryWorker.stop();assert.equal(f.service.get(highRetry.id).draft.risk,'high');assert.equal(f.service.get(highRetry.id).approval,null);
-  const questions=await process({...draft,questions:['Có thay dữ liệu đã lưu hay chỉ hiển thị?']});assert.equal(questions.draft.risk,'medium');assert.equal(questions.draft.questions.length,0);assert.ok(questions.draft.assumptions.some(x=>x.includes('Cần kiểm tra:')));
+  const questions=await process({...draft,questions:['Có thay dữ liệu đã lưu hay chỉ hiển thị?']});assert.equal(questions.draft.risk,'medium');assert.equal(questions.draft.questions.length,1);assert.equal(questions.executionReadiness.ready,false);assert.throws(()=>f.service.approve(questions.id,'Admin'),/thông tin|điều kiện/);
  }finally{f.close();}
 });
 test('queued jobs survive restart, retry boundedly, and stale analysis cannot overwrite manual edits',async()=>{
