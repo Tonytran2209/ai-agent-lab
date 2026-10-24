@@ -548,8 +548,8 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
         const r = get(id);
         if (["claimed", "running", "completed", "review", "verifying", "rechecking"].includes(r.status)||r.recheck?.lease||r.verification?.lease||r.release?.lease) fail("Không thể cập nhật base của request đang chạy/đã có kết quả.");
         cancelPreparation(r);
-        if(r.result)r.resultHistory=[...(r.resultHistory||[]),{...r.result,riskAssessment:r.riskAssessment,planTraceability:r.draft?.traceability,plannedDocumentationReview:r.draft?.documentationReview,libraryVersionId:r.libraryVersionId,baseCommit:r.baseCommit,at:now()}];
-        delete r.verification;delete r.release;delete r.acceptance;delete r.recheck;delete r.riskAssessment;
+        if(r.result)r.resultHistory=[...(r.resultHistory||[]),{...r.result,criterionCi:r.criterionCi,criterionCiStatus:r.criterionCiStatus,riskAssessment:r.riskAssessment,planTraceability:r.draft?.traceability,plannedDocumentationReview:r.draft?.documentationReview,libraryVersionId:r.libraryVersionId,baseCommit:r.baseCommit,at:now()}];
+        delete r.verification;delete r.release;delete r.acceptance;delete r.recheck;delete r.riskAssessment;delete r.criterionCi;delete r.criterionCiStatus;delete r.criterionCiNextAt;
         if(r.delivery){const p=projects.get(r.projectId);if(p.autoCompleteAfterApproval)r.delivery={mode:"single-approval-v1",phase:"pending-approval",environment:p.releaseEnvironment,configurationRevision:p.configurationRevision};else delete r.delivery;}
         const lib = currentLibrary(r.projectId); r.baseCommit = lib.sourceCommit; r.libraryVersionId = lib.id;
         r.status = "feedback"; r.draft = null; r.approval = null; r.ai = null; r.result = null;
