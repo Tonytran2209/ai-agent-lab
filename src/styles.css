@@ -111,3 +111,74 @@
 .settings-actions{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:18px 0}.settings-project-policy{margin-top:14px}.settings-save-hint{margin:-18px 0 28px!important}.settings-eval{font-size:11px;color:#a9b6aa;line-height:1.8;margin:8px 0}.settings-page .settings-extra>p{max-width:640px;line-height:1.8}.settings-page .settings-extra .settings-list{margin:16px 0}.settings-page .settings-extra pre{max-height:260px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere}.settings-page .settings-row-control>span{font-size:11px;overflow-wrap:anywhere}
 @media(max-width:640px){.settings-actions .button{flex:1 1 auto}.settings-page .settings-footer{gap:14px;flex-wrap:wrap}.settings-page .settings-inline{flex-wrap:wrap}}
 .settings-project-picker{margin:0 0 28px}.settings-project-picker select{min-width:180px;max-width:100%}
+
+/* Task journal: grouped disclosures with readable evidence and quiet technical detail. */
+.task-logbook{padding-top:8px;max-width:880px;min-width:0}
+.task-logbook[hidden]{display:none}
+.journal-group{margin:0 0 34px;min-width:0}
+.compact-detail-body .journal-group-title{margin:0 0 12px;font-size:11px;line-height:1.5;letter-spacing:.06em;text-transform:uppercase;color:#858585;font-weight:500}
+.task-logbook .request-disclosure{border-top:0;border-bottom:1px solid #2b2b2b;margin:0!important;padding:0;background:transparent}
+.task-logbook .request-disclosure>summary{padding:18px 4px;gap:12px;min-height:56px;color:#d0d0d0;font-size:13px;line-height:1.6;align-items:baseline}
+.task-logbook .request-disclosure>summary>span{font-size:11px;line-height:1.5;color:#8d8d8d;max-width:38%;overflow-wrap:anywhere}
+.task-logbook .request-disclosure[open]{padding-bottom:24px}
+.task-logbook .request-disclosure[open]>summary{margin-bottom:8px}
+.task-logbook .request-disclosure>summary:focus-visible,.task-logbook details:not(.request-disclosure)>summary:focus-visible{outline:2px solid #888;outline-offset:4px;border-radius:4px}
+.task-logbook p{margin:0 0 14px;line-height:1.8;overflow-wrap:anywhere}
+.task-logbook p:last-child{margin-bottom:0}
+.task-logbook .request-disclosure>p,.task-logbook .request-disclosure>small,.task-logbook .request-disclosure>.source-context,.task-logbook .request-disclosure>blockquote{margin-left:24px;margin-right:4px}
+.task-logbook small{display:block;font-size:11px;line-height:1.7;color:#898989;overflow-wrap:anywhere}
+.task-logbook h4{font-size:11px;color:#c0c0c0;line-height:1.6;font-weight:500;margin:0 0 10px}
+.task-logbook .section-heading{gap:16px;align-items:baseline;margin-bottom:16px}
+.task-logbook .section-heading h3{margin-bottom:0}
+.task-logbook .result,.task-logbook .evidence-line{margin-left:24px;padding:0 4px 0 0}
+.task-logbook .result>h3{margin:26px 0 12px;color:#c8c8c8}
+.task-logbook .artifact-link,.task-logbook .version-card{margin:18px 0 24px}
+.task-logbook .check-row{padding:12px 0;border-bottom:1px solid #292929;align-items:flex-start;gap:12px;min-width:0}
+.task-logbook .check-row>div{min-width:0;flex:1}
+.task-logbook .check-row code{font-size:11px;line-height:1.8;overflow-wrap:anywhere;white-space:pre-wrap}
+.task-logbook .check-row small{margin-top:4px}
+.task-logbook .check-output{margin-top:8px}
+.task-logbook .check-output>summary{font-size:11px;color:#858585;padding:4px 0}
+.task-logbook pre{max-height:280px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;padding:14px 16px;background:#191919;border:1px solid #303030;border-radius:8px;font-size:11px;line-height:1.8;margin:10px 0 0}
+.task-logbook .evidence-line+.evidence-line{border-top:1px solid #2b2b2b;margin-top:24px;padding-top:24px}
+.task-logbook .evidence-links{gap:10px 20px;margin-top:14px;line-height:1.8}
+.task-logbook .plan-summary>ul{margin:16px 4px 18px 24px;gap:14px}
+.task-logbook .plan-summary li{font-size:12px;line-height:1.8}
+.task-logbook .request-disclosure>details,.task-logbook .journal-extra{margin:20px 4px 0 24px;padding-top:16px;border-top:1px solid #2b2b2b}
+.task-logbook details:not(.request-disclosure):not(.criterion-detail):not(.activity-entry)>summary{line-height:1.7;padding:6px 0;color:#a4a4a4}
+.task-logbook details:not(.request-disclosure)[open]>summary{margin-bottom:12px}
+.journal-intro{color:#8d8d8d!important;font-size:11px!important}
+.journal-notice{border-left:2px solid #8b8268;padding:8px 14px;color:#c5bcaa!important}
+.contract-criteria{margin:20px 4px 0 24px}
+.criterion-detail{border-top:1px solid #303030;padding:0;margin:0}
+.criterion-detail>summary{display:grid;grid-template-columns:20px minmax(0,1fr) auto;align-items:start;gap:12px;padding:18px 0;list-style:none;cursor:pointer}
+.criterion-detail>summary::-webkit-details-marker{display:none}
+.criterion-detail>summary strong{font-size:12px;line-height:1.8;font-weight:400;color:#c5c5c5}
+.criterion-number{font-size:11px;color:#888;line-height:2;text-align:center}
+.criterion-number:after{content:' ›';display:inline-block;transition:transform .15s}
+.criterion-detail[open] .criterion-number:after{transform:rotate(90deg)}
+.criterion-status{font-size:10px;line-height:1.6;white-space:nowrap;border:1px solid #383838;border-radius:5px;padding:2px 7px;color:#a0a0a0;margin-top:2px}
+.criterion-verified{color:#a6c5ac;border-color:#35483a}.criterion-failed,.criterion-missing{color:#dfaaaa;border-color:#593c3c}
+.criterion-content{display:grid;gap:26px;padding:8px 0 26px 32px;min-width:0}
+.criterion-content section{min-width:0}.criterion-content p{font-size:12px}
+.criterion-reference+.criterion-reference{margin-top:18px}
+.criterion-reference a{font-size:11px;line-height:1.8;color:#aaa;overflow-wrap:anywhere}
+.criterion-reference blockquote{border-left:2px solid #404040;margin:10px 0 0;padding:2px 0 2px 14px;color:#969696;font-size:12px;line-height:1.8;white-space:pre-wrap;overflow-wrap:anywhere}
+.journal-command{display:block;background:#1c1c1c;border:1px solid #303030;border-radius:7px;padding:12px 14px;font-size:11px;line-height:1.8;white-space:pre-wrap;overflow-wrap:anywhere;color:#bdbdbd}
+.journal-files{display:grid;gap:6px;margin:12px 0 16px;color:#858585}.journal-files code{font-size:10px;line-height:1.7;overflow-wrap:anywhere}
+.task-logbook .contract-docs{margin:8px 4px 0 24px;padding-top:22px;border-top:1px solid #303030}
+.task-logbook .contract-docs .journal-extra{margin-left:0}
+.journal-reason{display:block;margin-top:6px;color:#8b8b8b;font-size:11px;line-height:1.8}
+.journal-attempt{padding:18px 0;border-bottom:1px solid #2b2b2b}
+.task-logbook .activity-timeline{margin:8px 4px 0 28px;padding:0}
+.task-logbook .activity-timeline li{padding:0 0 22px 22px;min-width:0}
+.activity-entry>summary{display:flex;justify-content:space-between;gap:16px;list-style:none;cursor:pointer;align-items:baseline;padding:0!important;margin:0!important}
+.activity-entry>summary::-webkit-details-marker{display:none}
+.task-logbook .activity-timeline strong{color:#bdbdbd;font-size:12px;line-height:1.7;font-weight:400}
+.task-logbook .activity-timeline time{font-size:10px;line-height:1.8;color:#777;flex-shrink:0}
+.activity-entry>summary strong:after{content:' ›';color:#777}
+.task-logbook .activity-entry p{font-size:11px;line-height:1.8;color:#969696;margin:12px 0 0;padding-left:12px;border-left:2px solid #363636}
+.task-logbook .activity-error:before{background:#d5a28d}
+.journal-history-toggle{margin:0 0 0 50px;font-size:11px}
+.task-logbook .technical-fold>p{margin:12px 4px 12px 24px;font-size:11px;line-height:1.8}
+@media(max-width:600px){.journal-group{margin-bottom:28px}.task-logbook .request-disclosure>summary{padding:16px 0;gap:9px}.task-logbook .request-disclosure>summary>span{font-size:10px;max-width:32%}.criterion-detail>summary{grid-template-columns:18px minmax(0,1fr);gap:8px}.criterion-status{grid-column:2;justify-self:start}.criterion-content{padding-left:26px;gap:22px}.activity-entry>summary{flex-direction:column;gap:3px}.task-logbook .activity-timeline li{padding-left:16px}.task-logbook .request-disclosure>p,.task-logbook .result,.task-logbook .evidence-line,.contract-criteria,.task-logbook .contract-docs{margin-left:18px}}
