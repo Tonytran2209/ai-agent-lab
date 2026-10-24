@@ -231,6 +231,42 @@
                 "investigation",
                 "decision"
               ]
+            },
+            "checkpoints": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "investigation",
+                      "product-decision",
+                      "access",
+                      "external-evidence"
+                    ]
+                  },
+                  "question": {
+                    "type": "string"
+                  },
+                  "reason": {
+                    "type": "string"
+                  },
+                  "attempted": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "required": [
+                  "kind",
+                  "question",
+                  "reason",
+                  "attempted"
+                ]
+              }
             }
           },
           "required": [
@@ -243,7 +279,8 @@
             "reversible",
             "rollback",
             "preservesDataAndContracts",
-            "uncertaintyKind"
+            "uncertaintyKind",
+            "checkpoints"
           ]
         }
       },

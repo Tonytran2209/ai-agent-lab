@@ -45,3 +45,16 @@ test('verified outcome learning returns to Luna with risk provenance, excludes d
 });
 
 test('failed resurvey can replay its saved report while an unapproved old draft remains visible',()=>{const f=fixture();try{const r=f.service.create({feedback:'Fix the preview while preserving stored content.'},'Member');f.service.edit(r.id,{...draft,questions:['Old plan needs investigation.']},'Admin');f.service.localPlanning.enqueue(r.id,'Admin');const c=claim(f,f.service.get(r.id));f.service.localPlanning.failed(r.id,c.job.id,c.planningToken,'validation');const stopped=f.service.get(r.id);assert.ok(stopped.draft);assert.equal(stopped.approval,null);f.service.localPlanning.replay(r.id,'Admin',stopped.updatedAt);const replay=f.service.localPlanning.claim(r.id,c.job.id,r.baseCommit,20,undefined,undefined,'planning-replay-v1');const done=f.service.localPlanning.complete(r.id,c.job.id,replay.planningToken,report(replay));assert.equal(done.draft.questions.length,0);assert.equal(done.planning.attempts,1);assert.equal(done.planning.reportAttempts,1);}finally{f.close();}});
+
+test('diagnostic follow-up is one durable same-base lease step and cannot be repeated or impersonated',()=>{const f=fixture();try{
+ const r=queued(f),c=claim(f,r);assert.throws(()=>f.service.localPlanning.diagnose(r.id,c.job.id,'0'.repeat(64)));
+ f.service.localPlanning.diagnose(r.id,c.job.id,c.planningToken);assert.equal(f.service.get(r.id).preparation.stage,'investigating');assert.throws(()=>f.service.localPlanning.diagnose(r.id,c.job.id,c.planningToken));
+ assert.equal(f.service.localPlanning.budget(r.projectId),1);f.service.localPlanning.heartbeat(r.id,c.job.id,c.planningToken);
+ const done=f.service.localPlanning.complete(r.id,c.job.id,c.planningToken,{...report(c),investigation:{protocol:'diagnostic-survey-v1',passes:2,previousCheckpoints:[],startedAt:new Date().toISOString()}});
+ assert.equal(done.status,'approved');assert.equal(done.ai.investigation.passes,2);
+ }finally{f.close();}});
+test('external checkpoints require a matching minimal question and attempted diagnostics; technical questions grant no execution',()=>{const f=fixture();try{
+ const r=queued(f),c=claim(f,r),question='Which external product rule should apply?',impact={summary:'Requires choosing a documented behavior before changing the display.',domains:['ui'],affectedFlows:['Draft preview display'],dependencies:[],evidencePaths:[file],uncertaintyKind:'decision',uncertainty:[question],checkpoints:[{kind:'product-decision',question,reason:'The two requested product behaviors contradict each other.',attempted:[]}],reversible:true,rollback:'Revert the display change without modifying source data.',preservesDataAndContracts:true};
+ assert.throws(()=>f.service.localPlanning.complete(r.id,c.job.id,c.planningToken,report(c,{...draft,questions:[question],impact})),/các bước/);
+ impact.checkpoints[0].attempted=['Read the existing preview and documented product rules.'];const done=f.service.localPlanning.complete(r.id,c.job.id,c.planningToken,report(c,{...draft,questions:[question],impact}));assert.equal(done.status,'needs-triage');assert.equal(done.approval,null);assert.equal(done.executionReadiness.needsUser,true);
+ }finally{f.close();}});

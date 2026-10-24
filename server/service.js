@@ -197,6 +197,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
       return transaction(db, () => {
         const r = get(id); mutable(r);
         if (hash(JSON.stringify(r)) !== expectedFingerprint) fail("Feedback đã thay đổi khi AI đang phân tích. Hãy thử lại.");
+        if(r.draft)r.planHistory=[...(r.planHistory||[]),{draft:r.draft,ai:r.ai,baseCommit:r.baseCommit,libraryVersionId:r.libraryVersionId,at:now()}].slice(-3);
         r.draft = validateDraft(draft, library(r.libraryVersionId),Boolean(r.contractProtocol)); r.title = r.draft.title;
         delete r.automation; r.ai = ai; r.unresolvedCheckpoints=executionReadiness({draft:r.draft}).blockers;
         r.status = r.unresolvedCheckpoints.length ? "needs-triage" : "awaiting-approval"; r.approval = null;
@@ -420,7 +421,13 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
         r.status = "needs-triage"; r.approval = null; r.lease = null;
         r.executionBlocked = true;
         r.draft.questions = [...r.draft.questions, note].slice(-8);
-        return changed(r, "scope_change_requested", owner, note);
+        const stopped=changed(r, "scope_change_requested", owner, note);
+        const project=projects.get(r.projectId),fingerprint=hash(note);
+        if(service.localPlanning&&project.automationMode==='impact-auto'&&['low','medium'].includes(r.draft.risk)&&!r.scopeInvestigation&&service.localPlanning.get(id)?.attempts<3){
+          r.scopeInvestigation={fingerprint,queuedAt:now()};save(r);
+          return service.localPlanning.enqueue(id,'Scope supervisor');
+        }
+        return stopped;
       });
     },
     complete(id, token, input) {
