@@ -497,12 +497,23 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
       });
     },
     criterionCiCandidates:()=>list().filter(r=>['failed','verifying','review'].includes(r.status)&&r.contractProtocol&&!contractSatisfied(r)&&localChecksPassed(r)&&!r.lease&&!r.verification?.lease&&r.delivery?.approvalHash&&(!r.criterionCiNextAt||Date.parse(r.criterionCiNextAt)<=Date.now())).map(publicRequest),
+    observeCriterionCi(id,expectedRevision,observation){return transaction(db,()=>{
+      const r=get(id);if(resultRevision(r)!==expectedRevision||!['failed','verifying','review'].includes(r.status)||r.lease||r.verification?.lease)return;
+      if(!/^[a-f0-9]{40}$/.test(observation.commit)||observation.prUrl!==`https://github.com/${r.repository}/pull/${observation.prNumber}`)fail('Bằng chứng CI không khớp project.');
+      const previous=r.ciObservation;
+      r.ciObservation={commit:observation.commit,prNumber:observation.prNumber,prUrl:observation.prUrl,jobs:observation.jobs,failures:observation.failures,failed:observation.failed,observedAt:now()};
+      const note=observation.failed?'GitHub CI chưa đạt: '+observation.failures.map(f=>f.name+' ('+f.conclusion+')').join('; ')+'. Giữ PR để sửa; hệ thống tự kiểm tra commit sửa nối tiếp.': 'GitHub CI: '+observation.jobs.map(j=>j.name+' '+({completed:j.conclusion,queued:'đang xếp hàng',in_progress:'đang chạy',missing:'chưa có job'}[j.status]||j.status)).join(' · ')+'. Chưa merge.';
+      r.criterionCiStatus=note;r.criterionCiNextAt=new Date(Date.now()+60000).toISOString();
+      if(r.verification&&observation.failed){r.status='failed';Object.assign(r.verification,{phase:'failed',note,at:now()});}
+      save(r);
+      return observation.failed&&(!previous?.failed||previous.commit!==observation.commit)?changed(r,'browser_verification_failed','GitHub CI',note):publicRequest(r);
+    });},
     criterionCiWaiting(id,expectedRevision,failed=false){const r=get(id);if(resultRevision(r)!==expectedRevision)return;r.criterionCiNextAt=new Date(Date.now()+60000).toISOString();r.criterionCiStatus=failed?'Chưa đối chiếu được ca test GitHub CI: '+(typeof failed==='string'?failed:'Giữ nguyên kết quả cũ.')+' Hệ thống sẽ kiểm tra lại, không gọi AI.':r.verification?.phase==='passed'?'CI đã đạt; đang đối chiếu test desktop/mobile với từng tiêu chí.':'Đang chờ PR và CI đúng commit để bổ sung bằng chứng từng tiêu chí.';save(r);},
     reconcileCriterionCi(id,expectedRevision,proof){return transaction(db,()=>{const r=get(id);deliveryAuthority(r);if(!['failed','verifying','review'].includes(r.status)||r.lease||r.verification?.lease||resultRevision(r)!==expectedRevision||!localChecksPassed(r))fail('Kết quả đã đổi hoặc worker còn chạy.');
       if(proof.source!=='github-actions'||proof.branch!==r.result.localArtifact.branch||!proof.changedPaths.every(p=>r.draft.allowedPaths.includes(p)))fail('Bằng chứng CI không khớp scope.');
       const old=r.result;r.resultHistory=[...(r.resultHistory||[]),{...old,planTraceability:r.draft.traceability,verification:r.verification,at:now()}].slice(-3);
       r.result={...old,commit:proof.commit,changedPaths:proof.changedPaths,summary:'Đã bổ sung và xác minh test hành vi trên GitHub CI desktop/mobile. Xem bằng chứng từng tiêu chí.',checks:[...old.checks.filter(c=>!r.draft.traceability.some(t=>t.verification.command===c.command)),...proof.criteria.map(c=>({command:c.command,passed:true,output:'GitHub CI độc lập: '+proof.evidenceUrl}))],criterionEvidence:proof.criteria.map(c=>({criterionIndex:c.criterionIndex,outcome:'passed',method:'test',command:c.command,files:c.files,detail:'GitHub CI đã chạy thành công desktop/mobile: '+c.names.join('; ').slice(0,1700)}))};
-      r.criterionCi={...proof,at:now()};delete r.criterionCiStatus;delete r.criterionCiNextAt;if(!contractSatisfied(r))fail('Bằng chứng CI chưa đủ hợp đồng tiêu chí/tài liệu.');
+      r.criterionCi={...proof,at:now()};delete r.ciObservation;delete r.criterionCiStatus;delete r.criterionCiNextAt;if(!contractSatisfied(r))fail('Bằng chứng CI chưa đủ hợp đồng tiêu chí/tài liệu.');
       r.verification={...newVerification(r,'GitHub CI'),phase:'passed',source:'github-actions',prNumber:proof.prNumber,prUrl:proof.prUrl,evidenceUrl:proof.evidenceUrl,at:now(),note:'Đã xác minh CI và từng tiêu chí trên desktop/mobile. Đang xác minh quyền tự phát hành.'};r.status='review';r.delivery={...r.delivery,phase:'authorized',attempts:0,nextAttemptAt:null};return changed(r,'criterion_ci_verified','AI Agent Lab','Đã xác minh từng nhóm test đã duyệt trên desktop/mobile, giữ lịch sử kết quả cũ.');});},
     deliveryCandidates: () => list().filter(r=>r.status==="review"&&r.delivery?.approvalHash&&!["failed","released"].includes(r.delivery.phase)&&(!r.delivery.nextAttemptAt||Date.parse(r.delivery.nextAttemptAt)<=Date.now())).map(publicRequest),
     beginDelivery(id) {
@@ -578,7 +589,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
         if(r.status==='rejected')queueTicket(r,true);if(serialized){r.queueProtocol='project-fifo-v1';db.prepare('UPDATE project_queue_order SET historical_deployed=0 WHERE request_id=?').run(r.id);}
         cancelPreparation(r);
         if(r.result)r.resultHistory=[...(r.resultHistory||[]),{...r.result,criterionCi:r.criterionCi,criterionCiStatus:r.criterionCiStatus,riskAssessment:r.riskAssessment,planTraceability:r.draft?.traceability,plannedDocumentationReview:r.draft?.documentationReview,libraryVersionId:r.libraryVersionId,baseCommit:r.baseCommit,at:now()}];
-        delete r.verification;delete r.release;delete r.acceptance;delete r.recheck;delete r.riskAssessment;delete r.criterionCi;delete r.criterionCiStatus;delete r.criterionCiNextAt;
+        delete r.verification;delete r.release;delete r.acceptance;delete r.recheck;delete r.riskAssessment;delete r.criterionCi;delete r.ciObservation;delete r.criterionCiStatus;delete r.criterionCiNextAt;
         if(r.delivery){const p=projects.get(r.projectId);if(p.autoCompleteAfterApproval)r.delivery={mode:"single-approval-v1",phase:"pending-approval",environment:p.releaseEnvironment,configurationRevision:p.configurationRevision};else delete r.delivery;}
         const lib = currentLibrary(r.projectId); r.baseCommit = lib.sourceCommit; r.libraryVersionId = lib.id;
         r.status = "feedback"; r.draft = null; r.approval = null; r.ai = null; r.result = null;

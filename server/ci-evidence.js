@@ -6,6 +6,8 @@ export function assessCi(response, statuses, commit) {
   const byContext=new Map();for(const [index,s] of (statuses.statuses||[]).entries()){const key=s.context||'unknown:'+index;const old=byContext.get(key);if(!old||Number(s.id||0)>Number(old.id||0)||!s.id&&!old.id&&String(s.created_at||'')>String(old.created_at||''))byContext.set(key,s);}const currentStatuses=[...byContext.values()];
   const failures=runs.filter(r=>r.status==='completed'&&(!['success','neutral','skipped'].includes(r.conclusion)||['writer-check','browser-check'].includes(r.name)&&r.conclusion!=='success')).map(r=>({name:r.name,conclusion:r.conclusion,url:r.details_url}));
   const failed=runs.some(r=>r.status==='completed'&&!['success','neutral','skipped'].includes(r.conclusion))||currentStatuses.some(s=>['error','failure'].includes(s.state));
-  return {failed,failures,ready:!failed&&required.every(r=>r?.status==='completed'&&r.conclusion==='success')&&runs.every(r=>r.status==='completed')&&!currentStatuses.some(s=>s.state==='pending'),evidenceUrl:required[1]?.details_url,missing:required.some(r=>!r)};
+  failures.push(...currentStatuses.filter(s=>['error','failure'].includes(s.state)).map(s=>({name:s.context||'Commit status',conclusion:s.state,url:s.target_url})));
+  const jobs=required.map((r,i)=>({name:['writer-check','browser-check'][i],status:r?.status||'missing',conclusion:r?.conclusion||null,url:r?.details_url,startedAt:r?.started_at,completedAt:r?.completed_at}));
+  return {failed,failures,jobs,ready:!failed&&required.every(r=>r?.status==='completed'&&r.conclusion==='success')&&runs.every(r=>r.status==='completed')&&!currentStatuses.some(s=>s.state==='pending'),evidenceUrl:required[1]?.details_url,missing:required.some(r=>!r)};
 }
 export const ciSetupPaths=['.github/workflows/agent-lab-ci.yml','playwright.agent-lab.config.mjs','tests/agent-lab/server.mjs','tests/agent-lab/fixture.jsx','tests/agent-lab/draft.spec.mjs'];
