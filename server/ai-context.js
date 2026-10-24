@@ -12,7 +12,7 @@ export function feedbackLayer(request) {
 }
 export function codingPacket(request, library) {
   const { sourcePaths, ...pinned } = compactLibrary(library, request.draft?.layer || 'cross-layer');
-  return { request: Object.fromEntries(['id','projectId','repository','branch','baseCommit','libraryVersionId','contractProtocol','governanceProtocol','feedback','screen','reproduction','expected','classification','attachments','draft'].map(k => [k, request[k]])), library: pinned, surveyEvidence: request.ai?.evidence || [] };
+  return { request: Object.fromEntries(['id','workflowProtocol','projectId','repository','branch','baseCommit','libraryVersionId','contractProtocol','governanceProtocol','feedback','screen','reproduction','expected','classification','attachments','draft'].map(k => [k, request[k]])), library: pinned, surveyEvidence: request.ai?.evidence || [] };
 }
 // Exact, deliberately narrow recipe. Additional prose/requirements always use analysis.
 export function displayRecipe(request, library) {

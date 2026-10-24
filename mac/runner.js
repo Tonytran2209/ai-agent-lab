@@ -1,3 +1,4 @@
+import {sharedWorktree} from './shared-worktree.js';
 import {pollCiRepairs} from './repair.js';
 import {startMonitor} from './monitor.js';
 import {codexModelArgs} from './codex.js';
@@ -110,7 +111,7 @@ export async function executeRequest({ packet, call, config, signal, run = comma
   let resumed = false;
   if (previous && ["execution-failed", "stopped-needs-review"].includes(previous.status) &&
       previous.requestId === r.id && new RegExp("^lab/" + r.id + "-[0-9]+$").test(previous.branch)) {
-    const candidate = path.join(config.stateDir, "worktrees", previous.branch.slice(4));
+    const candidate = r.workflowProtocol==='direct-v1'?path.join(config.stateDir,"workspace"):path.join(config.stateDir, "worktrees", previous.branch.slice(4));
     if (previous.worktree === candidate && await realpath(candidate) === path.join(await realpath(path.dirname(candidate)), path.basename(candidate)) &&
         await git(candidate, ["rev-parse", "HEAD"]) === r.baseCommit &&
         await git(candidate, ["branch", "--show-current"]) === previous.branch) {
@@ -121,14 +122,15 @@ export async function executeRequest({ packet, call, config, signal, run = comma
     }
   }
   await mkdir(path.dirname(worktree), { recursive: true, mode: 0o700 });
-  if (!resumed) await git(config.repoPath, ["worktree", "add", "-b", branch, worktree, r.baseCommit]);
+  if(!resumed&&r.workflowProtocol==='direct-v1'){worktree=await sharedWorktree(config,r.baseCommit,run,{signal});await git(worktree,['switch','-c',branch,r.baseCommit]);}
+  else if (!resumed) await git(config.repoPath, ["worktree", "add", "-b", branch, worktree, r.baseCommit]);
   await noSymlinks(worktree, r.draft.allowedPaths);
   const head = await git(worktree, ["rev-parse", "HEAD"]);
   let claimed;
   try { claimed = await call("claim_request", { requestId: r.id, agentName: config.workerName || "mac-runner", observedBaseCommit: head, ...(r.contractProtocol?{contractProtocol:r.contractProtocol}:{}),attachmentProtocol:"feedback-images-v1" }); }
   catch (e) {
     // No agent has edited this worktree; failed claims must not leak a worktree per poll.
-    if (!resumed) await git(config.repoPath, ["worktree", "remove", worktree]).then(() => git(config.repoPath, ["branch", "-d", branch])).catch(() => {});
+    if (!resumed&&r.workflowProtocol!=='direct-v1') await git(config.repoPath, ["worktree", "remove", worktree]).then(() => git(config.repoPath, ["branch", "-d", branch])).catch(() => {});
     throw e;
   }
   const token = claimed.claimToken;
@@ -164,7 +166,7 @@ export async function executeRequest({ packet, call, config, signal, run = comma
       "Run non-browser acceptance checks. Do NOT launch Chrome/Chromium/headless browsers from this LaunchAgent. UI visual regression is performed separately by GitHub browser-check on a draft PR before admin review. Do not report browser verification as passed or failed if you did not perform it; describe it as pending CI in the summary.",
       "Frontend AND backend dependencies are already installed. Run targeted non-browser checks needed for your changes; do not repeat npm run check because the runner runs that full check independently after you finish. Report failed checks honestly; a check failure alone is not a scope change. Set blocked=true only when implementation requires additional paths or policy changes.",
       "For whitespace checks use git -c core.whitespace=cr-at-eol diff --check against the pinned base; this recognizes CRLF while still rejecting trailing spaces/tabs. Do not use unconfigured git diff --check on CRLF repositories.",
-      executionContractInstructions,
+      r.workflowProtocol==='direct-v1'?'Read MD and relevant code, implement feedback, run targeted offline checks and update canonical MD when needed. Return criterionEvidence=[]; no per-criterion proof/tag matrix. Report actual checks and documentationReview. Browser CI runs once on the exact artifact before release. Record useful findings in the summary for verified project memory after deployment.':executionContractInstructions,
       "Return JSON matching the supplied schema. Checks must describe commands actually executed.",
       JSON.stringify(codingPacket(claimed.request, claimed.library)),
     ].join("\n");

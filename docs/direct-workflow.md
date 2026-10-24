@@ -1,0 +1,11 @@
+# Direct feedback workflow
+
+Default: feedback → one Luna routing/classification → Codex on Mac (survey then implement in the same project worktree) → code/tests and relevant canonical MD → one exact-commit CI gate → authorized main merge → Railway confirmation → verified feedback/context library.
+
+Low/medium use configured impact-auto rights. High and genuine product decisions retain approval. Classification is provisional and never authorizes code paths by itself. The survey returns exact source/test/MD paths, impact and a short verificationPlan; no MD quote/line-number matrix or test-tag evidence reconciliation. Browser CI runs through the configured project workflow. Independent scope, artifact lineage and successful required jobs still precede automatic release.
+
+Code checks, result documentation review and honest summary remain visible. MD/criterion traces on migrated requests are historical reference, not release blockers. The server migrates idle active requests on startup; live/expired leases, executing surveys and publishing requests are preserved. Already-passed CI may transition straight to release; failed checks do not become passing through migration.
+
+Mac keeps one `state/workspace` per project. Survey is read-only there; implementation and bounded CI repair reuse it sequentially. Branch refs preserve prior commits. Dirty or foreign workspaces stop with a recoverable operational error; never reset or delete uncommitted work. Historical worktrees are not deleted automatically. CI/setup/recheck administrative tasks remain separate from the feedback path.
+
+Exact required GitHub jobs are observed with finite worker deadlines. Missing PR, failed CI or credentials should report the actual stage/error, never wait for per-criterion test names. Verified feedback memory is stored after deployment with provenance; this is retrieval/context, not model-weight training.

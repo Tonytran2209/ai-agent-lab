@@ -35,7 +35,7 @@ export function criterionLogEvidence(rows,logs,expectedCommit){
 }
 export async function collectCriterionCi(r,token,fetcher=fetch){
  const api=async(suffix,text=false)=>{const response=await fetcher(`https://api.github.com/repos/${r.repository}/${suffix}`,{signal:AbortSignal.timeout(20000),headers:{Accept:'application/vnd.github+json','User-Agent':'ai-agent-lab',...(token?{Authorization:'Bearer '+token}:{})}});if(!response.ok)throw Error('Chưa đọc được GitHub CI: '+response.status);return text?response.text():response.json();};
- const rows=r.draft.traceability;if(!rows?.length)throw Error('Thiếu tiêu chí để đối chiếu CI.');
+ const rows=r.draft.traceability||[];if(r.workflowProtocol!=='direct-v1'&&!rows.length)throw Error('Thiếu tiêu chí để đối chiếu CI.');
  const branch=r.result.localArtifact.branch;if(!new RegExp('^lab/'+r.id+'-[0-9]+$').test(branch))throw Error('Sai nhánh artifact.');
  const prs=await api('pulls?state=open&head='+encodeURIComponent(r.repository.split('/')[0]+':'+branch)+'&base='+encodeURIComponent(r.branch));if(prs.length!==1)return null;
  const pr=await api('pulls/'+prs[0].number),commit=pr.head?.sha;
@@ -45,6 +45,7 @@ export async function collectCriterionCi(r,token,fetcher=fetch){
  await verifyArtifactLineage(api,r.baseCommit,commit,r.result.commit);
  const checks=await api('commits/'+commit+'/check-runs?per_page=100'),evidence=assessCi(checks,await api('commits/'+commit+'/status'),commit);
  if(!evidence.ready)return {pending:true,commit,prNumber:pr.number,prUrl:pr.html_url,failed:evidence.failed||evidence.failures.length>0,jobs:evidence.jobs,failures:evidence.failures};
+ if(r.workflowProtocol==='direct-v1')return {commit,branch,changedPaths:files.map(f=>f.filename),prNumber:pr.number,prUrl:pr.html_url,evidenceUrl:evidence.evidenceUrl,criteria:[],source:'github-actions'};
  const url=evidence.evidenceUrl,match=new RegExp('^https://github.com/'+r.repository+'/actions/runs/[0-9]+/job/([0-9]+)$').exec(url||'');if(!match)throw Error('Thiếu job browser độc lập.');
  const job=await api('actions/jobs/'+match[1]);if(job.head_sha!==commit||job.name!=='browser-check'||job.conclusion!=='success'||job.status!=='completed')throw Error('Job browser sai commit hoặc chưa đạt.');
  const criteria=criterionLogEvidence(rows.filter(t=>t.verification.method==='test'&&browserCriterion(t.verification.command)),await api('actions/jobs/'+match[1]+'/logs',true),commit);

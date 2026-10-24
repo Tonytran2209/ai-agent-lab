@@ -35,7 +35,7 @@ export function assessContract(r){
  if(review&&review.reason?.trim().length>=20){const docs=[...new Set([...(planned?.updatesNeeded?planned.documents:[]),...(review.updatesNeeded?review.documents:[])])];documentationStatus=docs.length?docs.every(p=>r.result.changedPaths.includes(p))?'updated':'required':'reviewed';if(review.updatesNeeded&&!review.documents.length)documentationStatus='required';}
  return {required:true,complete:!duplicates&&criteria.length===r.draft?.acceptanceCriteria.length&&criteria.length>0&&evidence.length===criteria.length&&criteria.every(c=>['reported','verified'].includes(c.status))&&['updated','reviewed'].includes(documentationStatus),criteria,documentationStatus};
 }
-export const contractSatisfied=r=>assessContract(r).complete;
+export const contractSatisfied=r=>r.workflowProtocol==='direct-v1'||assessContract(r).complete;
 export function documentationImpact(r,library){
  const files=r.result?.changedPaths||r.draft?.allowedPaths||[],code=files.filter(p=>!p.startsWith('.agent-hub/'));
  const targets=new Map();const add=(path,reason)=>{if(library.documents.some(d=>d.path===path))targets.set(path,[...(targets.get(path)||[]),reason]);};

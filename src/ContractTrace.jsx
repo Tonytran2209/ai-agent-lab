@@ -1,6 +1,6 @@
 import React from 'react';
 export default function ContractTrace({request:r}){
- if(!r.contractProtocol||!r.draft)return null;
+ if(r.workflowProtocol==='direct-v1'||!r.contractProtocol||!r.draft)return null;
  const state=r.contract,impact=r.documentationImpact,labels={missing:'Thiếu bằng chứng',failed:'Chưa đạt',reported:'Agent báo cáo',verified:'CI xác minh','pending-ci':'Chờ CI',planned:'Chờ thực hiện'};
  return <details className="request-disclosure contract-trace" open={r.status==='failed'&&!state?.complete}>
   <summary>Tiêu chí & bằng chứng<span>{r.draft?.traceability?.length||0} tiêu chí</span></summary>

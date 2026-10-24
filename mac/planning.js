@@ -1,3 +1,4 @@
+import {sharedWorktree} from './shared-worktree.js';
 import {riskRubric} from '../server/risk-rubric.js';
 import {codexModelArgs} from './codex.js';
 import {feedbackImageArgs} from './images.js';
@@ -20,32 +21,33 @@ export const planningPrompt=packet=>[
  'Independently verify preliminary Luna risk and its uncertainty checklist against actual source. Resolve implementation details with existing code/MD conventions; a reversible display change should use the existing entity timestamp consistently unless feedback explicitly asks for gate-entry time. Do not invent a product checkpoint for an implementation choice that the current data contract resolves. Material contradictory requirements still need review. Explain impact in draft.impact.summary and cite source evidence. Propose a lower or higher risk only when justified by current behavior; policy and sensitive-domain gates remain authoritative.',
  'Low/medium under impact-auto are pre-authorized for scoped implementation and CI-backed release. Do not ask admin to accept the label or ordinary code/test choices. Plan a safe investigation with concrete regression tests and fallback behavior when source supports it, instead of requiring a production sample merely to start. Only an external fact or product/contract decision that prevents safe work is a blocker. Do not silently broaden paths during execution; survey the relevant frontend/backend dependencies now and choose the proper layer and exact files. High-risk changes still require admin.',
  'When planning browser action tests, inspect the actual fixture config and action preconditions (enabled model, roles, selected output, confirmation). Include the managed fixture in allowedPaths when it must change. Use a fake model only in the isolated fixture and intercept every model/mutation API; never require live keys. Plan both enabled-action and intentionally-disabled cases. Assert action readiness before clicking; do not mask missing preconditions with larger timeouts.',
- planningContractInstructions, impactInstructions, investigationInstructions,
+ packet.request.workflowProtocol==='direct-v1'?'Direct workflow: read relevant MD and source, then give exact implementation scope, at most three acceptance criteria, documentationReview and verificationPlan (method, command, files, expected). No MD quote/line-number matrix or per-criterion evidence. Include at least one targeted behavioral test for medium; existing full browser suite commands are allowed. Code, regression tests and necessary MD updates are one task.':planningContractInstructions, impactInstructions, investigationInstructions,
  'Use at most 5 acceptance criteria and 4 assumptions. Do not generate generic boilerplate or a questionnaire. No implementation yet: the server validates risk and issues a separate execution claim.',
- JSON.stringify({request:Object.fromEntries(['id','projectId','repository','branch','baseCommit','libraryVersionId','contractProtocol','governanceProtocol','feedback','screen','reproduction','expected','classification','attachments'].map(k=>[k,packet.request[k]])),recoveryContext:packet.request.executionBlocked?{previousStop:packet.request.draft?.questions||[],previousUncertainty:packet.request.draft?.impact?.uncertainty||[]}:null,library:packet.library,memory:packet.memory,riskFeedback:packet.riskFeedback,operatingPolicy:packet.operatingPolicy})
+ JSON.stringify({request:Object.fromEntries(['id','workflowProtocol','projectId','repository','branch','baseCommit','libraryVersionId','contractProtocol','governanceProtocol','feedback','screen','reproduction','expected','classification','attachments'].map(k=>[k,packet.request[k]])),recoveryContext:packet.request.executionBlocked?{previousStop:packet.request.draft?.questions||[],previousUncertainty:packet.request.draft?.impact?.uncertainty||[]}:null,library:packet.library,memory:packet.memory,riskFeedback:packet.riskFeedback,operatingPolicy:packet.operatingPolicy})
 ].join('\n');
 export async function surveyFeedback({job,config,api,run,signal,environment,imageToken=process.env.AI_AGENT_LAB_MCP_TOKEN}){
  if(!/^[a-f0-9-]{36}$/.test(job.id)||!/^REQ-[A-F0-9]{8}$/.test(job.requestId)||!/^[a-f0-9]{40}$/.test(job.baseCommit)||job.projectId!==config.projectId||job.repository!==config.repository)throw new Error('Sai định danh khảo sát/project.');
  const git=async(args,cwd=config.repoPath)=>{const r=await run('git',['-c','core.hooksPath=/dev/null','-C',cwd,...args],{signal,timeout:120000});if(r.code)throw new Error('Git khảo sát thất bại.');return r.stdout.trim();};
  const origin=await git(['remote','get-url','origin']);if(!['https://github.com/'+job.repository+'.git','https://github.com/'+job.repository,'git@github.com:'+job.repository+'.git'].includes(origin))throw new Error('Remote khảo sát không khớp.');
  await git(['fetch','--no-tags','origin',job.baseCommit]);
- const worktree=path.join(config.stateDir,'planning',job.id);await mkdir(path.dirname(worktree),{recursive:true,mode:0o700});
+ const direct=job.workflowProtocol==='direct-v1';
+ const worktree=direct?await sharedWorktree(config,job.baseCommit,run,{signal,env:environment}):path.join(config.stateDir,'planning',job.id);await mkdir(path.dirname(worktree),{recursive:true,mode:0o700});
  // Every claim gets a fresh job UUID; an existing directory must never be reused blindly.
- try{await lstat(worktree);throw new Error('Worktree khảo sát đã tồn tại; kiểm tra lần chạy cũ.');}catch(e){if(e.code!=='ENOENT')throw e;}
- await git(['worktree','add','--detach',worktree,job.baseCommit]);
+ if(!direct)try{await lstat(worktree);throw new Error('Worktree khảo sát đã tồn tại; kiểm tra lần chạy cũ.');}catch(e){if(e.code!=='ENOENT')throw e;}
+ if(!direct)await git(['worktree','add','--detach',worktree,job.baseCommit]);
  let failureReason="worker";
  let investigation=null;
  let claim,heartbeat,busy=false,heartbeatTask=Promise.resolve();const controller=new AbortController(),abort=()=>controller.abort();signal?.addEventListener('abort',abort,{once:true});if(signal?.aborted)abort();
  try{
-  const head=await git(['rev-parse','HEAD'],worktree);claim=await api('/'+job.requestId+'/claim',{jobId:job.id,observedBaseCommit:head,contractProtocol:"md-trace-v1",governanceProtocol:"impact-v1",replayProtocol:"planning-replay-v1",attachmentProtocol:"feedback-images-v1"});
+  const head=await git(['rev-parse','HEAD'],worktree);claim=await api('/'+job.requestId+'/claim',{jobId:job.id,observedBaseCommit:head,contractProtocol:"md-trace-v1",governanceProtocol:"impact-v1",replayProtocol:"planning-replay-v1",attachmentProtocol:"feedback-images-v1",workflowProtocol:"direct-v1"});
   if(claim.request.baseCommit!==head||claim.request.repository!==config.repository||claim.request.projectId!==config.projectId||claim.library.projectId!==config.projectId||claim.library.sourceCommit!==head)throw new Error('Packet khảo sát không khớp checkout.');
   const credentials={jobId:job.id,planningToken:claim.planningToken};
   heartbeat=setInterval(()=>{if(busy)return;busy=true;heartbeatTask=api('/'+job.requestId+'/heartbeat',credentials).catch(()=>controller.abort()).finally(()=>{busy=false;});},60000);
-  const outputPath=path.join(config.stateDir,'planning',job.id+'-plan.json');
+  const outputPath=path.join(config.stateDir,'planning',job.id+'-plan.json');await mkdir(path.dirname(outputPath),{recursive:true,mode:0o700});
   if(job.mode!=='report-only'){
    failureReason="codex";
    const imageArgs=await feedbackImageArgs(claim.request,config,imageToken);
-   const invoke=async(input,timeout)=>run(config.codexPath,['exec',...imageArgs,...codexModelArgs(config,'planning',claim.ai),'--ignore-user-config','--sandbox','read-only','-C',worktree,'--output-schema',fileURLToPath(new URL('./plan-schema.json',import.meta.url)),'--output-last-message',outputPath,'-'],{cwd:worktree,env:environment,input,signal:controller.signal,timeout});
+   const invoke=async(input,timeout)=>run(config.codexPath,['exec',...imageArgs,...codexModelArgs(config,'planning',claim.ai),'--ignore-user-config','--sandbox','read-only','-C',worktree,'--output-schema',fileURLToPath(new URL(claim.request.workflowProtocol==='direct-v1'?'./direct-plan-schema.json':'./plan-schema.json',import.meta.url)),'--output-last-message',outputPath,'-'],{cwd:worktree,env:environment,input,signal:controller.signal,timeout});
    const started=Date.now();
    const result=await invoke(planningPrompt(claim),6*60000);
    if(result.code||controller.signal.aborted)throw new Error('Codex khảo sát đã dừng.');
@@ -71,7 +73,7 @@ export async function surveyFeedback({job,config,api,run,signal,environment,imag
   failureReason="report";
   return await api('/'+job.requestId+'/report',{...credentials,report});
  }catch(e){clearInterval(heartbeat);await heartbeatTask;if(claim)await api('/'+job.requestId+'/fail',{jobId:job.id,planningToken:claim.planningToken,reason:e.planningFailureReason||failureReason}).catch(()=>{});throw new Error('Khảo sát trên Mac chưa hoàn tất; xem trạng thái Lab.');}
- finally{clearInterval(heartbeat);signal?.removeEventListener('abort',abort);await git(['worktree','remove',worktree]).catch(()=>{});}
+ finally{clearInterval(heartbeat);signal?.removeEventListener('abort',abort);if(!direct)await git(['worktree','remove',worktree]).catch(()=>{});}
 }
 export async function pollPlanning(configs,token,run,signal,environment,onStatus=async()=>{}){
  if(!configs.length)return;const base=new URL('/runner/planning',configs[0].mcpUrl);
