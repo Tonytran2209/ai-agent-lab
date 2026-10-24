@@ -35,7 +35,7 @@ export function criterionLogEvidence(rows,logs,expectedCommit){
 }
 export async function collectCriterionCi(r,token,fetcher=fetch){
  const api=async(suffix,text=false)=>{const response=await fetcher(`https://api.github.com/repos/${r.repository}/${suffix}`,{signal:AbortSignal.timeout(20000),headers:{Accept:'application/vnd.github+json','User-Agent':'ai-agent-lab',...(token?{Authorization:'Bearer '+token}:{})}});if(!response.ok)throw Error('Chưa đọc được GitHub CI: '+response.status);return text?response.text():response.json();};
- const rows=r.draft.traceability;if(!rows?.length)throw Error('Thiếu tiêu chí để đối chiếu CI.');if(rows.some(t=>t.verification.method==='test'&&!browserCriterion(t.verification.command)))throw Error('Tiêu chí chưa có command browser được hỗ trợ.');
+ const rows=r.draft.traceability;if(!rows?.length)throw Error('Thiếu tiêu chí để đối chiếu CI.');
  const branch=r.result.localArtifact.branch;if(!new RegExp('^lab/'+r.id+'-[0-9]+$').test(branch))throw Error('Sai nhánh artifact.');
  const prs=await api('pulls?state=open&head='+encodeURIComponent(r.repository.split('/')[0]+':'+branch)+'&base='+encodeURIComponent(r.branch));if(prs.length!==1)return null;
  const pr=await api('pulls/'+prs[0].number),commit=pr.head?.sha;
@@ -47,7 +47,18 @@ export async function collectCriterionCi(r,token,fetcher=fetch){
  if(!evidence.ready)return {pending:true,commit,prNumber:pr.number,prUrl:pr.html_url,failed:evidence.failed||evidence.failures.length>0,jobs:evidence.jobs,failures:evidence.failures};
  const url=evidence.evidenceUrl,match=new RegExp('^https://github.com/'+r.repository+'/actions/runs/[0-9]+/job/([0-9]+)$').exec(url||'');if(!match)throw Error('Thiếu job browser độc lập.');
  const job=await api('actions/jobs/'+match[1]);if(job.head_sha!==commit||job.name!=='browser-check'||job.conclusion!=='success'||job.status!=='completed')throw Error('Job browser sai commit hoặc chưa đạt.');
- const criteria=criterionLogEvidence(rows.filter(t=>t.verification.method==='test'),await api('actions/jobs/'+match[1]+'/logs',true),commit);
- for(const row of rows.filter(t=>t.verification.method==='inspection')){const refreshed=r.ciRepair?.phase==='pushed'&&r.ciRepair.commit===commit;const e=(refreshed?r.ciRepair.criterionEvidence:r.result.criterionEvidence)?.find(e=>e.criterionIndex===row.criterionIndex&&e.method==='inspection'&&e.command===row.verification.command&&e.outcome==='passed'&&JSON.stringify(e.files)===JSON.stringify(row.verification.files));if(commit!==r.result.commit&&!refreshed||!e)throw Error('Inspection cần xác minh lại trên commit hiện tại.');criteria.push({criterionIndex:row.criterionIndex,method:'inspection',command:e.command,files:e.files,names:[],detail:e.detail});}
+ const criteria=criterionLogEvidence(rows.filter(t=>t.verification.method==='test'&&browserCriterion(t.verification.command)),await api('actions/jobs/'+match[1]+'/logs',true),commit);
+ criteria.push(...reportedCriterionEvidence(r,rows.filter(t=>t.verification.method==='inspection'||!browserCriterion(t.verification.command)),commit));
  return {commit,branch,changedPaths:files.map(f=>f.filename),prNumber:pr.number,prUrl:pr.html_url,evidenceUrl:url,criteria,source:'github-actions'};
+}
+
+// Preserve exact-head local evidence without re-labelling it as independent browser CI.
+export function reportedCriterionEvidence(r,rows,commit){
+ const refreshed=r.ciRepair?.phase==='pushed'&&r.ciRepair.commit===commit;
+ const source=refreshed?r.ciRepair:r.result;
+ return rows.map(row=>{
+  const e=source?.criterionEvidence?.find(e=>e.criterionIndex===row.criterionIndex&&e.method===row.verification.method&&e.command===row.verification.command&&e.outcome==='passed'&&JSON.stringify(e.files)===JSON.stringify(row.verification.files));
+  if(commit!==r.result.commit&&!refreshed||!e||row.verification.method==='test'&&!source.checks?.some(c=>c.command===e.command&&c.passed))throw Error('Bằng chứng cục bộ cần xác minh lại trên commit hiện tại: '+row.criterionIndex);
+  return {criterionIndex:row.criterionIndex,method:e.method,command:e.command,files:e.files,names:[],detail:e.detail,source:'agent-reported'};
+ });
 }
