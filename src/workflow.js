@@ -67,6 +67,7 @@ export function requiresAttention(r) {
   if(r.projectQueue?.blocked)return false;
   if(r.projectQueue?.staleBase&&r.draft)return true;
   if([r.lease,r.planning?.lease,r.verification?.lease,r.recheck?.lease,r.release?.lease].some(l=>l&&Date.parse(l.expiresAt)<=Date.now()))return true;
+  if(r.preparation?.status==='queued'||preparationRunning(r))return false;
   if(r.status==='approved'&&r.executionReadiness?.ready===false)return true;
   if(r.status==='review')return !r.delivery?.approvalHash||r.delivery.phase==='failed';
   return ['awaiting-approval','failed','needs-triage'].includes(r.status)||r.release?.phase==='failed'||r.preparation?.status==='failed';
@@ -76,6 +77,7 @@ export function requiresAttention(r) {
 export function taskProgress(r,runner){
  if(r.projectQueue?.blocked)return {steps:['Tiếp nhận','Phân loại','Codex','Kiểm tra','Phát hành'],current:0,done:false,failed:false,waiting:true,title:'Chờ lượt · vị trí '+r.projectQueue.position,message:'Project đang xử lý '+r.projectQueue.blockedBy+'. Chỉ bắt đầu sau khi request trước hoàn tất deploy và đồng bộ MD; không ghi đè lên bản đang chạy.'};
  if(r.projectQueue?.staleBase&&r.draft&&!r.lease)return {steps:['Tiếp nhận','Phân loại','Codex','Kiểm tra','Phát hành'],current:2,done:false,failed:false,waiting:true,title:'Cần cập nhật base',message:'Main đã thay đổi. Chuẩn bị lại kế hoạch trên base mới trước khi thực thi; quyền cũ không được dùng cho nội dung mới.'};
+ if(r.preparation?.engine==='codex-local'&&(r.preparation.status==='queued'||preparationRunning(r)))return {steps:['Tiếp nhận','Phân loại','Codex','Kiểm tra','Phát hành'],current:2,done:false,failed:false,waiting:r.preparation.status==='queued',title:r.preparation.status==='queued'?'Chờ Codex khảo sát':'Codex đang khảo sát',message:'Đang cập nhật phương án từ feedback, code và MD. Không cần duyệt kế hoạch cũ; low/medium đủ điều kiện sẽ tự tiếp tục.'};
  if(['awaiting-approval','needs-triage','approved','failed'].includes(r.status)&&r.executionReadiness?.ready===false)return {steps:['Tiếp nhận','Phân loại','Codex','Kiểm tra','Phát hành'],current:2,done:false,failed:false,waiting:true,title:'Cần bổ sung trước khi chạy',message:r.executionReadiness.blockers[0]};
  const steps=['Tiếp nhận','Phân loại','Codex','Kiểm tra','Phát hành'];
  let current=0,done=r.release?.phase==='deployed';
