@@ -9,7 +9,7 @@ export async function ciTemplate(read,branch){
  if(ebSource!==null){if(!ebSource.includes('fetchEbV2Workspace'))throw new Error('EB workspace cần adapter CI cho API hiện tại.');eb=true;}
  try{await read('src/codex-theme.css');css=true;}catch{}
  files[ciSetupPaths[0]]=files[ciSetupPaths[0]].replace('__BRANCH__',JSON.stringify(branch));
- files[ciSetupPaths[3]]=files[ciSetupPaths[3]].replace('/*EXTRA_CSS*/',css?"import '../../src/codex-theme.css';":'').replace('/*EB_IMPORT*/',eb?"import EbWorkingSpace from '../../src/components/EbWorkingSpace';":'').replace('{/*SCREEN*/}',eb?"{screen==='eb'?<EbWorkingSpace config={DEFAULT_CONFIG}/>:<Fixture/>}":'{<Fixture/>}');
+ files[ciSetupPaths[3]]=files[ciSetupPaths[3]].replace('/*EXTRA_CSS*/',css?"import '../../src/codex-theme.css';":'').replace('/*EB_IMPORT*/',eb?"import EbWorkingSpace from '../../src/components/EbWorkingSpace';":'').replace('{/*SCREEN*/}',eb?"{screen==='eb'?<EbWorkingSpace config={fixtureConfig}/>:<Fixture/>}":'{<Fixture/>}');
  files[ciSetupPaths[4]]=files[ciSetupPaths[4]].replace('/*EB_TEST*/',eb?`test('EB V2 loads an isolated Brief workspace',async({page},info)=>{const errors=[];page.on('pageerror',e=>errors.push(e.message));const unexpected=await isolate(page);await page.goto('/?screen=eb');await expect(page.getByText('CI_BRIEF_SENTINEL').first()).toBeVisible();await page.screenshot({path:info.outputPath('eb-v2.png'),fullPage:true});expect(errors).toEqual([]);expect(unexpected).toEqual([]);});`:'');
  return files;
 }

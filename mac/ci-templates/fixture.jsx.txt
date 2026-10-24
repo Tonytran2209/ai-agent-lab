@@ -11,5 +11,7 @@ function Fixture(){
  const [article,setArticle]=useState({id:'ci-fixture',topic:'CI fixture',draft:original,keywords:'fixture',tone:'professional',outline:[],currentStep:4,status:'draft'});
  return <main><details open><summary>Fixture source</summary><pre data-testid="stored-source">{article.draft}</pre></details><Step4Draft article={article} config={DEFAULT_CONFIG} files={[]} model={DEFAULT_MODELS[0]} railwayUrl="" onUpdate={async p=>{setArticle(a=>({...a,...p}));return true;}} onPrev={()=>{}} onToggleComplete={()=>{}}/></main>;
 }
-const screen=new URLSearchParams(location.search).get('screen');
+// Explicit test-only model configuration; tests must mock every model API request.
+const params=new URLSearchParams(location.search),screen=params.get('screen');
+const fixtureConfig={...DEFAULT_CONFIG,models:params.get('testModel')==='enabled'?[{...DEFAULT_MODELS[0],id:'lab-ci-mock',name:'CI mock model',enabled:true}]:DEFAULT_MODELS.map(model=>({...model,enabled:false}))};
 createRoot(document.getElementById('root')).render(<LanguageProvider>{/*SCREEN*/}</LanguageProvider>);

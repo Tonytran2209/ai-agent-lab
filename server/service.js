@@ -11,7 +11,7 @@ import { createCiSetup } from "./ci-setup.js";
 import { createProjects } from "./projects.js";
 import { createAiLedger } from "./ai-ledger.js";
 import crypto from "node:crypto";
-import { localChecksPassed, checksSatisfied, verificationPassed, resultRevision, newVerification } from "./verification.js";
+import { localChecksPassed, checksSatisfied, verificationPassed, resultRevision, newVerification, verificationUpdate } from "./verification.js";
 import { queueRelease, releaseFingerprint, releaseUpdate } from "./releases.js";
 import { readFileSync } from "node:fs";
 import { transaction } from "./db.js";
@@ -456,7 +456,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
     supplementVerification(id, input, actor) {
       return transaction(db, () => {
         const r = get(id);
-        if (!["failed", "verifying"].includes(r.status) || !contractSatisfied(r) || !localChecksPassed(r) || r.lease || r.verification?.lease && Date.parse(r.verification.lease.expiresAt)>Date.now()) fail("Không thể bổ sung khi đang chạy hoặc có lỗi ngoài trình duyệt.");
+        if (!["failed", "verifying"].includes(r.status) || !contractSatisfied(r) || !localChecksPassed(r) || r.lease || r.verification?.lease) fail("Không thể bổ sung khi đang chạy hoặc có lỗi ngoài trình duyệt.");
         if (input.expectedCommit !== r.result.commit || input.expectedResultRevision !== resultRevision(r)) fail("Kết quả đã đổi; cần kiểm tra lại đúng commit.");
         if (typeof input.note !== "string" || input.note.trim().length < 30 || input.note.length > 4000) fail("Cần mô tả kiểm tra thực tế và bằng chứng.",400);
         r.verification = {...r.verification,phase:"passed",resultRevision:resultRevision(r),source:"admin-attested",actor,at:now(),note:input.note.trim(),lease:null};
@@ -465,22 +465,24 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
     },
     queueVerification(id, actor) {
       return transaction(db, () => {
-        const r=get(id);if(r.status!=="failed" || !localChecksPassed(r) || r.verification?.lease && Date.parse(r.verification.lease.expiresAt)>Date.now()) fail("Chỉ thử lại kiểm tra trình duyệt sau khi worker dừng.");
+        const r=get(id);if(r.status!=="failed" || !localChecksPassed(r) || r.verification?.lease) fail("Chỉ thử lại kiểm tra trình duyệt sau khi worker dừng.");
         const old=r.verification;r.verification={...newVerification(r,actor),...(old?.prNumber?{phase:"ci",prNumber:old.prNumber,prUrl:old.prUrl}: {})};r.status="verifying";
         return changed(r,"browser_verification_queued",actor,r.verification.note);
       });
     },
-    verifications: () => list().filter(r=>r.status==="verifying"&&r.verification&&["queued","ci"].includes(r.verification.phase)).map(publicRequest),
+    verifications: () => list().filter(r=>!queueState(r)?.blocked&&r.status==="verifying"&&r.verification&&["queued","ci"].includes(r.verification.phase)).map(publicRequest),
     claimVerification(id,owner) {
       return transaction(db,()=>{
-        const r=get(id),v=r.verification;
+        const r=get(id),v=r.verification; assertTurn(r);
         if(!projects.get(r.projectId).enabled)fail("Project đang tạm dừng.");
         if(r.status!=="verifying"||!["queued","ci"].includes(v?.phase)||v.resultRevision!==resultRevision(r)||!localChecksPassed(r))fail("Không có quyền kiểm tra kết quả này.");
-        if(v.lease&&Date.parse(v.lease.expiresAt)>Date.now())fail("Đang có worker kiểm tra.");
+        if(v.lease)fail("Worker kiểm tra còn claim; xác nhận đã dừng trước khi mở khóa, kể cả khi hết hạn.");
         const token=crypto.randomBytes(32).toString("hex");v.lease={owner,tokenHash:hash(token),expiresAt:new Date(Date.now()+15*60000).toISOString()};save(r);return {request:publicRequest(r),verificationToken:token};
       });
     },
+    releaseVerification(id,actor,confirmStopped){return transaction(db,()=>{const r=get(id),v=r.verification;if(!v?.lease||Date.parse(v.lease.expiresAt)>Date.now()||confirmStopped!==true)fail('Chỉ mở claim kiểm tra hết hạn sau khi xác nhận worker cũ đã dừng.');v.lease=null;v.phase='failed';v.note='Đã xác nhận worker kiểm tra cũ dừng. Có thể kiểm tra lại CI.';r.status='failed';return changed(r,'browser_verification_released',actor,v.note);});},
     reportVerification(id,token,input) {
+      input=verificationUpdate.parse(input);
       return transaction(db,()=>{
         const r=get(id),v=r.verification;
         if(r.status!=="verifying"||!v?.lease||v.lease.tokenHash!==hash(token)||Date.parse(v.lease.expiresAt)<=Date.now()||v.resultRevision!==resultRevision(r))fail("Claim kiểm tra không hợp lệ.");
@@ -528,14 +530,15 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
         if(r.acceptance?.mode==="automated-ci")deliveryAuthority(r);
         if(!projects.get(r.projectId).enabled||!projects.get(r.projectId).releaseEnabled)fail("Project đã tắt phát hành.");
         if (r.status !== "completed" || !release || ["deployed", "failed"].includes(release.phase) || release.requestHash !== releaseFingerprint(r)) fail("Không có quyền phát hành nội dung này.");
-        if (release.lease && Date.parse(release.lease.expiresAt) > Date.now()) fail("Tiến trình phát hành đang được giữ.");
-        const other = list().find(v => v.id !== id && v.repository === r.repository && v.release?.lease && Date.parse(v.release.lease.expiresAt) > Date.now());
+        if (release.lease) fail("Tiến trình phát hành đang được giữ.");
+        const other = list().find(v => v.id !== id && v.repository === r.repository && v.release?.lease);
         if (other) fail("Repository đang phát hành request khác.");
         const token = crypto.randomBytes(32).toString("hex");
         release.lease = { owner, tokenHash: hash(token), expiresAt: new Date(Date.now() + 15 * 60000).toISOString() };
         save(r); return { request: publicRequest(r), releaseToken: token };
       });
     },
+    releasePublication(id,actor,confirmStopped){return transaction(db,()=>{const r=get(id),rel=r.release;if(!rel?.lease||Date.parse(rel.lease.expiresAt)>Date.now()||confirmStopped!==true)fail('Chỉ mở claim phát hành hết hạn sau khi xác nhận publisher cũ đã dừng.');rel.lease=null;rel.phase='failed';rel.note='Đã xác nhận publisher cũ dừng. Giữ PR/merge commit để tiếp tục đúng giai đoạn.';return changed(r,'release_claim_released',actor,rel.note);});},
     updateRelease(id, token, input) {
       return transaction(db, () => {
         const r = get(id), rel = r.release, update = releaseUpdate.parse(input);
