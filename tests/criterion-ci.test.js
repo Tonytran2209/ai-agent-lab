@@ -22,3 +22,9 @@ test('tagged npx and pinned config commands reconcile without allowing full-suit
  }
  for(const c of ['npx playwright test --config=playwright.agent-lab.config.mjs tests/agent-lab/draft.spec.mjs','npx playwright test tests/agent-lab/draft.spec.mjs --grep created --list','npx playwright test tests/agent-lab/draft.spec.mjs --config=../../evil.mjs --grep created'])assert.equal(browserCriterion(c),null);
 });
+
+test('pinned config option is accepted in each CLI position with tags still mandatory',()=>{
+ const file='tests/agent-lab/draft.spec.mjs',cfg='--config=playwright.agent-lab.config.mjs';
+ for(const suffix of [cfg+' '+file+' --grep created',file+' '+cfg+' --grep created',file+' --grep created '+cfg])assert.equal(browserCriterion('npx playwright test '+suffix).file,file);
+ assert.equal(browserCriterion('npx playwright test '+cfg+' '+file+' --grep created '+cfg),null);
+});
