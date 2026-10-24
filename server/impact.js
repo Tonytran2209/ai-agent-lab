@@ -1,3 +1,4 @@
+import {executionReadiness} from './execution-readiness.js';
 import {z} from 'zod';
 import {browserCriterion} from './criterion-ci.js';
 const file=z.string().min(1).max(240).regex(/^[a-zA-Z0-9_./-]+$/).refine(p=>!p.includes('..')&&!p.startsWith('/'));
@@ -17,7 +18,7 @@ export function decideAutomation(r,p){
  const i=r.draft?.impact,reasons=[];
  if(r.draft?.risk==='high')reasons.push('Thay đổi nhạy cảm/rủi ro cao cần admin xác nhận.');
  if(r.executionBlocked)reasons.push('Lần thực thi trước đã dừng; cần xem lại phạm vi.');
- if(r.draft?.questions?.length||r.unresolvedCheckpoints?.length)reasons.push('Còn câu hỏi chưa giải quyết.');
+ if(!executionReadiness(r).ready)reasons.push('Còn câu hỏi chưa giải quyết.');
  if(r.governanceProtocol==='impact-v1'&&!i)reasons.push('Thiếu đánh giá tác động có cấu trúc.');
  if(i?.uncertainty.length)reasons.push('Agent ghi nhận tình huống chưa chắc chắn.');
  if(i&&(!i.reversible||!i.preservesDataAndContracts))reasons.push('Chưa chứng minh có thể phục hồi và giữ hợp đồng dữ liệu/API.');

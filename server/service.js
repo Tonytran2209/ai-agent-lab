@@ -1,3 +1,4 @@
+import {executionReadiness} from './execution-readiness.js';
 import {projectQueueState} from './project-queue.js';
 import {normalizeImages,createFeedbackImages} from './feedback-images.js';
 import {rejectedScopePaths} from './scope.js';
@@ -87,13 +88,14 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
     const release = rest.release ? { ...rest.release, lease: rest.release.lease ? { owner: rest.release.lease.owner, expiresAt: rest.release.lease.expiresAt } : null } : undefined;
     const recheck=rest.recheck?{...rest.recheck,lease:rest.recheck.lease?{owner:rest.recheck.lease.owner,expiresAt:rest.recheck.lease.expiresAt}:null}:undefined;
     const verification = rest.verification ? { ...rest.verification, lease: rest.verification.lease ? {owner:rest.verification.lease.owner,expiresAt:rest.verification.lease.expiresAt} : null } : undefined;
-    return { ...rest, ...(serialized?{projectQueue:queueState(r,queueRows)}:{}), ...(r.contractProtocol?{contract:assessContract(r),documentationImpact:documentationImpact(r,library(r.libraryVersionId))}:{}), ...(recheck?{recheck}:{}), ...(service.localPlanning?.get(r.id)?{planning:service.localPlanning.get(r.id)}:{}), ...(rest.result ? {resultRevision:resultRevision(r)} : {}), ...(verification ? {verification} : {}), ...(release ? { release } : {}), lease: lease ? { owner: lease.owner, expiresAt: lease.expiresAt } : null };
+    return { ...rest, executionReadiness:executionReadiness(r), ...(serialized?{projectQueue:queueState(r,queueRows)}:{}), ...(r.contractProtocol?{contract:assessContract(r),documentationImpact:documentationImpact(r,library(r.libraryVersionId))}:{}), ...(recheck?{recheck}:{}), ...(service.localPlanning?.get(r.id)?{planning:service.localPlanning.get(r.id)}:{}), ...(rest.result ? {resultRevision:resultRevision(r)} : {}), ...(verification ? {verification} : {}), ...(release ? { release } : {}), lease: lease ? { owner: lease.owner, expiresAt: lease.expiresAt } : null };
   };
   function changed(r, type, actor, detail) { r.updatedAt = now(); save(r); event(r.id, type, actor, detail); return publicRequest(r); }
   function mutable(r) {
     if (!["feedback", "needs-triage", "draft", "awaiting-approval"].includes(r.status))
       fail("Không thể sửa request đã duyệt hoặc đang thực thi. Tạo scope revision trước.");
   }
+  function assertExecutionReady(r){const readiness=executionReadiness(r);if(!readiness.ready)fail('Kế hoạch còn điều kiện chưa giải quyết: '+readiness.blockers.join(' · '),409);}
   function withRiskFloor(r, draft) {
     if(intentRisk([r.feedback,r.screen,r.expected].join(' '))==='high')return {...draft,risk:'high',riskReasons:[...draft.riskReasons,'Feedback liên quan thay đổi nhạy cảm; cần admin xác nhận.']};
     return r.riskFloor === "high" || r.riskFloor === "medium" && draft.risk === "low" ? { ...draft, risk: r.riskFloor } : draft;
@@ -176,7 +178,8 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
         const r = get(id); mutable(r);
         cancelPreparation(r);
         r.draft = withRiskFloor(r, validateDraft(input, library(r.libraryVersionId),Boolean(r.contractProtocol))); r.title = r.draft.title;
-        r.status = r.draft.questions.length ? "needs-triage" : "awaiting-approval"; r.approval = null;
+        r.unresolvedCheckpoints=executionReadiness({draft:r.draft}).blockers;
+        r.status = r.unresolvedCheckpoints.length ? "needs-triage" : "awaiting-approval"; r.approval = null;
         return changed(r, "request_prepared", actor);
       });
     },
@@ -195,7 +198,8 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
         const r = get(id); mutable(r);
         if (hash(JSON.stringify(r)) !== expectedFingerprint) fail("Feedback đã thay đổi khi AI đang phân tích. Hãy thử lại.");
         r.draft = validateDraft(draft, library(r.libraryVersionId),Boolean(r.contractProtocol)); r.title = r.draft.title;
-        delete r.automation; r.ai = ai; r.status = r.draft.questions.length ? "needs-triage" : "awaiting-approval"; r.approval = null;
+        delete r.automation; r.ai = ai; r.unresolvedCheckpoints=executionReadiness({draft:r.draft}).blockers;
+        r.status = r.unresolvedCheckpoints.length ? "needs-triage" : "awaiting-approval"; r.approval = null;
         return changed(r, "ai_analysis_completed", actor);
       });
     },
@@ -265,10 +269,9 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
         if (hash(JSON.stringify(publicRequest(r))) !== expectedHash) fail("Request đã thay đổi trong lúc chuẩn bị.");
         const previousRiskFloor=r.riskFloor;
         let d = withRiskFloor(r,validateDraft(r.draft, library(r.libraryVersionId),Boolean(r.contractProtocol)));
-        r.unresolvedCheckpoints=[...d.questions];
-        // Unresolved model questions become visible review checkpoints, never fabricated answers.
-        if (d.questions.length) d = { ...d, risk: d.risk === "low" ? "medium" : d.risk,
-          assumptions: [...d.questions.map(q => "Cần kiểm tra: " + q), ...d.assumptions].slice(0,8), questions: [] };
+        r.unresolvedCheckpoints=executionReadiness({draft:d}).blockers;
+        // Preserve questions as actionable blockers; approval cannot manufacture missing evidence.
+        if(r.unresolvedCheckpoints.length&&d.risk==="low")d={...d,risk:"medium"};
         if (r.executionBlocked && d.risk === "low") d = { ...d, risk: "medium", riskReasons: [...d.riskReasons, "Lần chạy trước đã dừng; cần kiểm tra kế hoạch mới"] };
         if (r.riskFloor === "high" || r.riskFloor === "medium" && d.risk === "low") d = { ...d, risk: r.riskFloor };
         r.riskFloor = d.risk;
@@ -310,7 +313,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
       return transaction(db, () => {
         const r = get(id); mutable(r);
         r.draft = withRiskFloor(r, validateDraft(input, library(r.libraryVersionId),Boolean(r.contractProtocol)));
-        if (r.draft.questions.length) fail("Cần giải quyết các điểm kiểm tra trong kế hoạch.");
+        r.unresolvedCheckpoints=executionReadiness({draft:r.draft}).blockers; assertExecutionReady(r);
         if (r.draft.risk === "high" && options.confirmHighRisk !== true) fail("Cần xác nhận phê duyệt rủi ro cao.");
         r.title = r.draft.title;
         r.executionBlocked = false;
@@ -333,6 +336,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
             !/(auth|permission|billing|storage|provider|payment|login|session)/i.test(p)) &&
           r.reproduction.trim().length >= 10 && r.expected.trim().length >= 10;
         if (!eligible) return publicRequest(r);
+        assertExecutionReady(r);
         r.approval = { actor, mode: "auto-low-risk", at: now(), requestHash: hash(JSON.stringify({ draft: d, baseCommit: r.baseCommit, libraryVersionId: r.libraryVersionId })) };
         authorizeDelivery(r); r.status = "approved";
         return changed(r, "request_auto_approved", actor, "Admin cho phép tự duyệt UI rủi ro thấp ở lần chuẩn bị này.");
@@ -342,6 +346,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
       return transaction(db, () => {
         const r = get(id);
         if (r.status !== "awaiting-approval" || !r.draft || r.draft.questions.length) fail("Request chưa đủ thông tin để duyệt.");
+        assertExecutionReady(r);
         const validated = withRiskFloor(r, validateDraft(r.draft, library(r.libraryVersionId),Boolean(r.contractProtocol)));
         r.draft = validated;
         if (validated.risk === "high" && options.confirmHighRisk !== true) fail("Cần xác nhận phê duyệt rủi ro cao.");
@@ -361,10 +366,10 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
         r.status = "rejected"; r.approval = null; return changed(r, "request_rejected", actor, note);
       });
     },
-    ready: () => list().filter(r => r.status === "approved" && !queueState(r)?.blocked && !queueState(r)?.staleBase && projects.get(r.projectId).enabled).map(publicRequest),
+    ready: () => list().filter(r => r.status === "approved" && executionReadiness(r).ready && !queueState(r)?.blocked && !queueState(r)?.staleBase && projects.get(r.projectId).enabled).map(publicRequest),
     claim(id, owner, observedBaseCommit, contractProtocol, attachmentProtocol) {
       return transaction(db, () => {
-        const r = get(id); assertTurn(r);if(serialized&&r.baseCommit!==currentLibrary(r.projectId).sourceCommit)fail("Base đã thay đổi; cần khảo sát lại trước thực thi.",409); if(r.attachments?.length&&attachmentProtocol!=="feedback-images-v1")fail("Runner cần hỗ trợ ảnh feedback trước khi thực thi."); if(r.contractProtocol&&contractProtocol!==r.contractProtocol)fail("Agent cần khai báo contractProtocol md-trace-v1 trước khi thực thi."); if(!projects.get(r.projectId).enabled)fail("Project đang tạm dừng."); if (r.status !== "approved") fail("Request chưa được duyệt hoặc đã được claim.");
+        const r = get(id); assertTurn(r);assertExecutionReady(r);if(serialized&&r.baseCommit!==currentLibrary(r.projectId).sourceCommit)fail("Base đã thay đổi; cần khảo sát lại trước thực thi.",409); if(r.attachments?.length&&attachmentProtocol!=="feedback-images-v1")fail("Runner cần hỗ trợ ảnh feedback trước khi thực thi."); if(r.contractProtocol&&contractProtocol!==r.contractProtocol)fail("Agent cần khai báo contractProtocol md-trace-v1 trước khi thực thi."); if(!projects.get(r.projectId).enabled)fail("Project đang tạm dừng."); if (r.status !== "approved") fail("Request chưa được duyệt hoặc đã được claim.");
         if (r.baseCommit !== observedBaseCommit) fail("HEAD không khớp baseCommit. Không được thực thi.");
         if(r.delivery?.approvalHash)deliveryAuthority(r);
         const fingerprint = hash(JSON.stringify({ draft: r.draft, baseCommit: r.baseCommit, libraryVersionId: r.libraryVersionId }));
@@ -400,6 +405,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
       return transaction(db, () => {
         const r = get(id);
         if (r.status !== "failed" || !r.executionFailure || r.lease) fail("Chỉ thử lại lỗi thực thi đã dừng.");
+        assertExecutionReady(r);
         if(r.delivery?.approvalHash)deliveryAuthority(r);
         const fingerprint = hash(JSON.stringify({ draft: r.draft, baseCommit: r.baseCommit, libraryVersionId: r.libraryVersionId }));
         if (!r.approval || r.approval.requestHash !== fingerprint) fail("Kế hoạch đã đổi; cần duyệt lại.");
