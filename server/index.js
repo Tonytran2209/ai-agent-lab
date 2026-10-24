@@ -264,7 +264,8 @@ export function createApp(config, options = {}) {
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const { app, db, pipeline, delivery, recovery, lark } = createApp(process.env);
   const port = Number(process.env.PORT || 3000);
-  const server = app.listen(port, "0.0.0.0", () => { pipeline.start(); delivery.start();recovery.start(); lark.start(); console.log("AI Agent Lab listening on port " + port); });
+  pipeline.start(); delivery.start(); recovery.start(); lark.start();
+  const server = app.listen(port, "0.0.0.0", () => { console.log("AI Agent Lab listening on port " + port); });
   const stop = async () => { await pipeline.stop(); await delivery.stop();await recovery.stop(); await lark.stop(); server.close(() => db.close()); };
   process.once("SIGTERM", stop); process.once("SIGINT", stop);
 }
