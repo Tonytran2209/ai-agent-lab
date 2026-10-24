@@ -10,4 +10,4 @@ export function assessCi(response, statuses, commit) {
   const jobs=required.map((r,i)=>({name:['writer-check','browser-check'][i],status:r?.status||'missing',conclusion:r?.conclusion||null,url:r?.details_url,startedAt:r?.started_at,completedAt:r?.completed_at}));
   return {failed,failures,jobs,ready:!failed&&required.every(r=>r?.status==='completed'&&r.conclusion==='success')&&runs.every(r=>r.status==='completed')&&!currentStatuses.some(s=>s.state==='pending'),evidenceUrl:required[1]?.details_url,missing:required.some(r=>!r)};
 }
-export const ciSetupPaths=['.github/workflows/agent-lab-ci.yml','playwright.agent-lab.config.mjs','tests/agent-lab/server.mjs','tests/agent-lab/fixture.jsx','tests/agent-lab/draft.spec.mjs'];
+export const ciSetupPaths=['.github/workflows/agent-lab-ci.yml','playwright.agent-lab.config.mjs','tests/agent-lab/server.mjs','tests/agent-lab/fixture.jsx','tests/agent-lab/draft.spec.mjs','tests/agent-lab/evidence-reporter.cjs'];

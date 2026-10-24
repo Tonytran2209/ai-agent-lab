@@ -1,8 +1,9 @@
+import {pollCiRepairs} from '../mac/repair.js';
 // One bounded cloud cycle. Same exact-scope/claim/check implementation as Mac;
 // credentials stay in the supervisor, never in model or package-check environment.
 import {mkdir} from 'node:fs/promises';
 import path from 'node:path';
-import {command,connect,executeRequest,childEnvironment} from '../mac/runner.js';
+import {command,connect,executeRequest,childEnvironment,prepareDependencies,changedFiles,checkScope,noSymlinks} from '../mac/runner.js';
 import {connectProjects,matchesProject} from '../mac/projects.js';
 import {pollPlanning} from '../mac/planning.js';
 import {pollReleases} from '../mac/release.js';
@@ -12,6 +13,7 @@ export async function cloudCycle(config,token,{run=command,signal}={}){
  const queue=async endpoint=>{const response=await fetch(new URL(endpoint,config.mcpUrl),{headers:{Authorization:'Bearer '+token},signal:AbortSignal.timeout(15000)});if(!response.ok)throw Error('Cloud queue unavailable.');return response.json();};
  try{
   for(const c of connected.configs)for(const [key,value] of [['user.name','Agent Lab Cloud'],['user.email','agent-lab@users.noreply.github.com']]){const result=await run('git',['-C',c.repoPath,'config',key,value]);if(result.code)throw Error('Git identity setup failed.');}
+  if((await queue('/runner/ci-repairs')).requests.some(r=>connected.configs.some(c=>matchesProject(r,c)))){await pollCiRepairs(connected.configs,token,run,signal,{prepareDependencies,childEnvironment,changedFiles,checkScope,noSymlinks});return;}
   const pending=(await queue('/runner/planning')).jobs;
   if(pending.some(j=>connected.configs.some(c=>matchesProject(j,c)))){await pollPlanning(connected.configs,token,run,signal,childEnvironment(process.env));return;}
   const remote=[...(await queue('/runner/verifications')).requests.filter(r=>r.verification?.phase==='ci'),...(config.releaseEnabled?(await queue('/runner/releases')).requests.filter(r=>r.release?.prNumber&&['ci','deploying'].includes(r.release.phase)):[])];

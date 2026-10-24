@@ -64,7 +64,7 @@ export async function ciSetupStep({job:j,config,run,api,signal}) {
   if(j.existing){if(head.sha!==commit)throw new Error('Branch đã đổi; cần kiểm tra lại CI trên commit mới.');return {phase:'ready',existing:true,commit,note:'CI hiện có đã được xác minh trên branch đích; không cần tạo PR cấu hình.'};}
   const pr=await api(prefix+'/pulls/'+j.prNumber);
   if(pr.head.sha!==commit||pr.base.ref!==j.branch||pr.base.repo.full_name!==j.repository||pr.head.ref!==branch)throw new Error('PR CI đã đổi head/base.');
-  const files=await api(prefix+'/pulls/'+j.prNumber+'/files?per_page=100');if(files.length!==ciSetupPaths.length||pr.changed_files!==files.length||files.some(f=>!ciSetupPaths.includes(f.filename)))throw new Error('PR CI có file ngoài scope.');
+  const files=await api(prefix+'/pulls/'+j.prNumber+'/files?per_page=100');if(![5,ciSetupPaths.length].includes(files.length)||!ciSetupPaths.slice(0,5).every(p=>files.some(f=>f.filename===p))||pr.changed_files!==files.length||files.some(f=>!ciSetupPaths.includes(f.filename)))throw new Error('PR CI có file ngoài scope.');
   if(pr.merged)return {phase:'syncing',mergeCommit:pr.merge_commit_sha,note:'PR cấu hình đã merge; chờ CI branch đích.'};
   if(pr.state!=='open')throw new Error('PR CI đã đóng.');
   if(!j.autoMerge)return {phase:'awaiting-merge',note:'Hai kiểm tra CI đã đạt. Admin có thể xem PR và bấm Hoàn tất thiết lập.'};

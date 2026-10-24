@@ -4,7 +4,7 @@ export async function ciTemplate(read,branch){
  const required=['package.json','package-lock.json','backend/package-lock.json','src/main.tsx','src/components/workspace/Step4Draft.tsx','src/lib/i18n.tsx','src/lib/defaultData.ts','src/index.css'];
  const sources={};for(const p of required){try{sources[p]=await read(p);}catch{throw new Error('Cần adapter CI cho cấu trúc repo này; thiếu '+p+'. Chưa sửa file nào.');}}
  let pkg;try{pkg=JSON.parse(sources['package.json']);}catch{throw new Error('package.json không hợp lệ; chưa tạo file CI.');}if(!pkg.scripts?.check||!pkg.dependencies?.react||!pkg.devDependencies?.vite)throw new Error('Mẫu CI hiện hỗ trợ React/Vite + npm run check; repo cần adapter riêng.');
- const files={};for(const [path,name] of ciSetupPaths.map((p,i)=>[p,['workflow.yml','playwright.config.mjs','server.mjs','fixture.jsx','draft.spec.mjs'][i]]))files[path]=await readFile(new URL('./ci-templates/'+name+'.txt',import.meta.url),'utf8');
+ const files={};for(const [path,name] of ciSetupPaths.map((p,i)=>[p,['workflow.yml','playwright.config.mjs','server.mjs','fixture.jsx','draft.spec.mjs','evidence-reporter.cjs'][i]]))files[path]=await readFile(new URL('./ci-templates/'+name+'.txt',import.meta.url),'utf8');
  let eb=false,css=false,ebSource=null;try{ebSource=await read('src/components/EbWorkingSpace.tsx');}catch{}
  if(ebSource!==null){if(!ebSource.includes('fetchEbV2Workspace'))throw new Error('EB workspace cần adapter CI cho API hiện tại.');eb=true;}
  try{await read('src/codex-theme.css');css=true;}catch{}

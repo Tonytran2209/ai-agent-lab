@@ -88,7 +88,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
     const release = rest.release ? { ...rest.release, lease: rest.release.lease ? { owner: rest.release.lease.owner, expiresAt: rest.release.lease.expiresAt } : null } : undefined;
     const recheck=rest.recheck?{...rest.recheck,lease:rest.recheck.lease?{owner:rest.recheck.lease.owner,expiresAt:rest.recheck.lease.expiresAt}:null}:undefined;
     const verification = rest.verification ? { ...rest.verification, lease: rest.verification.lease ? {owner:rest.verification.lease.owner,expiresAt:rest.verification.lease.expiresAt} : null } : undefined;
-    return { ...rest, executionReadiness:executionReadiness(r), ...(serialized?{projectQueue:queueState(r,queueRows)}:{}), ...(r.contractProtocol?{contract:assessContract(r),documentationImpact:documentationImpact(r,library(r.libraryVersionId))}:{}), ...(recheck?{recheck}:{}), ...(service.localPlanning?.get(r.id)?{planning:service.localPlanning.get(r.id)}:{}), ...(rest.result ? {resultRevision:resultRevision(r)} : {}), ...(verification ? {verification} : {}), ...(release ? { release } : {}), lease: lease ? { owner: lease.owner, expiresAt: lease.expiresAt } : null };
+    return { ...rest, ...(rest.ciRepair?{ciRepair:{...rest.ciRepair,lease:rest.ciRepair.lease?{expiresAt:rest.ciRepair.lease.expiresAt}:null}}:{}), executionReadiness:executionReadiness(r), ...(serialized?{projectQueue:queueState(r,queueRows)}:{}), ...(r.contractProtocol?{contract:assessContract(r),documentationImpact:documentationImpact(r,library(r.libraryVersionId))}:{}), ...(recheck?{recheck}:{}), ...(service.localPlanning?.get(r.id)?{planning:service.localPlanning.get(r.id)}:{}), ...(rest.result ? {resultRevision:resultRevision(r)} : {}), ...(verification ? {verification} : {}), ...(release ? { release } : {}), lease: lease ? { owner: lease.owner, expiresAt: lease.expiresAt } : null };
   };
   function changed(r, type, actor, detail) { r.updatedAt = now(); save(r); event(r.id, type, actor, detail); return publicRequest(r); }
   function mutable(r) {
@@ -302,6 +302,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
         });
     },
     rawForAnalysis: id => get(id),
+    assertRepairAuthority:id=>deliveryAuthority(get(id)),
     projectQueue:id=>queueState(get(id)),
     assertProjectTurn:id=>assertTurn(get(id)),
     prepareProjectHead(id){return transaction(db,()=>{const r=get(id);assertTurn(r);if(!serialized)return r;const lib=currentLibrary(r.projectId);if(!r.queueProtocol&&!r.draft&&!r.result&&!r.approval&&!r.lease&&r.preparation?.status!=='running'){r.queueProtocol='project-fifo-v1';save(r);}if(r.baseCommit===lib.sourceCommit)return r;
@@ -360,7 +361,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
     },
     reject(id, note, actor) {
       return transaction(db, () => {
-        const r = get(id); if (["claimed", "running", "rechecking"].includes(r.status)||r.recheck?.lease||r.verification?.lease) fail("Agent đang giữ claim; cần xác nhận agent dừng trước.");
+        const r = get(id); if (["claimed", "running", "rechecking"].includes(r.status)||r.ciRepair?.lease||r.recheck?.lease||r.verification?.lease) fail("Agent đang giữ claim; cần xác nhận agent dừng trước.");
         if (r.release && !["deployed", "failed"].includes(r.release.phase)) fail("Đang phát hành; không thể thu hồi quyền bằng thao tác từ chối coding request.");
         cancelPreparation(r);
         r.status = "rejected"; r.approval = null; return changed(r, "request_rejected", actor, note);
@@ -496,9 +497,9 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
         return previous!==v.phase?changed(r,"browser_verification_"+v.phase,owner,v.note):publicRequest(r);
       });
     },
-    criterionCiCandidates:()=>list().filter(r=>['failed','verifying','review'].includes(r.status)&&r.contractProtocol&&!contractSatisfied(r)&&localChecksPassed(r)&&!r.lease&&!r.verification?.lease&&r.delivery?.approvalHash&&(!r.criterionCiNextAt||Date.parse(r.criterionCiNextAt)<=Date.now())).map(publicRequest),
+    criterionCiCandidates:()=>list().filter(r=>['failed','verifying','review'].includes(r.status)&&r.contractProtocol&&!contractSatisfied(r)&&localChecksPassed(r)&&!r.lease&&!r.ciRepair?.lease&&!r.verification?.lease&&r.delivery?.approvalHash&&(!r.criterionCiNextAt||Date.parse(r.criterionCiNextAt)<=Date.now())).map(publicRequest),
     observeCriterionCi(id,expectedRevision,observation){return transaction(db,()=>{
-      const r=get(id);if(resultRevision(r)!==expectedRevision||!['failed','verifying','review'].includes(r.status)||r.lease||r.verification?.lease)return;
+      const r=get(id);if(resultRevision(r)!==expectedRevision||!['failed','verifying','review'].includes(r.status)||r.lease||r.ciRepair?.lease||r.verification?.lease)return;
       if(!/^[a-f0-9]{40}$/.test(observation.commit)||observation.prUrl!==`https://github.com/${r.repository}/pull/${observation.prNumber}`)fail('Bằng chứng CI không khớp project.');
       const previous=r.ciObservation;
       r.ciObservation={commit:observation.commit,prNumber:observation.prNumber,prUrl:observation.prUrl,jobs:observation.jobs,failures:observation.failures,failed:observation.failed,observedAt:now()};
@@ -509,10 +510,10 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
       return observation.failed&&(!previous?.failed||previous.commit!==observation.commit)?changed(r,'browser_verification_failed','GitHub CI',note):publicRequest(r);
     });},
     criterionCiWaiting(id,expectedRevision,failed=false){const r=get(id);if(resultRevision(r)!==expectedRevision)return;r.criterionCiNextAt=new Date(Date.now()+60000).toISOString();r.criterionCiStatus=failed?'Chưa đối chiếu được ca test GitHub CI: '+(typeof failed==='string'?failed:'Giữ nguyên kết quả cũ.')+' Hệ thống sẽ kiểm tra lại, không gọi AI.':r.verification?.phase==='passed'?'CI đã đạt; đang đối chiếu test desktop/mobile với từng tiêu chí.':'Đang chờ PR và CI đúng commit để bổ sung bằng chứng từng tiêu chí.';save(r);},
-    reconcileCriterionCi(id,expectedRevision,proof){return transaction(db,()=>{const r=get(id);deliveryAuthority(r);if(!['failed','verifying','review'].includes(r.status)||r.lease||r.verification?.lease||resultRevision(r)!==expectedRevision||!localChecksPassed(r))fail('Kết quả đã đổi hoặc worker còn chạy.');
+    reconcileCriterionCi(id,expectedRevision,proof){return transaction(db,()=>{const r=get(id);deliveryAuthority(r);if(!['failed','verifying','review'].includes(r.status)||r.lease||r.ciRepair?.lease||r.verification?.lease||resultRevision(r)!==expectedRevision||!localChecksPassed(r))fail('Kết quả đã đổi hoặc worker còn chạy.');
       if(proof.source!=='github-actions'||proof.branch!==r.result.localArtifact.branch||!proof.changedPaths.every(p=>r.draft.allowedPaths.includes(p)))fail('Bằng chứng CI không khớp scope.');
       const old=r.result;r.resultHistory=[...(r.resultHistory||[]),{...old,planTraceability:r.draft.traceability,verification:r.verification,at:now()}].slice(-3);
-      r.result={...old,commit:proof.commit,changedPaths:proof.changedPaths,summary:'Đã bổ sung và xác minh test hành vi trên GitHub CI desktop/mobile. Xem bằng chứng từng tiêu chí.',checks:[...old.checks.filter(c=>!r.draft.traceability.some(t=>t.verification.command===c.command)),...proof.criteria.map(c=>({command:c.command,passed:true,output:'GitHub CI độc lập: '+proof.evidenceUrl}))],criterionEvidence:proof.criteria.map(c=>({criterionIndex:c.criterionIndex,outcome:'passed',method:'test',command:c.command,files:c.files,detail:'GitHub CI đã chạy thành công desktop/mobile: '+c.names.join('; ').slice(0,1700)}))};
+      r.result={...old,...(r.ciRepair?.commit===proof.commit&&r.ciRepair.documentationReview?{documentationReview:r.ciRepair.documentationReview}:{}),commit:proof.commit,changedPaths:proof.changedPaths,summary:'Đã bổ sung và xác minh test hành vi trên GitHub CI desktop/mobile. Xem bằng chứng từng tiêu chí.',checks:[...old.checks.filter(c=>!r.draft.traceability.some(t=>t.verification.command===c.command)),...proof.criteria.filter(c=>c.method!=='inspection').map(c=>({command:c.command,passed:true,output:'GitHub CI độc lập: '+proof.evidenceUrl}))],criterionEvidence:proof.criteria.map(c=>({criterionIndex:c.criterionIndex,outcome:'passed',method:c.method||'test',command:c.command,files:c.files,detail:c.method==='inspection'?c.detail:'GitHub CI đã chạy thành công desktop/mobile: '+c.names.join('; ').slice(0,1700)}))};
       r.criterionCi={...proof,at:now()};delete r.ciObservation;delete r.criterionCiStatus;delete r.criterionCiNextAt;if(!contractSatisfied(r))fail('Bằng chứng CI chưa đủ hợp đồng tiêu chí/tài liệu.');
       r.verification={...newVerification(r,'GitHub CI'),phase:'passed',source:'github-actions',prNumber:proof.prNumber,prUrl:proof.prUrl,evidenceUrl:proof.evidenceUrl,at:now(),note:'Đã xác minh CI và từng tiêu chí trên desktop/mobile. Đang xác minh quyền tự phát hành.'};r.status='review';r.delivery={...r.delivery,phase:'authorized',attempts:0,nextAttemptAt:null};return changed(r,'criterion_ci_verified','AI Agent Lab','Đã xác minh từng nhóm test đã duyệt trên desktop/mobile, giữ lịch sử kết quả cũ.');});},
     deliveryCandidates: () => list().filter(r=>r.status==="review"&&r.delivery?.approvalHash&&!["failed","released"].includes(r.delivery.phase)&&(!r.delivery.nextAttemptAt||Date.parse(r.delivery.nextAttemptAt)<=Date.now())).map(publicRequest),
@@ -573,11 +574,13 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
         return publicRequest(r);
       });
     },
+    recoverPublication(id){return transaction(db,()=>{const r=get(id),rel=r.release;if(r.status!=='completed'||rel?.phase!=='failed'||rel.lease||(rel.recoveryAttempts||0)>=3||!r.delivery?.approvalHash)return false;deliveryAuthority(r);if(!/GitHub API thất bại|Hết thời gian chờ CI|Chưa có xác nhận Railway|timeout|kết nối/i.test(rel.note||''))return false;if((rel.recoveryNextAt||0)>Date.now())return false;const attempts=(rel.recoveryAttempts||0)+1;queueRelease(r,rel.authorizedBy,{confirmHighRisk:r.delivery.highRiskConfirmed});r.release.recoveryAttempts=attempts;r.release.recoveryNextAt=Date.now()+60000*2**attempts;changed(r,'release_recovery_queued','Recovery','Theo dõi lại PR/deploy theo quyền đã duyệt; không tạo bản sửa mới.');return true;});},
     releaseLibrarySync(id, succeeded) {
       return transaction(db, () => {
         const r = get(id); if (r.release?.phase !== "deployed") fail("Chưa xác nhận deploy.");
         r.release.librarySync = succeeded ? "synced" : "failed";
-        if (!succeeded) r.release.note += " Chưa đồng bộ library mới; admin cần Đồng bộ tài liệu trước feedback tiếp theo.";
+        r.release.syncAttempts=(r.release.syncAttempts||0)+1;r.release.syncNextAt=succeeded?null:Date.now()+Math.min(1800000,30000*2**Math.min(r.release.syncAttempts,6));
+        if (!succeeded) r.release.note = "Deploy thành công. Đồng bộ MD chưa đạt; hệ thống sẽ thử lại, không merge/deploy lại.";
         if(succeeded){save(r);service.memory.list(r.projectId);}
         return changed(r, succeeded ? "release_library_synced" : "release_library_sync_failed", "publisher", succeeded ? "Library cho feedback mới đã cập nhật theo main; packet cũ giữ nguyên." : "Deploy thành công nhưng chưa làm mới library. Kiểm tra quyền GitHub và đồng bộ lại.");
       });
@@ -585,11 +588,11 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
     rebase(id, actor) {
       return transaction(db, () => {
         const r = get(id);
-        if (["claimed", "running", "completed", "review", "verifying", "rechecking"].includes(r.status)||service.localPlanning?.get(r.id)?.lease||r.recheck?.lease||r.verification?.lease||r.release?.lease) fail("Không thể cập nhật base của request đang chạy/đã có kết quả.");
+        if (["claimed", "running", "completed", "review", "verifying", "rechecking"].includes(r.status)||service.localPlanning?.get(r.id)?.lease||r.ciRepair?.lease||r.recheck?.lease||r.verification?.lease||r.release?.lease) fail("Không thể cập nhật base của request đang chạy/đã có kết quả.");
         if(r.status==='rejected')queueTicket(r,true);if(serialized){r.queueProtocol='project-fifo-v1';db.prepare('UPDATE project_queue_order SET historical_deployed=0 WHERE request_id=?').run(r.id);}
         cancelPreparation(r);
         if(r.result)r.resultHistory=[...(r.resultHistory||[]),{...r.result,criterionCi:r.criterionCi,criterionCiStatus:r.criterionCiStatus,riskAssessment:r.riskAssessment,planTraceability:r.draft?.traceability,plannedDocumentationReview:r.draft?.documentationReview,libraryVersionId:r.libraryVersionId,baseCommit:r.baseCommit,at:now()}];
-        delete r.verification;delete r.release;delete r.acceptance;delete r.recheck;delete r.riskAssessment;delete r.criterionCi;delete r.ciObservation;delete r.criterionCiStatus;delete r.criterionCiNextAt;
+        delete r.ciRepair;delete r.verification;delete r.release;delete r.acceptance;delete r.recheck;delete r.riskAssessment;delete r.criterionCi;delete r.ciObservation;delete r.criterionCiStatus;delete r.criterionCiNextAt;
         if(r.delivery){const p=projects.get(r.projectId);if(p.autoCompleteAfterApproval)r.delivery={mode:"single-approval-v1",phase:"pending-approval",environment:p.releaseEnvironment,configurationRevision:p.configurationRevision};else delete r.delivery;}
         const lib = currentLibrary(r.projectId); r.baseCommit = lib.sourceCommit; r.libraryVersionId = lib.id;
         r.status = "feedback"; r.draft = null; r.approval = null; r.ai = null; r.result = null;

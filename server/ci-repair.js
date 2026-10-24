@@ -1,0 +1,22 @@
+import {documentationReviewSchema,criterionEvidenceSchema} from './contracts.js';
+import {documentationReviewJson,evidenceJson} from './contract-json.js';
+import crypto from 'node:crypto';
+import {transaction} from './db.js';
+import {fail} from './schemas.js';
+const hash=s=>crypto.createHash('sha256').update(s).digest('hex');
+export function createCiRepair(db,service){
+ const read=id=>service.rawForAnalysis(id),save=r=>db.prepare('UPDATE requests SET data=? WHERE id=?').run(JSON.stringify(r),r.id);
+ const pub=r=>{const c=r.ciRepair;if(!c)return null;const {lease,...rest}=c;return {...rest,lease:lease?{expiresAt:lease.expiresAt}:null};};
+ const authority=r=>{service.assertProjectTurn(r.id);service.assertRepairAuthority(r.id);if(!service.project(r.projectId).ciRepairEnabled||r.draft.risk==='high'||r.release||!r.ciObservation?.failed||r.lease||r.verification?.lease)fail('Request chưa đủ quyền sửa CI.');};
+ const event=(r,type,note)=>{r.updatedAt=new Date().toISOString();save(r);db.prepare('INSERT INTO events(request_id,data) VALUES (?,?)').run(r.id,JSON.stringify({type,actor:'CI recovery',detail:note,at:r.updatedAt}));};
+ const verify=(id,token)=>{const r=read(id);authority(r);if(typeof token!=='string'||!r.ciRepair?.lease||r.ciRepair.lease.hash!==hash(token)||Date.parse(r.ciRepair.lease.expiresAt)<=Date.now())fail('Claim sửa CI không hợp lệ.');return r;};
+ return {
+  get:id=>pub(read(id)),
+  enqueue(id){return transaction(db,()=>{const r=read(id);try{authority(r);}catch{return null;}const old=r.ciRepair,o=r.ciObservation;if(old?.lease||old?.head===o.commit||(old?.attempts||0)>=2)return pub(r);r.ciRepair={phase:'queued',head:o.commit,prNumber:o.prNumber,prUrl:o.prUrl,attempts:old?.attempts||0,history:[...(old?.history||[]),...(old?[{head:old.head,phase:old.phase,note:old.note}]:[])].slice(-2),queuedAt:new Date().toISOString()};event(r,'ci_repair_queued','Đã xếp lịch sửa CI trong scope đã duyệt; tối đa hai lượt.');return pub(r);});},
+  queue(){return service.list().filter(r=>r.ciRepair?.phase==='queued'&&!r.ciRepair?.lease).filter(r=>{try{authority(read(r.id));return true;}catch{return false;}}).map(r=>({id:r.id,projectId:r.projectId,repository:r.repository}));},
+  claim(id){return transaction(db,()=>{const r=read(id);authority(r);const c=r.ciRepair;if(c?.phase!=='queued'||c.lease||c.attempts>=2||c.head!==r.ciObservation.commit)fail('Không có lượt sửa CI sẵn sàng.');const token=crypto.randomBytes(32).toString('hex');c.attempts++;c.phase='running';c.lease={hash:hash(token),expiresAt:new Date(Date.now()+15*60000).toISOString()};event(r,'ci_repair_started','Codex đang sửa lỗi CI trong worktree riêng.');return {packet:{...service.packet(id),repairSchema:{documentationReview:documentationReviewJson,criterionEvidence:evidenceJson}},repair:pub(r),repairToken:token};});},
+  heartbeat(id,token){return transaction(db,()=>{const r=verify(id,token);r.ciRepair.lease.expiresAt=new Date(Date.now()+15*60000).toISOString();save(r);return {ok:true};});},
+  report(id,token,update){return transaction(db,()=>{const r=verify(id,token),c=r.ciRepair;if(!['pushed','failed'].includes(update.phase)||typeof update.note!=='string'||update.note.length>1500||update.phase==='pushed'&&!/^[a-f0-9]{40}$/.test(update.commit||''))fail('Sai báo cáo sửa CI.');if(update.phase==='pushed'){c.documentationReview=documentationReviewSchema.parse(update.documentationReview);c.criterionEvidence=criterionEvidenceSchema.parse(update.criterionEvidence);if(c.documentationReview.documents.some(p=>!service.library(r.libraryVersionId).documents.some(d=>d.path===p)))fail('Sai tài liệu sửa CI.');}Object.assign(c,{phase:update.phase,note:update.note,commit:update.commit||null,lease:null,finishedAt:new Date().toISOString()});r.criterionCiNextAt=null;event(r,'ci_repair_'+update.phase,update.note);return pub(r);});},
+  release(id,stopped){return transaction(db,()=>{const r=read(id),c=r.ciRepair;if(!c?.lease||Date.parse(c.lease.expiresAt)>Date.now()||stopped!==true)fail('Xác nhận worker sửa CI cũ đã dừng sau hết hạn.');c.lease=null;c.phase='failed';event(r,'ci_repair_failed','Đã xác nhận worker cũ dừng; không tự lặp model.');return pub(r);});}
+ };
+}
