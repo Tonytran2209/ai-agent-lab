@@ -1,3 +1,4 @@
+import {isTestFollowupPath} from './criterion-ci.js';
 import {executionReadiness} from './execution-readiness.js';
 import {projectQueueState} from './project-queue.js';
 import {normalizeImages,createFeedbackImages} from './feedback-images.js';
@@ -528,8 +529,11 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
     reconcileCriterionCi(id,expectedRevision,proof){return transaction(db,()=>{const r=get(id);deliveryAuthority(r);if(!['failed','verifying','review'].includes(r.status)||r.lease||r.ciRepair?.lease||r.verification?.lease||resultRevision(r)!==expectedRevision||!localChecksPassed(r))fail('Kết quả đã đổi hoặc worker còn chạy.');
       if(proof.source!=='github-actions'||proof.branch!==r.result.localArtifact.branch||!proof.changedPaths.every(p=>r.draft.allowedPaths.includes(p)))fail('Bằng chứng CI không khớp scope.');
       if(r.workflowProtocol==='direct-v1'){
-        if(proof.commit!==r.result.commit&&r.ciRepair?.commit!==proof.commit)fail('Commit CI khác kết quả; cần báo cáo bản sửa tương ứng.');
-        if(proof.commit!==r.result.commit){r.resultHistory=[...(r.resultHistory||[]),r.result].slice(-3);r.result={...r.result,commit:proof.commit,changedPaths:proof.changedPaths,checks:r.ciRepair.checks,documentationReview:r.ciRepair.documentationReview};}
+        const wholeCi=proof.wholeCi?.commit===proof.commit&&['writer-check','browser-check'].every(name=>proof.wholeCi.jobs?.some(j=>j.name===name&&j.status==='completed'&&j.conclusion==='success'));
+        const reviewed=r.ciRepair?.phase==='pushed'?r.ciRepair.commit:r.result.commit;
+        const followup=wholeCi&&proof.verifiedTestFollowup?.reviewedCommit===reviewed&&proof.verifiedTestFollowup.changedPaths?.length&&proof.verifiedTestFollowup.changedPaths.every(p=>isTestFollowupPath(p)&&r.draft.allowedPaths.includes(p)&&proof.changedPaths.includes(p));
+        if(proof.commit!==r.result.commit&&r.ciRepair?.commit!==proof.commit&&!followup)fail('Commit CI khác kết quả; cần báo cáo bản sửa tương ứng.');
+        if(proof.commit!==r.result.commit){r.resultHistory=[...(r.resultHistory||[]),r.result].slice(-3);r.result={...r.result,commit:proof.commit,changedPaths:proof.changedPaths,summary:'Bản sửa “'+r.title+'” đã qua kiểm tra code và browser CI trên đúng commit. Chi tiết thay đổi nằm trong PR và Nhật ký.',checks:wholeCi?[{command:'npm run check',passed:true,output:'GitHub Actions writer-check độc lập trên commit '+proof.commit}]:r.ciRepair.checks,documentationReview:r.ciRepair?.documentationReview||r.result.documentationReview};}
         delete r.criterionCiStatus;delete r.criterionCiNextAt;delete r.ciObservation;
         r.verification={...newVerification(r,'GitHub CI'),phase:'passed',source:'github-actions',prNumber:proof.prNumber,prUrl:proof.prUrl,evidenceUrl:proof.evidenceUrl,at:now(),note:'CI đúng commit đã đạt; tự tiếp tục phát hành.'};r.status='review';save(r);return changed(r,'browser_verification_passed','GitHub CI',r.verification.note);
       }

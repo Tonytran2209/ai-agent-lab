@@ -45,7 +45,17 @@ export async function collectCriterionCi(r,token,fetcher=fetch){
  await verifyArtifactLineage(api,r.baseCommit,commit,r.result.commit);
  const checks=await api('commits/'+commit+'/check-runs?per_page=100'),evidence=assessCi(checks,await api('commits/'+commit+'/status'),commit);
  if(!evidence.ready)return {pending:true,commit,prNumber:pr.number,prUrl:pr.html_url,failed:evidence.failed||evidence.failures.length>0,jobs:evidence.jobs,failures:evidence.failures};
- if(r.workflowProtocol==='direct-v1')return {commit,branch,changedPaths:files.map(f=>f.filename),prNumber:pr.number,prUrl:pr.html_url,evidenceUrl:evidence.evidenceUrl,criteria:[],source:'github-actions'};
+ if(r.workflowProtocol==='direct-v1'){
+  const reviewed=r.ciRepair?.phase==='pushed'?r.ciRepair.commit:r.result.commit;
+  let verifiedTestFollowup=null;
+  if(reviewed&&commit!==reviewed){
+   await verifyArtifactLineage(api,r.baseCommit,commit,reviewed);
+   const delta=await api('compare/'+reviewed+'...'+commit);
+   if(delta.status!=='ahead'||delta.base_commit?.sha!==reviewed||!delta.files?.length||delta.files.length>20||delta.files.some(f=>!isTestFollowupPath(f.filename)||f.previous_filename&&!isTestFollowupPath(f.previous_filename)))throw Error('Commit mới cần đánh giá tài liệu/phạm vi lại; không chỉ sửa test.');
+   verifiedTestFollowup={reviewedCommit:reviewed,changedPaths:delta.files.map(f=>f.filename)};
+  }
+  return {commit,branch,changedPaths:files.map(f=>f.filename),prNumber:pr.number,prUrl:pr.html_url,evidenceUrl:evidence.evidenceUrl,criteria:[],source:'github-actions',wholeCi:{commit,jobs:evidence.jobs},verifiedTestFollowup};
+ }
  const url=evidence.evidenceUrl,match=new RegExp('^https://github.com/'+r.repository+'/actions/runs/[0-9]+/job/([0-9]+)$').exec(url||'');if(!match)throw Error('Thiếu job browser độc lập.');
  const job=await api('actions/jobs/'+match[1]);if(job.head_sha!==commit||job.name!=='browser-check'||job.conclusion!=='success'||job.status!=='completed')throw Error('Job browser sai commit hoặc chưa đạt.');
  const criteria=criterionLogEvidence(rows.filter(t=>t.verification.method==='test'&&browserCriterion(t.verification.command)),await api('actions/jobs/'+match[1]+'/logs',true),commit);
@@ -63,3 +73,5 @@ export function reportedCriterionEvidence(r,rows,commit){
   return {criterionIndex:row.criterionIndex,method:e.method,command:e.command,files:e.files,names:[],detail:e.detail,source:'agent-reported'};
  });
 }
+
+export const isTestFollowupPath=p=>/^(?:tests\/(?:agent-lab|browser)\/|backend\/tests\/)[A-Za-z0-9_./-]+\.(?:test|spec)\.[cm]?[jt]sx?$/.test(p)&&!p.split('/').includes('..');
