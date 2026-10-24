@@ -82,8 +82,18 @@ test('contextual Luna classification remains provisional; source-grounded Codex 
  const r=f.s.create({feedback:'Adjust display preview layout while preserving saved content.'},'Member');f.agent.enqueue(r.id,'Member');await f.agent.tick();
  const pending=f.s.get(r.id);assert.equal(pending.classification.risk,'high');assert.notEqual(pending.riskFloor,'high');assert.equal(received.context.commit,r.baseCommit);assert.ok(received.context.documents.length);assert.ok(JSON.stringify(received.context).length<11000);
  const j=f.s.localPlanning.get(r.id),c=f.s.localPlanning.claim(r.id,j.id,r.baseCommit,20,'md-trace-v1','impact-v1','planning-replay-v1');const report=plan();report.evidence[0].contentHash='a'.repeat(64);
- const done=f.s.localPlanning.complete(r.id,j.id,c.planningToken,report);assert.equal(done.draft.risk,'low');assert.equal(done.riskAssessment.disagrees,true);assert.equal(done.riskAssessment.preliminaryRisk,'high');assert.equal(done.riskAssessment.assessor,'codex-local');assert.ok(done.riskAssessment.evidencePaths.includes(file));assert.equal(done.status,'approved');
+ const done=f.s.localPlanning.complete(r.id,j.id,c.planningToken,report);assert.equal(done.draft.risk,'low');assert.equal(done.riskAssessment.disagrees,true);assert.equal(done.riskAssessment.preliminaryRisk,'high');assert.equal(done.riskAssessment.codexRisk,'low');assert.equal(done.riskAssessment.policyAdjusted,false);assert.equal(done.riskAssessment.assessor,'codex-local');assert.ok(done.riskAssessment.evidencePaths.includes(file));assert.equal(done.status,'approved');
  f.s.updateProject(r.projectId,{classifierContextEnabled:false});const another=f.s.create({feedback:'Adjust another display preview layout.'},'Member');f.agent.enqueue(another.id,'Member');await f.agent.tick();assert.deepEqual(received.context.documents,[]);assert.equal(f.agent.usage(r.projectId).calls,2);
+ }finally{f.close();}
+});
+test('policy floors preserve original Codex risk independently of Luna and final authority',async()=>{
+ const f=fixture(async({input})=>({...decision(input),action:'survey',risk:'medium',paths:[],references:[]}));
+ try{f.db.prepare("UPDATE settings SET value=? WHERE key='orchestrator-v1'").run(JSON.stringify({...settings,strategy:'classify'}));
+ const r=f.s.create({feedback:'Thêm ngày giờ tạo bài trên card task của mỗi gate.'},'Member');f.agent.enqueue(r.id,'Member');await f.agent.tick();
+ const j=f.s.localPlanning.get(r.id),c=f.s.localPlanning.claim(r.id,j.id,r.baseCommit,20,'md-trace-v1','impact-v1','planning-replay-v1'),report=plan();
+ report.evidence[0].contentHash='a'.repeat(64);
+ const done=f.s.localPlanning.complete(r.id,j.id,c.planningToken,report);
+ assert.equal(done.riskAssessment.preliminaryRisk,'medium');assert.equal(done.riskAssessment.codexRisk,'low');assert.equal(done.riskAssessment.finalRisk,'medium');assert.equal(done.riskAssessment.policyAdjusted,true);assert.equal(done.riskAssessment.disagrees,true);assert.ok(done.riskAssessment.policyReasons.some(s=>s.includes('nội dung feedback')));
  }finally{f.close();}
 });
 

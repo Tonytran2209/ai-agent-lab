@@ -251,6 +251,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
       return transaction(db, () => {
         const r = get(id); mutable(r);
         if (hash(JSON.stringify(publicRequest(r))) !== expectedHash) fail("Request đã thay đổi trong lúc chuẩn bị.");
+        const previousRiskFloor=r.riskFloor;
         let d = withRiskFloor(r,validateDraft(r.draft, library(r.libraryVersionId),Boolean(r.contractProtocol)));
         r.unresolvedCheckpoints=[...d.questions];
         // Unresolved model questions become visible review checkpoints, never fabricated answers.
@@ -260,7 +261,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
         if (r.riskFloor === "high" || r.riskFloor === "medium" && d.risk === "low") d = { ...d, risk: r.riskFloor };
         r.riskFloor = d.risk;
         r.draft = d; r.policyVersion = "risk-v2";
-        r.riskAssessment={protocol:'verified-triage-v1',assessor:r.ai?.source||'admin',preliminaryRisk:r.classification?.risk||null,finalRisk:d.risk,disagrees:Boolean(r.classification&&r.classification.risk!==d.risk),reason:(d.impact?.summary||d.problem).slice(0,1200),evidencePaths:(r.ai?.evidence||[]).map(e=>e.path),baseCommit:r.baseCommit,rubricVersion:'risk-brief-v1',at:now()};
+        r.riskAssessment={protocol:'verified-triage-v1',assessor:r.ai?.source||'admin',preliminaryRisk:r.classification?.risk||null,codexRisk:r.ai?.codexRisk||null,finalRisk:d.risk,policyAdjusted:Boolean(r.ai?.codexRisk&&r.ai.codexRisk!==d.risk),policyReasons:[...new Set([...d.riskReasons,...(r.ai?.intentRisk&&r.ai.intentRisk!==r.ai.codexRisk?['Mức tối thiểu theo nội dung feedback: '+r.ai.intentRisk]:[]),...(previousRiskFloor&&previousRiskFloor!==r.ai?.codexRisk?['Mức tối thiểu đã ghim: '+previousRiskFloor]:[])])],disagrees:Boolean(r.classification&&r.ai?.codexRisk&&r.classification.risk!==r.ai.codexRisk),reason:(d.impact?.summary||d.problem).slice(0,1200),evidencePaths:(r.ai?.evidence||[]).map(e=>e.path),baseCommit:r.baseCommit,rubricVersion:'risk-brief-v1',at:now()};
         r.automation=decideAutomation(r,projects.get(r.projectId));
         r.review = { required: r.automation.mode === "automatic" ? "none" : d.risk !== "high" ? "check" : "approve-high" };
         if (r.automation.mode === "automatic") {
@@ -547,8 +548,8 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
         const r = get(id);
         if (["claimed", "running", "completed", "review", "verifying", "rechecking"].includes(r.status)||r.recheck?.lease||r.verification?.lease||r.release?.lease) fail("Không thể cập nhật base của request đang chạy/đã có kết quả.");
         cancelPreparation(r);
-        if(r.result)r.resultHistory=[...(r.resultHistory||[]),{...r.result,planTraceability:r.draft?.traceability,plannedDocumentationReview:r.draft?.documentationReview,libraryVersionId:r.libraryVersionId,baseCommit:r.baseCommit,at:now()}];
-        delete r.verification;delete r.release;delete r.acceptance;delete r.recheck;
+        if(r.result)r.resultHistory=[...(r.resultHistory||[]),{...r.result,riskAssessment:r.riskAssessment,planTraceability:r.draft?.traceability,plannedDocumentationReview:r.draft?.documentationReview,libraryVersionId:r.libraryVersionId,baseCommit:r.baseCommit,at:now()}];
+        delete r.verification;delete r.release;delete r.acceptance;delete r.recheck;delete r.riskAssessment;
         if(r.delivery){const p=projects.get(r.projectId);if(p.autoCompleteAfterApproval)r.delivery={mode:"single-approval-v1",phase:"pending-approval",environment:p.releaseEnvironment,configurationRevision:p.configurationRevision};else delete r.delivery;}
         const lib = currentLibrary(r.projectId); r.baseCommit = lib.sourceCommit; r.libraryVersionId = lib.id;
         r.status = "feedback"; r.draft = null; r.approval = null; r.ai = null; r.result = null;

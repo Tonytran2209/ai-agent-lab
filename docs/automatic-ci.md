@@ -44,3 +44,9 @@ For GitHub CLI OAuth, grant workflow permission once with `gh auth refresh -h gi
 Railway's GITHUB_TOKEN needs read access to the connected repos for independent evidence/library verification; Mac `gh` needs permission to push CI branches/create PRs, and to merge only if the admin opted in. Public GitHub rate limits can temporarily stop verification; the job retains its artifact for retry. Unchanged library commits reuse the immutable snapshot after a cheap HEAD check to reduce API calls. Merge failures/branch changes never force-push or rewrite user work.
 
 A CI-config merge may trigger the repository's existing Railway auto-deploy. This workflow does not create/change Railway services, apply production migrations or grant acceptance to any application change.
+
+## Criterion command contract
+
+Browser plans must identify an approved spec and literal `--grep` tag for each criterion. Supported launchers are `node node_modules/@playwright/test/cli.js`, `npx playwright`, and `npx --no-install playwright`, followed by `test tests/agent-lab/NAME.spec.mjs [--config=playwright.agent-lab.config.mjs] --grep SIMPLE_TAG` (or the pinned `tests/browser` convention). Full-suite commands, shell syntax and arbitrary regex are rejected at planning validation. Reports preserve the exact planned command and verification files. Exact-head successful CI must contain passing records for every tag on desktop and mobile; generic green CI never replaces this evidence.
+
+Risk attribution stores Luna's preliminary label, the original Codex survey label, and the policy-enforced final label separately. A policy floor is not described as Codex disagreeing with Luna. Legacy records without the original Codex label are labelled unknown and excluded from Luna/Codex disagreement counts.

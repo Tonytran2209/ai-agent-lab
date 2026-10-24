@@ -14,3 +14,11 @@ test('quoted grep alternatives require every tag on both viewports and reject sh
  for(const value of ["'qc-schema|.*'",'qc-schema|qc-preserved',"'qc-schema;whoami'",'"qc-schema|$(id)"',"'qc-schema||qc-preserved'"])
   assert.equal(browserCriterion(command.replace('qc-schema',value)),null);
 });
+
+test('tagged npx and pinned config commands reconcile without allowing full-suite or shell options',()=>{
+ for(const prefix of ['node node_modules/@playwright/test/cli.js','npx playwright','npx --no-install playwright'])for(const config of ['', ' --config=playwright.agent-lab.config.mjs',' --config playwright.config.ts']){
+  const c=prefix+' test tests/agent-lab/draft.spec.mjs'+config+' --grep created-origin';
+  assert.equal(browserCriterion(c).grep,'created-origin');
+ }
+ for(const c of ['npx playwright test --config=playwright.agent-lab.config.mjs tests/agent-lab/draft.spec.mjs','npx playwright test tests/agent-lab/draft.spec.mjs --grep created --list','npx playwright test tests/agent-lab/draft.spec.mjs --config=../../evil.mjs --grep created'])assert.equal(browserCriterion(c),null);
+});
