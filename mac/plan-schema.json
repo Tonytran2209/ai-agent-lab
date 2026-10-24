@@ -148,7 +148,8 @@
             "documents": {
               "type": "array",
               "items": {
-                "type": "string"
+                "type": "string",
+                "pattern": "^\\.agent-hub/[A-Za-z0-9_./-]+\\.md$"
               }
             },
             "reason": {

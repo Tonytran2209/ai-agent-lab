@@ -3,9 +3,12 @@ import {assessCi} from './ci-evidence.js';
 export function browserCriterion(command){
  const m=/^(?:node node_modules\/@playwright\/test\/cli\.js|npx (?:--no-install )?playwright) test (.+)$/.exec(command);
  if(!m)return null;
- const tail=m[1],fileMatch=/^(tests\/(?:browser|agent-lab)\/[A-Za-z0-9_./-]+\.spec\.[cm]?[jt]sx?)(?: --config[= ](playwright(?:\.[A-Za-z0-9_-]+)?\.config\.[cm]?[jt]s))? --grep (?:([A-Za-z0-9_-]+)|'([A-Za-z0-9_-]+(?:\|[A-Za-z0-9_-]+)*)'|"([A-Za-z0-9_-]+(?:\|[A-Za-z0-9_-]+)*)")$/.exec(tail);
+ const config=/(^| )--config(?:=| )(playwright(?:\.[A-Za-z0-9_-]+)?\.config\.[cm]?[jt]s)(?= |$)/g;
+ if([...m[1].matchAll(config)].length>1)return null;
+ const tail=m[1].replace(config,(_,space)=>space).trim().replace(/ {2,}/g,' ');
+ const fileMatch=/^(tests\/(?:browser|agent-lab)\/[A-Za-z0-9_./-]+\.spec\.[cm]?[jt]sx?) --grep (?:([A-Za-z0-9_-]+)|'([A-Za-z0-9_-]+(?:\|[A-Za-z0-9_-]+)*)'|"([A-Za-z0-9_-]+(?:\|[A-Za-z0-9_-]+)*)")$/.exec(tail);
  if(!fileMatch||fileMatch[1].split('/').includes('..'))return null;
- const grep=fileMatch[3]||fileMatch[4]||fileMatch[5],tags=[...new Set(grep.split('|'))];
+ const grep=fileMatch[2]||fileMatch[3]||fileMatch[4],tags=[...new Set(grep.split('|'))];
  return tags.length<=8?{file:fileMatch[1],grep,tags}:null;
 }
 export function criterionLogEvidence(rows,logs){
