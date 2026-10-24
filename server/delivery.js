@@ -1,3 +1,4 @@
+import {verifyArtifactLineage} from './commit-lineage.js';
 import {collectCriterionCi} from './criterion-ci.js';
 import {assessCi} from './ci-evidence.js';
 // Independent server reconciliation. No model calls or coding/publishing credentials.
@@ -12,8 +13,7 @@ export async function validateDelivery(r, token, fetcher=fetch) {
   if(pr.state!=='open'||pr.merged||pr.head?.sha!==commit||pr.head?.ref!==r.result.localArtifact.branch||!new RegExp('^lab/'+r.id+'-[0-9]+$').test(pr.head.ref)||pr.head?.repo?.full_name!==r.repository||pr.base?.repo?.full_name!==r.repository||pr.base?.ref!==r.branch)reject('PR không khớp repository, branch hoặc commit đã duyệt.');
   const files=await api(`pulls/${pr.number}/files?per_page=100`),reported=new Set(r.result.changedPaths);
   if(!files.length||files.length!==pr.changed_files||files.length!==reported.size||files.some(f=>!reported.has(f.filename)||!r.draft.allowedPaths.includes(f.filename)||f.previous_filename&&!r.draft.allowedPaths.includes(f.previous_filename)))reject('Diff PR vượt phạm vi đã duyệt hoặc khác kết quả báo cáo.');
-  const head=await api('commits/'+commit);
-  if(head.parents?.length!==1||head.parents[0].sha!==r.baseCommit)reject('Commit không xuất phát từ base đã duyệt.');
+  await verifyArtifactLineage(api,r.baseCommit,commit);
   const evidence=assessCi(await api(`commits/${commit}/check-runs?per_page=100`),await api(`commits/${commit}/status`),commit);
   if(!evidence.ready){const e=new Error('CI chưa đạt độc lập trên đúng commit.');e.retryable=!evidence.failed;throw e;}
   return evidence.evidenceUrl;
@@ -22,7 +22,7 @@ export function createDelivery(service,config,{validate=validateDelivery}={}) {
   let timer,active;
   async function reconcile(){
     for(const candidate of service.criterionCiCandidates()){
-      try{const proof=await collectCriterionCi(candidate,config.GITHUB_TOKEN);if(proof)service.reconcileCriterionCi(candidate.id,candidate.resultRevision,proof);else service.criterionCiWaiting(candidate.id,candidate.resultRevision);}catch(e){const message=String(e.message);const safe=/^Chưa đọc được GitHub CI: [0-9]{3}$/.test(message)||['Artifact vượt phạm vi đã duyệt.','PR không khớp project.','Artifact phải là một commit từ base đã duyệt.','Job browser sai commit hoặc chưa đạt.','Thiếu job browser độc lập.','Tiêu chí chưa có command browser được hỗ trợ.','Thiếu tiêu chí để đối chiếu CI.','Quyền tự phát hành không còn khớp kế hoạch/cấu hình. Cần admin kiểm tra.','Bằng chứng CI chưa đủ hợp đồng tiêu chí/tài liệu.'].includes(message)?message:'Lỗi kết nối hoặc không đủ bản ghi test desktop/mobile.';service.criterionCiWaiting(candidate.id,candidate.resultRevision,safe);}
+      try{const proof=await collectCriterionCi(candidate,config.GITHUB_TOKEN);if(proof)service.reconcileCriterionCi(candidate.id,candidate.resultRevision,proof);else service.criterionCiWaiting(candidate.id,candidate.resultRevision);}catch(e){const message=String(e.message);const safe=/^Chưa đọc được GitHub CI: [0-9]{3}$/.test(message)||['Artifact phải có lịch sử tuyến tính từ base đã duyệt.','Artifact phải có lịch sử tuyến tính từ base đã duyệt, giữ commit đã báo cáo.','Artifact vượt phạm vi đã duyệt.','PR không khớp project.','Artifact phải là một commit từ base đã duyệt.','Job browser sai commit hoặc chưa đạt.','Thiếu job browser độc lập.','Tiêu chí chưa có command browser được hỗ trợ.','Thiếu tiêu chí để đối chiếu CI.','Quyền tự phát hành không còn khớp kế hoạch/cấu hình. Cần admin kiểm tra.','Bằng chứng CI chưa đủ hợp đồng tiêu chí/tài liệu.'].includes(message)?message:'Lỗi kết nối hoặc không đủ bản ghi test desktop/mobile.';service.criterionCiWaiting(candidate.id,candidate.resultRevision,safe);}
     }
     for(const candidate of service.deliveryCandidates()){
       try {const r=service.beginDelivery(candidate.id);const evidence=await validate(r,config.GITHUB_TOKEN);service.finishDelivery(r.id,r.resultRevision,evidence);}

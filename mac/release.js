@@ -1,3 +1,4 @@
+import {verifyArtifactLineage} from '../server/commit-lineage.js';
 import {assessCi} from '../server/ci-evidence.js';
 import { matchesProject } from './projects.js';
 import path from 'node:path';
@@ -55,6 +56,7 @@ export async function publishStep({ request: r, config, run, api, signal, purpos
     if (purpose === 'verification' && (pr.merged || pr.state !== 'open')) throw new Error('PR kiểm tra đã bị đóng hoặc merge ngoài luồng.');
     if (pr.merged) return { phase: 'deploying', mergeCommit: pr.merge_commit_sha, note: 'PR đã merge. Đang xác nhận Railway deploy đúng commit.' };
     if (pr.state !== 'open') throw new Error('PR đã đóng mà chưa merge.');
+    await verifyArtifactLineage(suffix=>api(prefix+'/'+suffix),r.baseCommit,r.result.commit);
     const response = await api(prefix + '/commits/' + r.result.commit + '/check-runs?per_page=100');
     const checks = {...response,check_runs:latestChecks(response.check_runs)};
     const statuses = await api(prefix + '/commits/' + r.result.commit + '/status');
@@ -63,7 +65,7 @@ export async function publishStep({ request: r, config, run, api, signal, purpos
     const browser = checks.check_runs.find(c => c.name === 'browser-check' && c.app?.slug === 'github-actions');
     if(config.ciReady===false&&!required&&!browser)throw new Error('Project chưa có writer-check và browser-check. Cần bổ sung CI hoặc admin xác minh trình duyệt thực tế trước nghiệm thu.');
     const evidence=assessCi(response,statuses,r.result.commit);
-    if(evidence.failed || browser?.status==='completed'&&browser.conclusion!=='success' || required?.status==='completed'&&required.conclusion!=='success')throw new Error('CI không đạt. Giữ PR để kiểm tra, không merge.');
+    if(evidence.failed || browser?.status==='completed'&&browser.conclusion!=='success' || required?.status==='completed'&&required.conclusion!=='success')throw new Error('CI không đạt: '+(evidence.failures?.map(f=>f.name+' ('+f.conclusion+')'+(f.url?' '+f.url:'')).join('; ')||'xem check-run trên GitHub')+'. Giữ PR để sửa và kiểm tra lại, không merge.');
     if(!evidence.ready || pr.mergeable===null){
       if(Date.now()-Date.parse(release.phaseStartedAt||release.authorizedAt)>30*60000)throw new Error('Hết thời gian chờ CI. Kiểm tra PR rồi thử phát hành lại.');
       return {phase:'ci',note:'Đang chờ writer-check và browser-check đạt trên đúng commit.'};

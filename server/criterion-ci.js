@@ -1,3 +1,4 @@
+import {verifyArtifactLineage} from './commit-lineage.js';
 import {assessCi} from './ci-evidence.js';
 // Only the supported, explicit browser command shape can be reconciled from CI.
 export function browserCriterion(command){
@@ -33,7 +34,7 @@ export async function collectCriterionCi(r,token,fetcher=fetch){
  if(pr.head?.ref!==branch||pr.head?.repo?.full_name!==r.repository||pr.base?.repo?.full_name!==r.repository||pr.base?.ref!==r.branch)throw Error('PR không khớp project.');
  const files=await api('pulls/'+pr.number+'/files?per_page=100');
  if(!files.length||files.length!==pr.changed_files||files.some(f=>!r.draft.allowedPaths.includes(f.filename)||f.previous_filename&&!r.draft.allowedPaths.includes(f.previous_filename)))throw Error('Artifact vượt phạm vi đã duyệt.');
- const head=await api('commits/'+commit);if(head.parents?.length!==1||head.parents[0].sha!==r.baseCommit)throw Error('Artifact phải là một commit từ base đã duyệt.');
+ await verifyArtifactLineage(api,r.baseCommit,commit,r.result.commit);
  const checks=await api('commits/'+commit+'/check-runs?per_page=100'),evidence=assessCi(checks,await api('commits/'+commit+'/status'),commit);if(!evidence.ready)return null;
  const url=evidence.evidenceUrl,match=new RegExp('^https://github.com/'+r.repository+'/actions/runs/[0-9]+/job/([0-9]+)$').exec(url||'');if(!match)throw Error('Thiếu job browser độc lập.');
  const job=await api('actions/jobs/'+match[1]);if(job.head_sha!==commit||job.name!=='browser-check'||job.conclusion!=='success'||job.status!=='completed')throw Error('Job browser sai commit hoặc chưa đạt.');

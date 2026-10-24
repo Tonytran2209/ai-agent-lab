@@ -138,6 +138,8 @@ export function createApp(config, options = {}) {
     res.json(service.release(req.params.id, req.user.name, note));
   });
   app.post("/api/requests/:id/verification/manual",auth.admin,(req,res)=>res.json(service.supplementVerification(req.params.id,req.body,req.user.name)));
+  app.post('/api/requests/:id/publication/release-claim',auth.admin,(req,res)=>{const {workerStopped}=z.object({workerStopped:z.literal(true)}).strict().parse(req.body);res.json(service.releasePublication(req.params.id,req.user.name,workerStopped));});
+  app.post('/api/requests/:id/verification/release',auth.admin,(req,res)=>{const {workerStopped}=z.object({workerStopped:z.literal(true)}).strict().parse(req.body);res.json(service.releaseVerification(req.params.id,req.user.name,workerStopped));});
   app.post("/api/requests/:id/verification/retry",auth.admin,(req,res)=>res.json(service.queueVerification(req.params.id,req.user.name)));
   app.post("/api/requests/:id/accept", auth.admin, (req, res) => res.json(service.accept(req.params.id, req.user.name, { confirmHighRisk: req.body?.confirmHighRisk === true })));
   app.post("/api/requests/:id/publish", auth.admin, (req, res) => res.json(service.publish(req.params.id, req.user.name, { confirmHighRisk: req.body?.confirmHighRisk === true })));

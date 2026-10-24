@@ -1,3 +1,4 @@
+import {z} from 'zod';
 import {contractSatisfied} from './contracts.js';
 import crypto from 'node:crypto';
 const digest = v => crypto.createHash('sha256').update(JSON.stringify(v)).digest('hex');
@@ -15,3 +16,5 @@ export function checksSatisfied(r) {
 export function newVerification(r,actor) {
   return {phase:'queued',resultRevision:resultRevision(r),actor,queuedAt:new Date().toISOString(),lease:null,note:'Chờ Mac đẩy draft PR để GitHub kiểm tra trình duyệt. Chưa được nghiệm thu, merge hoặc deploy.'};
 }
+
+export const verificationUpdate=z.object({phase:z.enum(['ci','passed','failed']),note:z.string().min(5).max(2000),prNumber:z.number().int().positive().optional(),prUrl:z.string().url().optional(),evidenceUrl:z.string().url().optional()}).strict();

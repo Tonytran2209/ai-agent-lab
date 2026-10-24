@@ -48,6 +48,7 @@ test('publisher creates a PR idempotently and never force pushes or writes main'
 const ciApi=(checks=[check,{...check,name:"browser-check"}],override={})=>async(endpoint,method)=>{
  if(method==='PUT')return {merged:true,sha:merged};
  if(endpoint.includes('/files?'))return [{filename:draft.allowedPaths[0]}];
+ if(endpoint.endsWith('/commits/'+commit))return {sha:commit,parents:[{sha:base}]};
  if(endpoint.includes('/check-runs?'))return {total_count:checks.length,check_runs:checks};
  if(endpoint.endsWith('/status'))return {statuses:[]};
  return {...pr,...override};
@@ -88,3 +89,5 @@ test('publisher ignores checks on another SHA and rejects rename sources outside
  const good=ciApi();const api=async(e,m,b)=>e.includes('/files?')?[{filename:draft.allowedPaths[0],previous_filename:'backend/secrets.ts'}]:good(e,m,b);
  await assert.rejects(()=>publishStep({request:packet('ci'),config,run:gitRun,api}),/phạm vi/);
 });
+
+test('expired publisher cannot be replaced until confirmed stopped; recovery preserves the merged deployment stage',()=>{const dir=mkdtempSync(path.join(os.tmpdir(),'release-expired-')),db=openDatabase(dir),s=createService(db);try{const r=s.create({feedback:'Update the preview layout without data changes.'},'User');s.submit(r.id,draft,'Admin');const c=s.claim(r.id,'Mac',r.baseCommit);s.complete(r.id,c.claimToken,report);s.accept(r.id,'Admin');s.claimRelease(r.id,'publisher');const raw=s.rawForAnalysis(r.id);raw.release.phase='deploying';raw.release.mergeCommit=merged;raw.release.lease.expiresAt=new Date(0).toISOString();db.prepare('UPDATE requests SET data=? WHERE id=?').run(JSON.stringify(raw),r.id);assert.throws(()=>s.claimRelease(r.id,'replacement'));assert.throws(()=>s.releasePublication(r.id,'Admin',false));s.releasePublication(r.id,'Admin',true);const recovered=s.publish(r.id,'Admin');assert.equal(recovered.release.phase,'deploying');assert.equal(recovered.release.mergeCommit,merged);assert.ok(s.claimRelease(r.id,'replacement').releaseToken);}finally{db.close();rmSync(dir,{recursive:true,force:true});}});
