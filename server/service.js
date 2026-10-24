@@ -272,7 +272,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
         r.unresolvedCheckpoints=executionReadiness({draft:d}).blockers;
         // Preserve questions as actionable blockers; approval cannot manufacture missing evidence.
         if(r.unresolvedCheckpoints.length&&d.risk==="low")d={...d,risk:"medium"};
-        if (r.executionBlocked && d.risk === "low") d = { ...d, risk: "medium", riskReasons: [...d.riskReasons, "Lần chạy trước đã dừng; cần kiểm tra kế hoạch mới"] };
+        if (r.executionBlocked && !r.ai?.resolvedExecutionBlock && d.risk === "low") d = { ...d, risk: "medium", riskReasons: [...d.riskReasons, "Lần chạy trước đã dừng; cần kiểm tra kế hoạch mới"] };
         if (r.riskFloor === "high" || r.riskFloor === "medium" && d.risk === "low") d = { ...d, risk: r.riskFloor };
         r.riskFloor = d.risk;
         r.draft = d; r.policyVersion = "risk-v2";
@@ -284,7 +284,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
           authorizeDelivery(r); r.status = "approved";
           return changed(r, "request_auto_approved", "AI Agent Lab", r.automation.reasons.join(" "));
         }
-        r.approval = null; r.status = "awaiting-approval";
+        r.approval = null; r.status = r.unresolvedCheckpoints.length ? "needs-triage" : "awaiting-approval";
         return changed(r, d.risk !== "high" ? "review_required" : "high_risk_approval_required", "AI Agent Lab");
       });
     },

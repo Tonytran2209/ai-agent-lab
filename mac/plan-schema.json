@@ -224,6 +224,13 @@
             },
             "preservesDataAndContracts": {
               "type": "boolean"
+            },
+            "uncertaintyKind": {
+              "type": "string",
+              "enum": [
+                "investigation",
+                "decision"
+              ]
             }
           },
           "required": [
@@ -235,7 +242,8 @@
             "uncertainty",
             "reversible",
             "rollback",
-            "preservesDataAndContracts"
+            "preservesDataAndContracts",
+            "uncertaintyKind"
           ]
         }
       },
