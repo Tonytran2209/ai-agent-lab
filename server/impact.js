@@ -34,7 +34,7 @@ export function decideAutomation(r,p){
   if([...i.evidencePaths,...i.dependencies].some(f=>!evidence.has(f)))reasons.push('Thiếu bằng chứng khảo sát file/phụ thuộc đã khai báo.');
   if(r.ai?.source!=='codex-local'&&!(r.ai?.source==='lab-agent'&&r.ai.sourceVerified===true&&r.ai.observedBaseCommit===r.baseCommit))reasons.push('Cần khảo sát code chỉ đọc trên đúng commit.');
  }
- const plans=r.draft?.traceability||[];
+ const plans=r.workflowProtocol==='direct-v1'?(r.draft?.verificationPlan||[]).map(verification=>({verification})):r.draft?.traceability||[];
  if(!plans.length||!plans.some(t=>hasBehavioralTest(t))||plans.some(t=>t.verification.method!=='inspection'&&!hasBehavioralTest(t)))reasons.push('Medium tự chạy cần ít nhất một test hành vi; tiêu chí còn lại cần test hoặc kiểm tra cụ thể.');
  return {mode:reasons.length?'review':'automatic',reasons:reasons.length?reasons:['Đủ đánh giá tác động, test hành vi, CI và quyền phát hành; vẫn kiểm tra độc lập trước merge.'],policy:'impact-v1'};
 }

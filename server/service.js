@@ -22,6 +22,8 @@ const now = () => new Date().toISOString();
 export function validateDraft(draft, library, requireTraceability=false) {
   const parsed = draftSchema.parse(draft);
   parsed.allowedPaths = [...new Set(parsed.allowedPaths)];
+  if(parsed.verificationPlan?.some(v=>v.files.some(p=>!library.sourcePaths.includes(p)&&!parsed.allowedPaths.includes(p))))fail('File kiểm tra cần tồn tại hoặc thuộc phạm vi thực thi.',400);
+  if(parsed.documentationReview?.updatesNeeded&&(!parsed.documentationReview.documents.length||parsed.documentationReview.documents.some(p=>!parsed.allowedPaths.includes(p))))fail('Tài liệu cần cập nhật phải nằm trong allowedPaths.',400);
   const rejected=rejectedScopePaths(parsed,library);
   if(rejected.length)throw Object.assign(new Error('Phạm vi file không thuộc layer đã chọn.'),{status:400,code:'SCOPE_POLICY',details:rejected.map(path=>({path,reason:'outside-layer-or-test-policy'}))});
   // New files are allowed within declared layer boundaries; the reviewer must inspect them.
@@ -162,11 +164,11 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
           const same = list().find(r => r.author === actor && r.libraryVersionId === lib.id && !['completed','rejected'].includes(r.status) && JSON.stringify((r.attachments||[]).map(a=>a.id))===JSON.stringify(attachments.map(a=>a.id)) && ['feedback','screen','reproduction','expected'].every(k => (r[k] || '').trim() === (data[k] || '').trim()));
           if (same) return {...publicRequest(same), duplicate:true};
         }
-        const r = { id: "REQ-" + crypto.randomUUID().slice(0, 8).toUpperCase(), projectId: lib.projectId,
+        const r = { ...(options.simplifiedWorkflow?{workflowProtocol:"direct-v1"}:{}), id: "REQ-" + crypto.randomUUID().slice(0, 8).toUpperCase(), projectId: lib.projectId,
           repository: lib.repository, baseCommit: lib.sourceCommit, libraryVersionId: lib.id,
           ...data, ...(attachments.length?{attachments}:{}), projectId:lib.projectId, branch:lib.branch, title: data.feedback.slice(0, 100), author: actor, status: "feedback",
           ...(serialized?{queueProtocol:"project-fifo-v1"}:{}), draft: null, approval: null, lease: null, result: null, ai: null, createdAt: now(), updatedAt: now() };
-        if(options.requireTraceability)r.contractProtocol="md-trace-v1";
+        if(options.requireTraceability&&!options.simplifiedWorkflow)r.contractProtocol="md-trace-v1";
         if(options.requireTraceability)r.governanceProtocol="impact-v1";
         const project=projects.get(r.projectId);
         if(project.autoCompleteAfterApproval)r.delivery={mode:"single-approval-v1",phase:"pending-approval",environment:project.releaseEnvironment,configurationRevision:project.configurationRevision};
@@ -198,7 +200,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
         const r = get(id); mutable(r);
         if (hash(JSON.stringify(r)) !== expectedFingerprint) fail("Feedback đã thay đổi khi AI đang phân tích. Hãy thử lại.");
         if(r.draft)r.planHistory=[...(r.planHistory||[]),{draft:r.draft,ai:r.ai,baseCommit:r.baseCommit,libraryVersionId:r.libraryVersionId,at:now()}].slice(-3);
-        r.draft = validateDraft(draft, library(r.libraryVersionId),Boolean(r.contractProtocol)); r.title = r.draft.title;
+        r.draft = validateDraft(r.workflowProtocol==='direct-v1'?{...draft,traceability:undefined}:draft, library(r.libraryVersionId),Boolean(r.contractProtocol)&&r.workflowProtocol!=='direct-v1'); r.title = r.draft.title;
         delete r.automation; r.ai = ai; r.unresolvedCheckpoints=executionReadiness({draft:r.draft}).blockers;
         r.status = r.unresolvedCheckpoints.length ? "needs-triage" : "awaiting-approval"; r.approval = null;
         return changed(r, "ai_analysis_completed", actor);
@@ -368,6 +370,12 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
         r.status = "rejected"; r.approval = null; return changed(r, "request_rejected", actor, note);
       });
     },
+    simplifyWorkflow(){if(!options.simplifiedWorkflow)return {count:0};return transaction(db,()=>{let count=0;for(const r of list()){
+      if(r.workflowProtocol==='direct-v1'||r.status==='rejected'||r.release||r.lease||r.verification?.lease||r.ciRepair?.lease||r.recheck?.lease||service.localPlanning?.get(r.id)?.lease||r.preparation?.status==='running')continue;
+      r.workflowProtocol='direct-v1';delete r.criterionCiStatus;delete r.criterionCiNextAt;
+      if(['verifying','failed'].includes(r.status)&&verificationPassed(r)&&localChecksPassed(r))r.status='review';
+      changed(r,'workflow_simplified','Workflow migration','Dùng kiểm tra code và CI đúng commit; liên kết từng tiêu chí là tham khảo.');count++;
+    }return {count};});},
     ready: () => list().filter(r => r.status === "approved" && executionReadiness(r).ready && !queueState(r)?.blocked && !queueState(r)?.staleBase && projects.get(r.projectId).enabled).map(publicRequest),
     claim(id, owner, observedBaseCommit, contractProtocol, attachmentProtocol) {
       return transaction(db, () => {
@@ -504,7 +512,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
         return previous!==v.phase?changed(r,"browser_verification_"+v.phase,owner,v.note):publicRequest(r);
       });
     },
-    criterionCiCandidates:()=>list().filter(r=>['failed','verifying','review'].includes(r.status)&&r.contractProtocol&&!contractSatisfied(r)&&localChecksPassed(r)&&!r.lease&&!r.ciRepair?.lease&&!r.verification?.lease&&r.delivery?.approvalHash&&(!r.criterionCiNextAt||Date.parse(r.criterionCiNextAt)<=Date.now())).map(publicRequest),
+    criterionCiCandidates:()=>list().filter(r=>['failed','verifying','review'].includes(r.status)&&(r.workflowProtocol==='direct-v1'?['failed','verifying'].includes(r.status)&&r.verification?.phase!=='passed':r.contractProtocol&&!contractSatisfied(r))&&localChecksPassed(r)&&!r.lease&&!r.ciRepair?.lease&&!r.verification?.lease&&r.delivery?.approvalHash&&(!r.criterionCiNextAt||Date.parse(r.criterionCiNextAt)<=Date.now())).map(publicRequest),
     observeCriterionCi(id,expectedRevision,observation){return transaction(db,()=>{
       const r=get(id);if(resultRevision(r)!==expectedRevision||!['failed','verifying','review'].includes(r.status)||r.lease||r.ciRepair?.lease||r.verification?.lease)return;
       if(!/^[a-f0-9]{40}$/.test(observation.commit)||observation.prUrl!==`https://github.com/${r.repository}/pull/${observation.prNumber}`)fail('Bằng chứng CI không khớp project.');
@@ -519,6 +527,12 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
     criterionCiWaiting(id,expectedRevision,failed=false){const r=get(id);if(resultRevision(r)!==expectedRevision)return;r.criterionCiNextAt=new Date(Date.now()+60000).toISOString();r.criterionCiStatus=failed?'Chưa đối chiếu được ca test GitHub CI: '+(typeof failed==='string'?failed:'Giữ nguyên kết quả cũ.')+' Hệ thống sẽ kiểm tra lại, không gọi AI.':r.verification?.phase==='passed'?'CI đã đạt; đang đối chiếu test desktop/mobile với từng tiêu chí.':'Đang chờ PR và CI đúng commit để bổ sung bằng chứng từng tiêu chí.';save(r);},
     reconcileCriterionCi(id,expectedRevision,proof){return transaction(db,()=>{const r=get(id);deliveryAuthority(r);if(!['failed','verifying','review'].includes(r.status)||r.lease||r.ciRepair?.lease||r.verification?.lease||resultRevision(r)!==expectedRevision||!localChecksPassed(r))fail('Kết quả đã đổi hoặc worker còn chạy.');
       if(proof.source!=='github-actions'||proof.branch!==r.result.localArtifact.branch||!proof.changedPaths.every(p=>r.draft.allowedPaths.includes(p)))fail('Bằng chứng CI không khớp scope.');
+      if(r.workflowProtocol==='direct-v1'){
+        if(proof.commit!==r.result.commit&&r.ciRepair?.commit!==proof.commit)fail('Commit CI khác kết quả; cần báo cáo bản sửa tương ứng.');
+        if(proof.commit!==r.result.commit){r.resultHistory=[...(r.resultHistory||[]),r.result].slice(-3);r.result={...r.result,commit:proof.commit,changedPaths:proof.changedPaths,checks:r.ciRepair.checks,documentationReview:r.ciRepair.documentationReview};}
+        delete r.criterionCiStatus;delete r.criterionCiNextAt;delete r.ciObservation;
+        r.verification={...newVerification(r,'GitHub CI'),phase:'passed',source:'github-actions',prNumber:proof.prNumber,prUrl:proof.prUrl,evidenceUrl:proof.evidenceUrl,at:now(),note:'CI đúng commit đã đạt; tự tiếp tục phát hành.'};r.status='review';save(r);return changed(r,'browser_verification_passed','GitHub CI',r.verification.note);
+      }
       const old=r.result;r.resultHistory=[...(r.resultHistory||[]),{...old,planTraceability:r.draft.traceability,verification:r.verification,at:now()}].slice(-3);
       r.result={...old,...(r.ciRepair?.commit===proof.commit&&r.ciRepair.documentationReview?{documentationReview:r.ciRepair.documentationReview}:{}),commit:proof.commit,changedPaths:proof.changedPaths,summary:old.summary,checks:[...old.checks.filter(c=>!r.draft.traceability.some(t=>t.verification.command===c.command)),...proof.criteria.filter(c=>c.method!=='inspection').map(c=>({command:c.command,passed:true,output:c.source==='agent-reported'?'Codex-reported; giữ nguyên bằng chứng cục bộ đúng commit':'GitHub CI độc lập: '+proof.evidenceUrl}))],criterionEvidence:proof.criteria.map(c=>({criterionIndex:c.criterionIndex,outcome:'passed',method:c.method||'test',command:c.command,files:c.files,detail:c.method==='inspection'||c.source==='agent-reported'?c.detail:'GitHub CI đã chạy thành công desktop/mobile: '+c.names.join('; ').slice(0,1700)}))};
       r.criterionCi={...proof,criteria:proof.criteria.filter(c=>c.source!=='agent-reported'),at:now()};delete r.ciObservation;delete r.criterionCiStatus;delete r.criterionCiNextAt;if(!contractSatisfied(r))fail('Bằng chứng CI chưa đủ hợp đồng tiêu chí/tài liệu.');

@@ -34,7 +34,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 export function createApp(config, options = {}) {
   const auth = createAuth(config);
   const db = options.db ?? openDatabase(config.DATA_DIR || path.join(root, "data"));
-  const service = createService(db, {...options,serializeProjects:options.serializeProjects??true,requireTraceability:config.MD_TRACEABILITY_ENABLED!=="false"});
+  const service = createService(db, {...options,serializeProjects:options.serializeProjects??true,simplifiedWorkflow:options.simplifiedWorkflow??config.LAB_WORKFLOW_MODE!=='legacy',requireTraceability:config.MD_TRACEABILITY_ENABLED!=="false"});
   const knowledge=createKnowledge(db,service);
   const agent=createOrchestrator(db,service,knowledge,config,options.agentOptions);
   const learning=createLearning(db,service,knowledge,agent,config,options.learningOptions);service.learning=learning;
@@ -43,6 +43,7 @@ export function createApp(config, options = {}) {
   const dataManagement=createDataManagement(db,service,knowledge,config.DATA_DIR||path.join(root,'data'));
   const cloud=createCloudDispatch(db,service,config,options.cloudOptions);
   const legacyPipeline=createPipeline(service,config,{analyze:options.analyze});
+  if(options.simplifiedWorkflow??config.LAB_WORKFLOW_MODE!=='legacy')service.simplifyWorkflow();
   const pipeline={enqueue:(id,actor)=>agent.enabled(service.get(id).projectId)?agent.enqueue(id,actor):legacyPipeline.enqueue(id,actor),start(){legacyPipeline.start();agent.start();learning.start();maintenance.start();dataManagement.start();cloud.start();},async stop(){await cloud.stop();await learning.stop();await agent.stop();await maintenance.stop();await dataManagement.stop();await legacyPipeline.stop();},async tick(){await agent.tick();await legacyPipeline.tick();}};
   const repairs=createCiRepair(db,service);
   const delivery=createDelivery(service,config,{repairs});
@@ -67,7 +68,7 @@ export function createApp(config, options = {}) {
     next();
   });
   app.get("/health", (req, res) => {
-    try { db.prepare("SELECT 1").get(); res.json({ ok: true, policyVersion: "risk-v2", projectQueueProtocol:"project-fifo-v1", riskRubricVersion:"risk-brief-v2", runnerProtocol: "execution-failure-v1", releaseProtocol: "release-v1", browserProtocol: "github-browser-v1", aiPolicyVersion: "economy-v1", projectProtocol:"multi-project-v1", ciSetupProtocol:"ci-setup-v1",planningProtocol:"local-planning-v1",memoryProtocol:"verified-memory-v1",deliveryProtocol:"single-approval-v1",recheckProtocol:"artifact-recheck-v1",contractProtocol:"md-trace-v1",governanceProtocol:"impact-v1",notificationProtocol:"lark-card-v1",orchestratorProtocol:"lab-orchestrator-v1",feedbackRoutingProtocol:"feedback-routing-v1",attachmentProtocol:"feedback-images-v1",knowledgeProtocol:"hybrid-concepts-v1",dataProtocol:"lab-project-export-v1" }); } catch { res.status(503).json({ ok: false }); }
+    try { db.prepare("SELECT 1").get(); res.json({ ok: true, workflowProtocol:config.LAB_WORKFLOW_MODE==='legacy'?'legacy':'direct-v1', policyVersion: "risk-v2", projectQueueProtocol:"project-fifo-v1", riskRubricVersion:"risk-brief-v2", runnerProtocol: "execution-failure-v1", releaseProtocol: "release-v1", browserProtocol: "github-browser-v1", aiPolicyVersion: "economy-v1", projectProtocol:"multi-project-v1", ciSetupProtocol:"ci-setup-v1",planningProtocol:"local-planning-v1",memoryProtocol:"verified-memory-v1",deliveryProtocol:"single-approval-v1",recheckProtocol:"artifact-recheck-v1",contractProtocol:"md-trace-v1",governanceProtocol:"impact-v1",notificationProtocol:"lark-card-v1",orchestratorProtocol:"lab-orchestrator-v1",feedbackRoutingProtocol:"feedback-routing-v1",attachmentProtocol:"feedback-images-v1",knowledgeProtocol:"hybrid-concepts-v1",dataProtocol:"lab-project-export-v1" }); } catch { res.status(503).json({ ok: false }); }
   });
   const limiter = (limit, windowMs = 60000) => rateLimit({ limit, windowMs, standardHeaders: "draft-8", legacyHeaders: false,
     message: { error: "Quá nhiều yêu cầu. Vui lòng thử lại sau." } });
@@ -214,13 +215,14 @@ export function createApp(config, options = {}) {
   app.post('/api/requests/:id/planning/replay',auth.admin,(req,res)=>{const b=z.object({expectedRevision:z.string().min(1)}).strict().parse(req.body);res.json(service.localPlanning.replay(req.params.id,req.user.name,b.expectedRevision));});
   app.get('/runner/planning',auth.mcp,limiter(60),(req,res)=>res.json({jobs:service.localPlanning.queue()}));
   const planningClaim=z.object({jobId:z.string().uuid(),planningToken:z.string().regex(/^[a-f0-9]{64}$/)});
-  app.post('/runner/planning/:id/claim',auth.mcp,(req,res)=>{const b=z.object({jobId:z.string().uuid(),observedBaseCommit:z.string().regex(/^[a-f0-9]{40}$/),contractProtocol:z.literal('md-trace-v1').optional(),governanceProtocol:z.literal('impact-v1').optional(),replayProtocol:z.literal('planning-replay-v1').optional(),attachmentProtocol:z.literal('feedback-images-v1').optional()}).strict().parse(req.body);const result=service.localPlanning.claim(req.params.id,b.jobId,b.observedBaseCommit,20,b.contractProtocol,b.governanceProtocol,b.replayProtocol,b.attachmentProtocol);service.reportRunner({phase:"running",requestId:req.params.id});res.json(result);});
+  app.post('/runner/planning/:id/claim',auth.mcp,(req,res)=>{const b=z.object({jobId:z.string().uuid(),observedBaseCommit:z.string().regex(/^[a-f0-9]{40}$/),contractProtocol:z.literal('md-trace-v1').optional(),governanceProtocol:z.literal('impact-v1').optional(),replayProtocol:z.literal('planning-replay-v1').optional(),attachmentProtocol:z.literal('feedback-images-v1').optional(),workflowProtocol:z.literal('direct-v1').optional()}).strict().parse(req.body);const result=service.localPlanning.claim(req.params.id,b.jobId,b.observedBaseCommit,20,b.contractProtocol,b.governanceProtocol,b.replayProtocol,b.attachmentProtocol,b.workflowProtocol);service.reportRunner({phase:"running",requestId:req.params.id});res.json(result);});
   app.post('/runner/planning/:id/diagnose',auth.mcp,(req,res)=>{const b=planningClaim.strict().parse(req.body);res.json(service.localPlanning.diagnose(req.params.id,b.jobId,b.planningToken));});
   app.post('/runner/planning/:id/heartbeat',auth.mcp,(req,res)=>{const b=planningClaim.parse(req.body);const result=service.localPlanning.heartbeat(req.params.id,b.jobId,b.planningToken);service.reportRunner({phase:'running',requestId:req.params.id});res.json(result);});
   app.post('/runner/planning/:id/report',auth.mcp,(req,res)=>{const b=planningClaim.extend({report:planReport}).strict().parse(req.body);try{res.json(service.localPlanning.complete(req.params.id,b.jobId,b.planningToken,b.report));}catch(e){if(e.code==='SCOPE_POLICY')service.localPlanning.validationFailure(req.params.id,b.jobId,b.planningToken,e.details.map(d=>d.path));throw e;}});
   app.post('/runner/planning/:id/fail',auth.mcp,(req,res)=>{const b=planningClaim.extend({reason:z.enum(['scope','validation','report','codex','worker','artifact']).optional()}).strict().parse(req.body);res.json(service.localPlanning.failed(req.params.id,b.jobId,b.planningToken,b.reason));});
   app.get('/runner/cloud-policy',auth.mcp,(req,res)=>res.json({enabled:cloud.get().enabled,publishEnabled:cloud.get().publishEnabled}));
   app.get("/runner/projects",auth.mcp,limiter(60),(req,res)=>res.json({projects:service.projects()}));
+  app.post('/api/requests/:id/ci-repair/retry',auth.admin,(req,res)=>res.json(repairs.retry(req.params.id)));
   app.get('/runner/ci-repairs',auth.mcp,(req,res)=>res.json({requests:repairs.queue()}));
   app.post('/runner/ci-repairs/:id/claim',auth.mcp,(req,res)=>res.json(repairs.claim(req.params.id)));
   app.post('/runner/ci-repairs/:id/heartbeat',auth.mcp,(req,res)=>res.json(repairs.heartbeat(req.params.id,req.body.repairToken)));

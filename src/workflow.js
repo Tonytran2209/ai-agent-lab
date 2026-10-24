@@ -24,7 +24,7 @@ export function workflowMessage(request, runner, aiConfigured = true) {
   if(request.preparation?.engine==='lab-agent'&&['queued','running'].includes(request.preparation.status))return 'Lab Agent đang phân loại feedback để chuyển Codex; chưa đọc source hoặc lập kế hoạch.';
   if(request.executionWorker?.kind==='cloud'&&['claimed','running'].includes(request.status))return 'Cloud worker đã nhận request và đang thực thi trong worktree riêng. Kết quả sẽ gửi về Lab để kiểm tra CI và bằng chứng.';
   if(request.verification?.phase==='failed')return request.verification.note;
-  if(request.status==='failed'&&request.result&&request.contract?.required&&!request.contract.complete)return "Liên kết tiêu chí/bằng chứng hoặc đánh giá tài liệu chưa đủ. Xem Quy định MD → tiêu chí → bằng chứng; CI chung không thay thế phần còn thiếu.";
+  if(request.workflowProtocol!=='direct-v1'&&request.status==='failed'&&request.result&&request.contract?.required&&!request.contract.complete)return "Liên kết tiêu chí/bằng chứng hoặc đánh giá tài liệu chưa đủ. Xem Quy định MD → tiêu chí → bằng chứng; CI chung không thay thế phần còn thiếu.";
   if(request.contractProtocol&&request.preparation?.status==='queued'&&runner?.contractProtocol!==request.contractProtocol)return "Feedback đã lưu. Chờ Mac runner nạp bản hỗ trợ liên kết MD; chưa gọi khảo sát AI.";
   if(request.status==="rechecking")return "Mac sẽ kiểm tra lại artifact trên đúng commit, nhận diện CRLF. Không gọi AI hoặc sửa code; lỗi cũ vẫn nằm trong lịch sử.";
   if(request.preparation?.engine==='codex-local'&&['queued','running','failed'].includes(request.preparation.status)){
@@ -33,7 +33,7 @@ export function workflowMessage(request, runner, aiConfigured = true) {
     if(request.preparation.status==='failed')return request.preparation.error||'Khảo sát trên Mac đã dừng; kiểm tra trước khi thử lại.';
     return preparationRunning(request)?'Codex đang đọc code và kinh nghiệm liên quan. Chưa có quyền sửa file; server sẽ kiểm tra rủi ro của kế hoạch.':'Claim khảo sát đã hết hạn. Admin cần xác nhận planner cũ đã dừng trước khi khôi phục.';
   }
-  if (request.status === 'verifying' && request.criterionCiStatus) return request.criterionCiStatus;
+  if (request.workflowProtocol!=='direct-v1'&&request.status === 'verifying' && request.criterionCiStatus) return request.criterionCiStatus;
   if (request.status === "verifying" && request.delivery?.approvalHash) return "Đang kiểm tra CI trên PR. Khi đạt, hệ thống tự merge và theo dõi deploy theo quyền đã duyệt.";
   if (request.status === "verifying") return request.verification?.note || "Đang chờ GitHub kiểm tra trình duyệt trước nghiệm thu. Chưa merge/deploy.";
   if (request.status === "review" && request.delivery?.approvalHash) return request.delivery.phase==="failed" ? "Tự phát hành đã dừng: "+request.delivery.note : "Đang xác minh CI độc lập để tự phát hành theo quyền đã duyệt.";
@@ -94,14 +94,14 @@ export function taskProgress(r,runner){
  const failed=expired||r.status==='failed'||r.release?.phase==='failed'||r.delivery?.phase==='failed'||r.preparation?.status==='failed';
  const waiting=['awaiting-approval','needs-triage','rejected'].includes(r.status)||r.status==='review'&&!r.delivery?.approvalHash;
  let title=done?'Đã cập nhật ứng dụng':failed?'Cần xử lý':waiting?r.status==='rejected'?'Đã dừng':'Cần xác nhận':steps[current];
- let message=done?'Thay đổi đã được triển khai.':failed?'Có bước chưa hoàn tất. Xem Nhật ký để biết nguyên nhân và cách tiếp tục.':waiting?r.status==='rejected'?'Request đã được dừng.':'Xem phạm vi và xác nhận bên dưới để tiếp tục.':current===0?'Feedback đã được lưu.':current===1?'AI phân loại nội dung và mức độ rủi ro.':current===2?r.preparation?.engine==='codex-local'?(r.preparation.status==='queued'?'Đã chuyển feedback; chờ Codex nhận việc.':'Codex đọc code và MD, xác định phương án sửa.'):r.status==='approved'?'Đã có kế hoạch; chờ worker nhận việc.':'Codex đang thực hiện thay đổi và cập nhật tài liệu nếu cần.':current===3?'Đang kiểm tra kết quả trước khi phát hành.':'Đã merge; đang xác nhận Railway deploy.';
+ let message=done?'Thay đổi đã được triển khai.':failed?'Có bước chưa hoàn tất. Xem Nhật ký để biết nguyên nhân và cách tiếp tục.':waiting?r.status==='rejected'?'Request đã được dừng.':'Xem phạm vi và xác nhận bên dưới để tiếp tục.':current===0?'Feedback đã được lưu.':current===1?'AI phân loại nội dung và mức độ rủi ro.':current===2?['claimed','running'].includes(r.status)?'Codex đang sửa code, chạy kiểm tra và cập nhật MD nếu cần.':r.preparation?.engine==='codex-local'?(r.preparation.status==='queued'?'Đã chuyển feedback; chờ Codex nhận việc.':'Codex đọc code và MD, xác định phương án sửa.'):r.status==='approved'?'Đã có kế hoạch; chờ worker nhận việc.':'Codex đang thực hiện thay đổi và cập nhật tài liệu nếu cần.':current===3?r.workflowProtocol==='direct-v1'?'CI kiểm tra bản sửa; đạt sẽ tự merge và deploy. Không cần bổ sung bằng chứng từng tiêu chí.':'Đang kiểm tra kết quả trước khi phát hành.':'Đã merge; đang xác nhận Railway deploy.';
  if(r.attachments?.length&&r.preparation?.status==='queued'&&runner?.connected&&runner.attachmentProtocol!=='feedback-images-v1')message='Ảnh và feedback đã lưu. Mac runner cần nạp bản hỗ trợ ảnh trước khi nhận việc.';
  if(failed){
   const badCheck=r.result?.checks?.find(c=>!c.passed);
   const reason=expired?'Phiên xử lý đã hết hạn; cần kiểm tra worker trước khi tiếp tục.':r.release?.phase==='failed'?r.release.note:r.preparation?.status==='failed'?r.preparation.error:r.verification?.phase==='failed'?r.verification.note:r.executionFailure?.note||(!r.contract?.complete&&r.contract?.required?'Thiếu bằng chứng tiêu chí hoặc đánh giá tài liệu.':badCheck?'Kiểm tra chưa đạt: '+badCheck.command:null);
   if(reason)message=String(reason).replace(/\s+/g,' ').slice(0,200)+' Xem Nhật ký.';
  }
- if(current===3&&!failed&&!waiting&&r.criterionCiStatus)message=r.criterionCiStatus;
+ if(current===3&&!failed&&!waiting&&r.workflowProtocol!=='direct-v1'&&r.criterionCiStatus)message=r.criterionCiStatus;
  if(current===2&&!runner?.connected&&r.executionWorker?.kind!=='cloud'&&!failed&&!waiting)message+=' Mac chưa kết nối; cloud dự phòng xử lý khi đủ điều kiện.';
  return {steps,current,done,failed,waiting,title,message};
 }

@@ -9,6 +9,7 @@ export const relativePath = z.string().min(1).max(240).refine(p =>
   "Chỉ cho phép đường dẫn file cụ thể trong repo; không glob, secrets hoặc traversal.");
 export const draftSchema = z.object({
   impact:impactSchema.optional(),
+  verificationPlan:z.array(z.object({method:z.enum(['test','inspection']),command:z.string().max(200),files:z.array(relativePath).min(1).max(5),expected:z.string().min(15).max(1000)}).strict()).max(5).optional(),
   traceability:traceSchema.optional(),
   documentationReview:documentationReviewSchema.optional(),
   title: z.string().min(5).max(180),
