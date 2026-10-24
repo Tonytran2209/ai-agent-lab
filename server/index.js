@@ -1,3 +1,6 @@
+import {createLearning} from './learning.js';
+import {createCiRepair} from './ci-repair.js';
+import {createRecovery} from './recovery.js';
 import {createSemantic} from './semantic.js';
 import {createCloudDispatch} from './cloud-dispatch.js';
 import crypto from 'node:crypto';
@@ -34,13 +37,16 @@ export function createApp(config, options = {}) {
   const service = createService(db, {...options,serializeProjects:options.serializeProjects??true,requireTraceability:config.MD_TRACEABILITY_ENABLED!=="false"});
   const knowledge=createKnowledge(db,service);
   const agent=createOrchestrator(db,service,knowledge,config,options.agentOptions);
+  const learning=createLearning(db,service,knowledge,agent,config,options.learningOptions);service.learning=learning;
   const semantic=createSemantic(db,knowledge,service,agent,config,options.semanticOptions);knowledge.configureRetriever(semantic.retrieve);
   const maintenance=createMaintenance(db,service,knowledge,agent,config,options.maintenanceOptions);
   const dataManagement=createDataManagement(db,service,knowledge,config.DATA_DIR||path.join(root,'data'));
   const cloud=createCloudDispatch(db,service,config,options.cloudOptions);
   const legacyPipeline=createPipeline(service,config,{analyze:options.analyze});
-  const pipeline={enqueue:(id,actor)=>agent.enabled(service.get(id).projectId)?agent.enqueue(id,actor):legacyPipeline.enqueue(id,actor),start(){legacyPipeline.start();agent.start();maintenance.start();dataManagement.start();cloud.start();},async stop(){await cloud.stop();await agent.stop();await maintenance.stop();await dataManagement.stop();await legacyPipeline.stop();},async tick(){await agent.tick();await legacyPipeline.tick();}};
-  const delivery=createDelivery(service,config);
+  const pipeline={enqueue:(id,actor)=>agent.enabled(service.get(id).projectId)?agent.enqueue(id,actor):legacyPipeline.enqueue(id,actor),start(){legacyPipeline.start();agent.start();learning.start();maintenance.start();dataManagement.start();cloud.start();},async stop(){await cloud.stop();await learning.stop();await agent.stop();await maintenance.stop();await dataManagement.stop();await legacyPipeline.stop();},async tick(){await agent.tick();await legacyPipeline.tick();}};
+  const repairs=createCiRepair(db,service);
+  const delivery=createDelivery(service,config,{repairs});
+  const recovery=createRecovery(service,config,options.recoveryOptions);
   const lark=createLark(db,service,config);
   const app = express();
   // Railway edge proxy adds one trusted hop; app is designed for one replica.
@@ -80,6 +86,13 @@ export function createApp(config, options = {}) {
   app.post('/api/settings/cloud/dispatch',auth.admin,limiter(2,3600000),async(req,res)=>res.json(await cloud.dispatch()));
   app.get('/api/settings/agent',auth.admin,(req,res)=>res.json(agent.settings()));
   app.put('/api/settings/agent',auth.admin,(req,res)=>res.json(agent.update(req.body)));
+  app.get('/api/projects/:id/learning',auth.admin,(req,res)=>res.json(learning.snapshot(req.params.id)));
+  app.get('/api/projects/:id/learning/dataset',auth.admin,(req,res)=>{const state=learning.snapshot(req.params.id);res.attachment(req.params.id+'-reviewed-dataset.json').json({protocol:'reviewed-classification-dataset-v1',projectId:req.params.id,model:state.fineTuning.model,cases:state.dataset,note:'Nhãn admin và holdout tách riêng; chưa gửi job huấn luyện.'});});
+  app.put('/api/projects/:id/learning',auth.admin,(req,res)=>res.json(learning.update(req.params.id,req.body)));
+  app.post('/api/projects/:id/learning/evaluate',auth.admin,limiter(2,3600000),(req,res)=>{const id=req.params.id;service.project(id);void learning.evaluate(id).catch(()=>{});res.status(202).json({queued:true});});
+  app.post('/api/projects/:id/learning/activate',auth.admin,(req,res)=>res.json(learning.activate(req.params.id,z.string().uuid().parse(req.body.runId))));
+  app.post('/api/projects/:id/learning/rollback',auth.admin,(req,res)=>res.json(learning.rollback(req.params.id)));
+  app.put('/api/requests/:id/learning-review',auth.admin,(req,res)=>res.json(learning.review(req.params.id,req.body,req.user.name)));
   app.get('/api/projects/:id/agent',auth.admin,async(req,res)=>{const id=req.params.id;res.json({knowledge:knowledge.snapshot(id),jobs:agent.jobs(id),usage:agent.usage(id),maintenance:maintenance.get(id),metrics:operationalMetrics(db,service,id),evaluations:agent.evaluations(),policyEvaluation:agent.policyEvaluation(),backups:await dataManagement.backups()});});
   app.get('/api/requests/:id/agent',auth.admin,(req,res)=>res.json(agent.job(req.params.id)));
   app.post('/api/projects/:id/agent/evaluate',auth.admin,limiter(2,3600000),async(req,res)=>{const b=z.object({suite:z.enum(['regression','holdout']).default('regression'),model:z.string().regex(/^[a-zA-Z0-9._-]+$/).max(100).optional()}).strict().parse(req.body||{});res.json(await agent.evaluate(req.params.id,b.suite,b.model));});
@@ -207,6 +220,11 @@ export function createApp(config, options = {}) {
   app.post('/runner/planning/:id/fail',auth.mcp,(req,res)=>{const b=planningClaim.extend({reason:z.enum(['scope','validation','report','codex','worker','artifact']).optional()}).strict().parse(req.body);res.json(service.localPlanning.failed(req.params.id,b.jobId,b.planningToken,b.reason));});
   app.get('/runner/cloud-policy',auth.mcp,(req,res)=>res.json({enabled:cloud.get().enabled,publishEnabled:cloud.get().publishEnabled}));
   app.get("/runner/projects",auth.mcp,limiter(60),(req,res)=>res.json({projects:service.projects()}));
+  app.get('/runner/ci-repairs',auth.mcp,(req,res)=>res.json({requests:repairs.queue()}));
+  app.post('/runner/ci-repairs/:id/claim',auth.mcp,(req,res)=>res.json(repairs.claim(req.params.id)));
+  app.post('/runner/ci-repairs/:id/heartbeat',auth.mcp,(req,res)=>res.json(repairs.heartbeat(req.params.id,req.body.repairToken)));
+  app.post('/runner/ci-repairs/:id/report',auth.mcp,(req,res)=>res.json(repairs.report(req.params.id,req.body.repairToken,req.body.update||{})));
+  app.post('/api/requests/:id/ci-repair/release',auth.admin,(req,res)=>res.json(repairs.release(req.params.id,req.body.workerStopped)));
   app.get("/runner/verifications",auth.mcp,limiter(60),(req,res)=>res.json({requests:service.verifications()}));
   app.post("/runner/verifications/:id/claim",auth.mcp,limiter(60),(req,res)=>res.json(service.claimVerification(req.params.id,"mac-browser-ci")));
   app.post("/runner/verifications/:id/report",auth.mcp,limiter(60),(req,res)=>{
@@ -220,8 +238,7 @@ export function createApp(config, options = {}) {
     const result = service.updateRelease(req.params.id, releaseToken, update);
     res.json(result);
     if (result.release.phase === "deployed") {
-      try { await syncLibrary(service, config.GITHUB_TOKEN,result.projectId); service.releaseLibrarySync(req.params.id, true); }
-      catch { service.releaseLibrarySync(req.params.id, false); }
+      void recovery.tick().catch(()=>{});
     }
   });
   app.get("/runner/status", auth.mcp, limiter(30), (req, res) => res.json(service.runnerStatus()));
@@ -242,13 +259,13 @@ export function createApp(config, options = {}) {
       status >= 500 && e.status === undefined ? "Không xử lý được yêu cầu. Dữ liệu đã lưu vẫn được giữ." : e.message;
     res.status(status).json({ error,...(e.code==='SCOPE_POLICY'?{code:e.code,details:e.details}:{}) });
   });
-  return { app, db, service, pipeline, delivery, lark, agent, knowledge, maintenance, dataManagement, cloud };
+  return { app, db, service, pipeline, delivery, lark, agent, knowledge, maintenance, dataManagement, cloud, repairs, recovery, learning };
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const { app, db, pipeline, delivery, lark } = createApp(process.env);
   const port = Number(process.env.PORT || 3000);
-  const server = app.listen(port, "0.0.0.0", () => { pipeline.start(); delivery.start(); lark.start(); console.log("AI Agent Lab listening on port " + port); });
-  const stop = async () => { await pipeline.stop(); await delivery.stop(); await lark.stop(); server.close(() => db.close()); };
+  const server = app.listen(port, "0.0.0.0", () => { pipeline.start(); delivery.start();recovery.start(); lark.start(); console.log("AI Agent Lab listening on port " + port); });
+  const stop = async () => { await pipeline.stop(); await delivery.stop();await recovery.stop(); await lark.stop(); server.close(() => db.close()); };
   process.once("SIGTERM", stop); process.once("SIGINT", stop);
 }
 

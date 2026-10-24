@@ -12,7 +12,15 @@ export function browserCriterion(command){
  const grep=fileMatch[2]||fileMatch[3]||fileMatch[4],tags=[...new Set(grep.split('|'))];
  return tags.length<=8?{file:fileMatch[1],grep,tags}:null;
 }
-export function criterionLogEvidence(rows,logs){
+export function criterionLogEvidence(rows,logs,expectedCommit){
+ const structured=logs.split('\n').filter(line=>line.includes('LAB_TEST_V1 '));
+ if(structured.length){
+  const records=structured.map(line=>{let v;try{v=JSON.parse(line.slice(line.indexOf('LAB_TEST_V1 ')+12));}catch{throw Error('Bằng chứng JSON CI không hợp lệ.');}
+   if(expectedCommit&&v.commit!==expectedCommit||v.protocol!=='lab-test-v1'||!['desktop','mobile'].includes(v.project)||typeof v.file!=='string'||typeof v.title!=='string'||typeof v.id!=='string'||!['passed','failed','timedOut','skipped','interrupted'].includes(v.status))throw Error('Bằng chứng JSON CI không hợp lệ.');return v;});
+  return rows.map(row=>{const spec=browserCriterion(row.verification.command);if(!spec)throw Error('Tiêu chí chưa có command browser được hỗ trợ.');const names=[];
+   for(const tag of spec.tags)for(const project of ['desktop','mobile']){const found=records.filter(v=>v.file===spec.file&&v.project===project&&v.title.includes(tag));if(!found.length||found.some(v=>v.status!=='passed'))throw Error('Chưa có bằng chứng browser cho '+tag+' trên '+project);names.push(...found.map(v=>'['+v.project+'] '+v.file+' '+v.title));}
+   return {criterionIndex:row.criterionIndex,command:row.verification.command,files:row.verification.files,names,format:'lab-test-v1'};});
+ }
  const lines=logs.replace(/\x1b\[[0-9;]*m/g,'').split('\n');
  return rows.map(row=>{const spec=browserCriterion(row.verification.command);if(!spec)throw Error('Tiêu chí chưa có command browser được hỗ trợ.');
  const names=[];
@@ -27,7 +35,7 @@ export function criterionLogEvidence(rows,logs){
 }
 export async function collectCriterionCi(r,token,fetcher=fetch){
  const api=async(suffix,text=false)=>{const response=await fetcher(`https://api.github.com/repos/${r.repository}/${suffix}`,{signal:AbortSignal.timeout(20000),headers:{Accept:'application/vnd.github+json','User-Agent':'ai-agent-lab',...(token?{Authorization:'Bearer '+token}:{})}});if(!response.ok)throw Error('Chưa đọc được GitHub CI: '+response.status);return text?response.text():response.json();};
- const rows=r.draft.traceability;if(!rows?.length)throw Error('Thiếu tiêu chí để đối chiếu CI.');if(rows.some(t=>!browserCriterion(t.verification.command)))throw Error('Tiêu chí chưa có command browser được hỗ trợ.');
+ const rows=r.draft.traceability;if(!rows?.length)throw Error('Thiếu tiêu chí để đối chiếu CI.');if(rows.some(t=>t.verification.method==='test'&&!browserCriterion(t.verification.command)))throw Error('Tiêu chí chưa có command browser được hỗ trợ.');
  const branch=r.result.localArtifact.branch;if(!new RegExp('^lab/'+r.id+'-[0-9]+$').test(branch))throw Error('Sai nhánh artifact.');
  const prs=await api('pulls?state=open&head='+encodeURIComponent(r.repository.split('/')[0]+':'+branch)+'&base='+encodeURIComponent(r.branch));if(prs.length!==1)return null;
  const pr=await api('pulls/'+prs[0].number),commit=pr.head?.sha;
@@ -39,6 +47,7 @@ export async function collectCriterionCi(r,token,fetcher=fetch){
  if(!evidence.ready)return {pending:true,commit,prNumber:pr.number,prUrl:pr.html_url,failed:evidence.failed||evidence.failures.length>0,jobs:evidence.jobs,failures:evidence.failures};
  const url=evidence.evidenceUrl,match=new RegExp('^https://github.com/'+r.repository+'/actions/runs/[0-9]+/job/([0-9]+)$').exec(url||'');if(!match)throw Error('Thiếu job browser độc lập.');
  const job=await api('actions/jobs/'+match[1]);if(job.head_sha!==commit||job.name!=='browser-check'||job.conclusion!=='success'||job.status!=='completed')throw Error('Job browser sai commit hoặc chưa đạt.');
- const criteria=criterionLogEvidence(rows,await api('actions/jobs/'+match[1]+'/logs',true));
+ const criteria=criterionLogEvidence(rows.filter(t=>t.verification.method==='test'),await api('actions/jobs/'+match[1]+'/logs',true),commit);
+ for(const row of rows.filter(t=>t.verification.method==='inspection')){const refreshed=r.ciRepair?.phase==='pushed'&&r.ciRepair.commit===commit;const e=(refreshed?r.ciRepair.criterionEvidence:r.result.criterionEvidence)?.find(e=>e.criterionIndex===row.criterionIndex&&e.method==='inspection'&&e.command===row.verification.command&&e.outcome==='passed'&&JSON.stringify(e.files)===JSON.stringify(row.verification.files));if(commit!==r.result.commit&&!refreshed||!e)throw Error('Inspection cần xác minh lại trên commit hiện tại.');criteria.push({criterionIndex:row.criterionIndex,method:'inspection',command:e.command,files:e.files,names:[],detail:e.detail});}
  return {commit,branch,changedPaths:files.map(f=>f.filename),prNumber:pr.number,prUrl:pr.html_url,evidenceUrl:url,criteria,source:'github-actions'};
 }

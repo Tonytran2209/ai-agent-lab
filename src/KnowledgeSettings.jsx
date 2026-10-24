@@ -1,3 +1,4 @@
+import LearningSettings from './LearningSettings.jsx';
 import React,{useEffect,useState} from 'react';
 import {SettingsHeader,SettingsRow,SettingsSwitch} from './SettingsUI.jsx';
 export default function KnowledgeSettings({projects,api,onUpdate,busy}){
@@ -18,6 +19,6 @@ export default function KnowledgeSettings({projects,api,onUpdate,busy}){
  <details className="settings-extra"><summary>Kinh nghiệm & bằng chứng <span>{data.knowledge.lessons.length}</span></summary><p>Chỉ dùng kết quả có kiểm chứng. Incident thất bại được lưu riêng, không coi là bài học thành công.</p><textarea aria-label="Lý do điều chỉnh kinh nghiệm" value={reason} minLength={20} maxLength={1200} placeholder="Lý do vô hiệu hoặc xác minh lại (ít nhất 20 ký tự)…" onChange={e=>setReason(e.target.value)}/>
  {data.knowledge.lessons.map(m=><details key={m.id} className="settings-extra"><summary>{m.module} · {m.requestId}<span>{!m.enabled?'Đã vô hiệu':m.compatibleWithCurrent===false?'Lệch kiến thức hiện tại':m.kind==='verified-outcome'?'Đã xác minh':'Quyết định admin'}</span></summary><p>{m.problem}</p>{m.classification&&<p>Luna: {m.classification.modelRisk||m.classification.risk} → Codex: {m.riskAssessment?.codexRisk||'Chưa lưu riêng'} → Mức áp dụng: {m.risk}. {m.riskAssessment?.reason}</p>}<p>{m.verifiedSummary||m.note}</p><small>Commit {(m.mergeCommit||m.resultCommit||m.sourceCommit).slice(0,12)} · {m.deploymentConfirmed?'Đã deploy':'Chưa xác nhận deploy'}</small>{m.evidenceUrl&&<p><a href={m.evidenceUrl} target="_blank" rel="noreferrer">Xem bằng chứng ↗</a></p>}<button className="button" disabled={disabled||reason.trim().length<20} onClick={()=>act(()=>api('/projects/'+id+'/knowledge/lessons/'+m.id,{method:'PUT',body:JSON.stringify({state:m.enabled?'invalid':'valid',reason:reason.trim()})}),'Đã cập nhật đánh giá; bản ghi và nguồn bằng chứng vẫn được giữ.')}>{m.enabled?'Vô hiệu kinh nghiệm':'Cho phép tham khảo lại'}</button></details>)}
  </details><details className="settings-extra"><summary>Incident chưa xác minh <span>{data.knowledge.incidents.length}</span></summary>{data.knowledge.incidents.map(m=><p key={m.requestId}>{m.requestId} · {m.note}</p>)}</details></>}
- {message&&<p role="status" className="settings-alert">{message}</p>}
+ <LearningSettings key={id} projectId={id} api={api}/>{message&&<p role="status" className="settings-alert">{message}</p>}
  </section>;
 }

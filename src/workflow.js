@@ -19,6 +19,7 @@ export function requestSignal(request) {
   return request.status + (request.delivery ? ":delivery:"+request.delivery.phase : "") + (request.verification ? ":browser:" + request.verification.phase : "") + (request.release ? ":release:" + request.release.phase : "") + (request.preparation ? ":" + request.preparation.status : "");
 }
 export function workflowMessage(request, runner, aiConfigured = true) {
+  if(request.ciRepair?.phase==='running'||request.ciRepair?.phase==='queued')return 'Codex đang tự sửa CI trên cùng PR; giữ phạm vi đã duyệt. Chưa merge.';
   if(request.projectQueue?.blocked)return 'Chờ '+request.projectQueue.blockedBy+' hoàn tất deploy và đồng bộ MD; sau đó cập nhật base mới trước khi xử lý.';
   if(request.preparation?.engine==='lab-agent'&&['queued','running'].includes(request.preparation.status))return 'Lab Agent đang phân loại feedback để chuyển Codex; chưa đọc source hoặc lập kế hoạch.';
   if(request.executionWorker?.kind==='cloud'&&['claimed','running'].includes(request.status))return 'Cloud worker đã nhận request và đang thực thi trong worktree riêng. Kết quả sẽ gửi về Lab để kiểm tra CI và bằng chứng.';
@@ -66,6 +67,8 @@ export function requestChanges(previous, current) {
 
 export function requiresAttention(r) {
   if(r.projectQueue?.blocked)return false;
+  if(['queued','running'].includes(r.ciRepair?.phase)&&(!r.ciRepair.lease||Date.parse(r.ciRepair.lease.expiresAt)>Date.now()))return false;
+  if(r.ciRepair?.lease&&Date.parse(r.ciRepair.lease.expiresAt)<=Date.now())return true;
   if(r.projectQueue?.staleBase&&r.draft)return true;
   if([r.lease,r.planning?.lease,r.verification?.lease,r.recheck?.lease,r.release?.lease].some(l=>l&&Date.parse(l.expiresAt)<=Date.now()))return true;
   if(r.preparation?.status==='queued'||preparationRunning(r))return false;
@@ -76,6 +79,7 @@ export function requiresAttention(r) {
 
 // Stage progress, never a fabricated elapsed-time percentage or proof of deployment.
 export function taskProgress(r,runner){
+ if(['queued','running'].includes(r.ciRepair?.phase))return {steps:['Tiếp nhận','Phân loại','Codex','Kiểm tra','Phát hành'],current:3,done:false,failed:false,waiting:r.ciRepair.phase==='queued',title:'Tự sửa CI · lượt '+(r.ciRepair.attempts||1)+'/2',message:'Codex kiểm tra lỗi trên cùng PR trong scope đã duyệt; chờ CI xác minh lại trước merge.'};
  if(r.projectQueue?.blocked)return {steps:['Tiếp nhận','Phân loại','Codex','Kiểm tra','Phát hành'],current:0,done:false,failed:false,waiting:true,title:'Chờ lượt · vị trí '+r.projectQueue.position,message:'Project đang xử lý '+r.projectQueue.blockedBy+'. Chỉ bắt đầu sau khi request trước hoàn tất deploy và đồng bộ MD; không ghi đè lên bản đang chạy.'};
  if(r.projectQueue?.staleBase&&r.draft&&!r.lease)return {steps:['Tiếp nhận','Phân loại','Codex','Kiểm tra','Phát hành'],current:2,done:false,failed:false,waiting:true,title:'Cần cập nhật base',message:'Main đã thay đổi. Chuẩn bị lại kế hoạch trên base mới trước khi thực thi; quyền cũ không được dùng cho nội dung mới.'};
  if(r.preparation?.engine==='codex-local'&&(r.preparation.status==='queued'||preparationRunning(r)))return {steps:['Tiếp nhận','Phân loại','Codex','Kiểm tra','Phát hành'],current:2,done:false,failed:false,waiting:r.preparation.status==='queued',title:r.preparation.status==='queued'?'Chờ Codex khảo sát':'Codex đang khảo sát',message:'Đang cập nhật phương án từ feedback, code và MD. Không cần duyệt kế hoạch cũ; low/medium đủ điều kiện sẽ tự tiếp tục.'};

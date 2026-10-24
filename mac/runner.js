@@ -1,3 +1,4 @@
+import {pollCiRepairs} from './repair.js';
 import {startMonitor} from './monitor.js';
 import {codexModelArgs} from './codex.js';
 import {feedbackImageArgs} from './images.js';
@@ -63,7 +64,7 @@ async function git(repo, args, options = {}) {
   if (result.code) throw new Error("Git thất bại: " + args[0]);
   return result.stdout.trim();
 }
-async function noSymlinks(root, files) {
+export async function noSymlinks(root, files) {
   for (const file of files) {
     let current = root;
     for (const part of file.split("/")) {
@@ -278,7 +279,7 @@ export async function main(configPath) {
         const connected = await connectProjects(config, token, command, controller.signal);
         await reportStatus({phase:"polling",requestId:null,projects:connected.statuses});
         monitorConfigs=connected.configs;void monitor.tick();
-        const workers=[{name:'ci-setup',run:()=>pollCiSetups(connected.configs,token,command,controller.signal)}];
+        const workers=[{name:'ci-repair',run:()=>pollCiRepairs(connected.configs,token,command,controller.signal,{prepareDependencies,childEnvironment,changedFiles,checkScope,noSymlinks})},{name:'ci-setup',run:()=>pollCiSetups(connected.configs,token,command,controller.signal)}];
         for(const projectConfig of connected.configs){
           workers.push({name:projectConfig.projectId+' / recheck',run:()=>pollRechecks(projectConfig,token,command,controller.signal,prepareDependencies,childEnvironment(process.env))});
         }
