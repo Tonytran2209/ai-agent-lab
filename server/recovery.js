@@ -9,5 +9,5 @@ export function createRecovery(service,config,{sync=syncLibrary,clock=()=>Date.n
   catch{service.releaseLibrarySync(r.id,false);}
  }}
  const tick=()=>active||(active=recover().finally(()=>{active=null;}));
- return {tick,start(){if(!timer){timer=setInterval(()=>tick().catch(()=>{}),30000);timer.unref();void tick();}},async stop(){clearInterval(timer);await active;}};
+ return {tick,start(){if(!timer){timer=setInterval(()=>tick().catch(()=>{}),30000);timer.unref();void tick().catch(()=>{});}},async stop(){clearInterval(timer);await active;}};
 }
