@@ -4,7 +4,7 @@ const layers={
  backend:p=>/^(backend\/|src\/lib\/(aiService|db|railway[^/]*)\.ts$|\.agent-hub\/backend\/)/.test(p),
  database:p=>/^(supabase\/migrations\/|backend\/supabase\.ts$|\.agent-hub\/database\/)/.test(p),
 };
-export const scopePolicy={version:'scope-v2',testRoots:['tests/browser/','tests/agent-lab/'],newTests:'Exact .spec/.test JS/TS files in an existing project test root; include the source being tested. New tests remain at least medium risk.',forbidden:'CI/workflow files, package manifests, secrets and arbitrary new helpers are not admitted by the test exception.'};
+export const scopePolicy={version:'scope-v2',testRoots:['tests/browser/','tests/agent-lab/'],newTests:'Exact .spec/.test JS/TS files in an existing project test root; include the source being tested. Test-only scope does not raise behavioral risk; production source and sensitive domains decide.',forbidden:'CI/workflow files, package manifests, secrets and arbitrary new helpers are not admitted by the test exception.'};
 export function rejectedScopePaths(draft,library){
  const exists=p=>library.sourcePaths.includes(p);
  const frontend=p=>exists(p)&&/^src\/(hooks|contexts?|utils|types|pages|views|lib)\/.*\.[cm]?[jt]sx?$/.test(p)&&!layers.backend(p);
