@@ -84,7 +84,7 @@ export function taskProgress(r,runner){
  if(r.attachments?.length&&r.preparation?.status==='queued'&&runner?.connected&&runner.attachmentProtocol!=='feedback-images-v1')message='Ảnh và feedback đã lưu. Mac runner cần nạp bản hỗ trợ ảnh trước khi nhận việc.';
  if(failed){
   const badCheck=r.result?.checks?.find(c=>!c.passed);
-  const reason=expired?'Phiên xử lý đã hết hạn; cần kiểm tra worker trước khi tiếp tục.':r.release?.phase==='failed'?r.release.note:r.preparation?.status==='failed'?r.preparation.error:r.executionFailure?.note||(!r.contract?.complete&&r.contract?.required?'Thiếu bằng chứng tiêu chí hoặc đánh giá tài liệu.':badCheck?'Kiểm tra chưa đạt: '+badCheck.command:null);
+  const reason=expired?'Phiên xử lý đã hết hạn; cần kiểm tra worker trước khi tiếp tục.':r.release?.phase==='failed'?r.release.note:r.preparation?.status==='failed'?r.preparation.error:r.verification?.phase==='failed'?r.verification.note:r.executionFailure?.note||(!r.contract?.complete&&r.contract?.required?'Thiếu bằng chứng tiêu chí hoặc đánh giá tài liệu.':badCheck?'Kiểm tra chưa đạt: '+badCheck.command:null);
   if(reason)message=String(reason).replace(/\s+/g,' ').slice(0,200)+' Xem Nhật ký.';
  }
  if(current===3&&!failed&&!waiting&&r.criterionCiStatus)message=r.criterionCiStatus;
