@@ -35,7 +35,8 @@ export async function collectCriterionCi(r,token,fetcher=fetch){
  const files=await api('pulls/'+pr.number+'/files?per_page=100');
  if(!files.length||files.length!==pr.changed_files||files.some(f=>!r.draft.allowedPaths.includes(f.filename)||f.previous_filename&&!r.draft.allowedPaths.includes(f.previous_filename)))throw Error('Artifact vượt phạm vi đã duyệt.');
  await verifyArtifactLineage(api,r.baseCommit,commit,r.result.commit);
- const checks=await api('commits/'+commit+'/check-runs?per_page=100'),evidence=assessCi(checks,await api('commits/'+commit+'/status'),commit);if(!evidence.ready)return null;
+ const checks=await api('commits/'+commit+'/check-runs?per_page=100'),evidence=assessCi(checks,await api('commits/'+commit+'/status'),commit);
+ if(!evidence.ready)return {pending:true,commit,prNumber:pr.number,prUrl:pr.html_url,failed:evidence.failed||evidence.failures.length>0,jobs:evidence.jobs,failures:evidence.failures};
  const url=evidence.evidenceUrl,match=new RegExp('^https://github.com/'+r.repository+'/actions/runs/[0-9]+/job/([0-9]+)$').exec(url||'');if(!match)throw Error('Thiếu job browser độc lập.');
  const job=await api('actions/jobs/'+match[1]);if(job.head_sha!==commit||job.name!=='browser-check'||job.conclusion!=='success'||job.status!=='completed')throw Error('Job browser sai commit hoặc chưa đạt.');
  const criteria=criterionLogEvidence(rows,await api('actions/jobs/'+match[1]+'/logs',true));

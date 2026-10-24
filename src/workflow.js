@@ -22,6 +22,7 @@ export function workflowMessage(request, runner, aiConfigured = true) {
   if(request.projectQueue?.blocked)return 'Chờ '+request.projectQueue.blockedBy+' hoàn tất deploy và đồng bộ MD; sau đó cập nhật base mới trước khi xử lý.';
   if(request.preparation?.engine==='lab-agent'&&['queued','running'].includes(request.preparation.status))return 'Lab Agent đang phân loại feedback để chuyển Codex; chưa đọc source hoặc lập kế hoạch.';
   if(request.executionWorker?.kind==='cloud'&&['claimed','running'].includes(request.status))return 'Cloud worker đã nhận request và đang thực thi trong worktree riêng. Kết quả sẽ gửi về Lab để kiểm tra CI và bằng chứng.';
+  if(request.verification?.phase==='failed')return request.verification.note;
   if(request.status==='failed'&&request.result&&request.contract?.required&&!request.contract.complete)return "Liên kết tiêu chí/bằng chứng hoặc đánh giá tài liệu chưa đủ. Xem Quy định MD → tiêu chí → bằng chứng; CI chung không thay thế phần còn thiếu.";
   if(request.contractProtocol&&request.preparation?.status==='queued'&&runner?.contractProtocol!==request.contractProtocol)return "Feedback đã lưu. Chờ Mac runner nạp bản hỗ trợ liên kết MD; chưa gọi khảo sát AI.";
   if(request.status==="rechecking")return "Mac sẽ kiểm tra lại artifact trên đúng commit, nhận diện CRLF. Không gọi AI hoặc sửa code; lỗi cũ vẫn nằm trong lịch sử.";
@@ -99,4 +100,10 @@ export function taskProgress(r,runner){
  if(current===3&&!failed&&!waiting&&r.criterionCiStatus)message=r.criterionCiStatus;
  if(current===2&&!runner?.connected&&r.executionWorker?.kind!=='cloud'&&!failed&&!waiting)message+=' Mac chưa kết nối; cloud dự phòng xử lý khi đủ điều kiện.';
  return {steps,current,done,failed,waiting,title,message};
+}
+
+// A local failure stays in history; only exact criterion proof for this commit can supersede its display.
+export function checkPresentation(request,check){
+ const verified=request.criterionCi?.commit===request.result?.commit&&request.criterionCi?.criteria?.some(p=>check.command===p.command||check.command===p.command+' --list');
+ return {superseded:!check.passed&&Boolean(verified),label:check.passed?'Đạt':verified?'Lỗi cục bộ · đã có CI xác minh':'Chưa đạt trên Mac'};
 }
