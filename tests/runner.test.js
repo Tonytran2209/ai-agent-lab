@@ -136,3 +136,15 @@ test("operational failure preserves approval and questions, retries without chan
   } finally { db.close(); await rm(dir, { recursive: true, force: true }); }
 });
 test('one project worker failure never starves independent projects or planning; shutdown stops further work',async()=>{const {pollIndependentWorkers}=await import('../mac/runner.js');const seen=[],errors=[];await pollIndependentWorkers([{name:'project-a/release',run:async()=>{throw Error('private child output');}},{name:'project-b/ci',run:async()=>seen.push('b')},{name:'planning',run:async()=>seen.push('planning')}],undefined,n=>errors.push(n));assert.deepEqual(seen,['b','planning']);assert.deepEqual(errors,['project-a/release']);const stop=new AbortController();await pollIndependentWorkers([{name:'first',run:async()=>stop.abort()},{name:'must-not-run',run:async()=>assert.fail('shutdown ignored')}],stop.signal);});
+
+
+test("command distinguishes timeout from shutdown and never accepts signal death as success", async () => {
+  await assert.rejects(command(process.execPath, ['-e','setInterval(()=>{},1000)'], {timeout:80}), e=>e.code==='COMMAND_TIMEOUT');
+  const controller=new AbortController();
+  const pending=command(process.execPath, ['-e','setInterval(()=>{},1000)'], {signal:controller.signal,timeout:5000});
+  setTimeout(()=>controller.abort(),80);
+  await assert.rejects(pending,e=>e.code==='COMMAND_ABORTED');
+  const result=await command(process.execPath,['-e','process.kill(process.pid,"SIGTERM")']);
+  assert.notEqual(result.code,0);
+  assert.equal(result.signal,'SIGTERM');
+});
