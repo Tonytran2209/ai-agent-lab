@@ -1,13 +1,13 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {codexEvents} from '../mac/codex-events.js';
+import {codexEvents,codexFailureCategory} from '../mac/codex-events.js';
 import {taskProgress,requiresAttention,workflowMessage} from '../src/workflow.js';
 
 test('Codex progress handles fragmented JSON without retaining model/tool contents',()=>{
  let now=Date.parse('2026-10-26T02:00:00Z');const p=codexEvents(()=>now);
  p.push('{"type":"turn.sta');p.push('rted"}\ninvalid\n');
  now+=1000;p.push(JSON.stringify({type:'item.completed',item:{type:'command_execution',command:'SECRET_SENTINEL'}})+'\n');
- assert.deepEqual(p.snapshot(),{elapsedSeconds:1,events:2,lastEventAt:'2026-10-26T02:00:01.000Z',stage:'reading-source'});
+ assert.deepEqual(p.snapshot(),{elapsedSeconds:1,events:2,lastEventAt:'2026-10-26T02:00:01.000Z',stage:'waiting-model'});
  assert.ok(!JSON.stringify(p.snapshot()).includes('SECRET_SENTINEL'));
  p.push('{"type":"turn.completed"}\n');assert.equal(p.snapshot().stage,'completed');
 });
@@ -22,4 +22,14 @@ test('live runner heartbeat cannot disguise silent Codex as source activity',()=
 test('historical preparation failure cannot mask a recovered execution',()=>{
  const r={status:'running',preparation:{engine:'lab-agent',status:'failed',error:'OLD_HANDOFF_FAILURE'},approval:{},lease:{expiresAt:new Date(Date.now()+600000).toISOString()}};
  assert.equal(taskProgress(r).failed,false);assert.equal(requiresAttention(r),false);assert.ok(!workflowMessage(r,{online:true}).includes('OLD_HANDOFF_FAILURE'));
+});
+
+
+test('diagnostic categories never expose provider error bodies or credentials',()=>{
+ for(const [message,category] of [['401 Unauthorized PRIVATE_TOKEN','authentication'],['stream disconnected PRIVATE_BODY','transport'],['429 rate limit PRIVATE_TOKEN','rate-limit'],['invalid schema PRIVATE_BODY','schema'],['permission denied PRIVATE_BODY','local-permission'],['PRIVATE_BODY','unknown'],['WARNING: could not create PATH aliases: Operation not permitted','unknown']])assert.equal(codexFailureCategory(message),category);
+});
+
+
+test('JSON stream failures keep only a diagnostic category, never the raw message',()=>{
+ const events=codexEvents();events.push(JSON.stringify({type:'turn.failed',error:{message:'stream disconnected PRIVATE_PROVIDER_BODY'}})+'\n');assert.equal(events.diagnostics().failureCategory,'transport');assert.ok(!JSON.stringify(events.diagnostics()).includes('PRIVATE_PROVIDER_BODY'));
 });

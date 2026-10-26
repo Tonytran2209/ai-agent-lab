@@ -17,3 +17,5 @@ Read-only Codex surveys have a 15-minute first-pass deadline and a 20-minute tot
 Survey activity is collected from Codex JSON events, independently of runner heartbeat. Only stage/counters/timestamps reach Lab; model text and tool arguments are excluded. After three minutes without an event, the task shows that it is waiting on Codex rather than implying ongoing source activity. This telemetry grants no scope, approval or completion authority.
 
 A classification-to-survey handoff failure is recorded as failed with an actionable queue/budget message. Exhausting three survey attempts must never look like a successful handoff or automatically create another model call; manual planning remains available.
+
+Direct surveys use direct-survey-v2: a concise contract and pinned MD reading manifest, not inline full documents or the legacy proof-matrix prompt. The worker still reads relevant complete MD/source and reports validated exact paths and source ranges. Failed surveys preserve sanitized per-job diagnostics and propagate failure to the supervisor/cloud cycle. See survey-stability-audit.md for the incident and limits of the diagnosis.
