@@ -7,10 +7,14 @@
       "additionalProperties": false,
       "properties": {
         "title": {
-          "type": "string"
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 180
         },
         "problem": {
-          "type": "string"
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 6000
         },
         "layer": {
           "type": "string",
@@ -22,31 +26,48 @@
           ]
         },
         "module": {
-          "type": "string"
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 100
         },
         "allowedPaths": {
           "type": "array",
           "items": {
-            "type": "string"
-          }
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 240,
+            "pattern": "^(?!/)(?!.*\\.\\.)(?!.*(?:^|/)(?:\\.env(?:\\.|/|$)|\\.git(?:/|$)|node_modules(?:/|$)))[A-Za-z0-9_./-]+$"
+          },
+          "minItems": 1,
+          "maxItems": 20
         },
         "acceptanceCriteria": {
           "type": "array",
           "items": {
-            "type": "string"
-          }
+            "type": "string",
+            "minLength": 5,
+            "maxLength": 1000
+          },
+          "minItems": 1,
+          "maxItems": 12
         },
         "assumptions": {
           "type": "array",
           "items": {
-            "type": "string"
-          }
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 1000
+          },
+          "maxItems": 8
         },
         "questions": {
           "type": "array",
           "items": {
-            "type": "string"
-          }
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 500
+          },
+          "maxItems": 8
         },
         "risk": {
           "type": "string",
@@ -57,7 +78,8 @@
           ]
         },
         "migrationNotes": {
-          "type": "string"
+          "type": "string",
+          "maxLength": 4000
         },
         "documentationReview": {
           "type": "object",
@@ -70,11 +92,16 @@
               "type": "array",
               "items": {
                 "type": "string",
-                "pattern": "^\\.agent-hub/[A-Za-z0-9_./-]+\\.md$"
-              }
+                "minLength": 1,
+                "maxLength": 240,
+                "pattern": "^[a-zA-Z0-9_./-]+$"
+              },
+              "maxItems": 11
             },
             "reason": {
-              "type": "string"
+              "type": "string",
+              "minLength": 20,
+              "maxLength": 2000
             }
           },
           "required": [
@@ -88,7 +115,9 @@
           "additionalProperties": false,
           "properties": {
             "summary": {
-              "type": "string"
+              "type": "string",
+              "minLength": 20,
+              "maxLength": 1500
             },
             "domains": {
               "type": "array",
@@ -111,37 +140,57 @@
                   "secrets",
                   "policy"
                 ]
-              }
+              },
+              "minItems": 1,
+              "maxItems": 10
             },
             "affectedFlows": {
               "type": "array",
               "items": {
-                "type": "string"
-              }
+                "type": "string",
+                "minLength": 5,
+                "maxLength": 300
+              },
+              "minItems": 1,
+              "maxItems": 8
             },
             "dependencies": {
               "type": "array",
               "items": {
-                "type": "string"
-              }
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 240,
+                "pattern": "^(?!/)(?!.*\\.\\.)(?!.*(?:^|/)(?:\\.env(?:\\.|/|$)|\\.git(?:/|$)|node_modules(?:/|$)))[A-Za-z0-9_./-]+$"
+              },
+              "maxItems": 20
             },
             "evidencePaths": {
               "type": "array",
               "items": {
-                "type": "string"
-              }
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 240,
+                "pattern": "^(?!/)(?!.*\\.\\.)(?!.*(?:^|/)(?:\\.env(?:\\.|/|$)|\\.git(?:/|$)|node_modules(?:/|$)))[A-Za-z0-9_./-]+$"
+              },
+              "minItems": 1,
+              "maxItems": 20
             },
             "uncertainty": {
               "type": "array",
               "items": {
-                "type": "string"
-              }
+                "type": "string",
+                "minLength": 5,
+                "maxLength": 300
+              },
+              "maxItems": 8
             },
             "reversible": {
               "type": "boolean"
             },
             "rollback": {
-              "type": "string"
+              "type": "string",
+              "minLength": 20,
+              "maxLength": 1000
             },
             "preservesDataAndContracts": {
               "type": "boolean"
@@ -169,16 +218,23 @@
                     ]
                   },
                   "question": {
-                    "type": "string"
+                    "type": "string",
+                    "minLength": 5,
+                    "maxLength": 500
                   },
                   "reason": {
-                    "type": "string"
+                    "type": "string",
+                    "minLength": 10,
+                    "maxLength": 800
                   },
                   "attempted": {
                     "type": "array",
                     "items": {
-                      "type": "string"
-                    }
+                      "type": "string",
+                      "minLength": 5,
+                      "maxLength": 300
+                    },
+                    "maxItems": 6
                   }
                 },
                 "required": [
@@ -187,7 +243,8 @@
                   "reason",
                   "attempted"
                 ]
-              }
+              },
+              "maxItems": 8
             }
           },
           "required": [
@@ -218,16 +275,24 @@
                 ]
               },
               "command": {
-                "type": "string"
+                "type": "string",
+                "maxLength": 200
               },
               "files": {
                 "type": "array",
                 "items": {
-                  "type": "string"
-                }
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 240,
+                  "pattern": "^(?!/)(?!.*\\.\\.)(?!.*(?:^|/)(?:\\.env(?:\\.|/|$)|\\.git(?:/|$)|node_modules(?:/|$)))[A-Za-z0-9_./-]+$"
+                },
+                "minItems": 1,
+                "maxItems": 5
               },
               "expected": {
-                "type": "string"
+                "type": "string",
+                "minLength": 15,
+                "maxLength": 1000
               }
             },
             "required": [
@@ -236,7 +301,8 @@
               "files",
               "expected"
             ]
-          }
+          },
+          "maxItems": 5
         }
       },
       "required": [
@@ -262,7 +328,10 @@
         "additionalProperties": false,
         "properties": {
           "path": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 240,
+            "pattern": "^(?!/)(?!.*\\.\\.)(?!.*(?:^|/)(?:\\.env(?:\\.|/|$)|\\.git(?:/|$)|node_modules(?:/|$)))[A-Za-z0-9_./-]+$"
           },
           "startLine": {
             "type": "integer"
@@ -271,7 +340,9 @@
             "type": "integer"
           },
           "reason": {
-            "type": "string"
+            "type": "string",
+            "minLength": 5,
+            "maxLength": 500
           }
         },
         "required": [
@@ -280,7 +351,9 @@
           "endLine",
           "reason"
         ]
-      }
+      },
+      "minItems": 1,
+      "maxItems": 20
     }
   },
   "required": [

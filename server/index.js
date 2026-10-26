@@ -221,7 +221,7 @@ export function createApp(config, options = {}) {
   app.post('/runner/planning/:id/diagnose',auth.mcp,(req,res)=>{const b=planningClaim.strict().parse(req.body);res.json(service.localPlanning.diagnose(req.params.id,b.jobId,b.planningToken));});
   app.post('/runner/planning/:id/heartbeat',auth.mcp,(req,res)=>{const b=planningClaim.extend({progress:z.object({elapsedSeconds:z.number().int().min(0).max(86400),events:z.number().int().min(0).max(100000),lastEventAt:z.string().datetime().nullable(),stage:z.enum(['starting','reading-source','waiting-model','completed','failed'])}).strict().optional()}).strict().parse(req.body);const result=service.localPlanning.heartbeat(req.params.id,b.jobId,b.planningToken,b.progress);service.reportRunner({phase:'running',requestId:req.params.id});res.json(result);});
   app.post('/runner/planning/:id/report',auth.mcp,(req,res)=>{const b=planningClaim.extend({report:planReport}).strict().parse(req.body);try{res.json(service.localPlanning.complete(req.params.id,b.jobId,b.planningToken,b.report));}catch(e){if(e.code==='SCOPE_POLICY')service.localPlanning.validationFailure(req.params.id,b.jobId,b.planningToken,e.details.map(d=>d.path));throw e;}});
-  app.post('/runner/planning/:id/fail',auth.mcp,(req,res)=>{const b=planningClaim.extend({reason:z.enum(['scope','validation','report','codex','codex_timeout','heartbeat','cancelled','worker','artifact']).optional()}).strict().parse(req.body);res.json(service.localPlanning.failed(req.params.id,b.jobId,b.planningToken,b.reason));});
+  app.post('/runner/planning/:id/fail',auth.mcp,(req,res)=>{const b=planningClaim.extend({validationDetails:z.array(z.object({path:z.string().max(240),code:z.string().max(60),message:z.string().max(300)}).strict()).max(12).optional(),reason:z.enum(['scope','validation','report','codex','codex_timeout','heartbeat','cancelled','worker','artifact']).optional()}).strict().parse(req.body);res.json(service.localPlanning.failed(req.params.id,b.jobId,b.planningToken,b.reason,b.validationDetails));});
   app.get('/runner/cloud-policy',auth.mcp,(req,res)=>res.json({enabled:cloud.get().enabled,publishEnabled:cloud.get().publishEnabled}));
   app.get("/runner/projects",auth.mcp,limiter(60),(req,res)=>res.json({projects:service.projects()}));
   app.post('/api/requests/:id/ci-repair/retry',auth.admin,(req,res)=>res.json(repairs.retry(req.params.id)));
@@ -262,7 +262,7 @@ export function createApp(config, options = {}) {
     const status = e instanceof ZodError ? 400 : e.status || (e.name === "TimeoutError" ? 504 : 500);
     const error = e instanceof ZodError ? e.issues.map(i => i.path.join(".") + ": " + i.message).join("; ") :
       status >= 500 && e.status === undefined ? "Không xử lý được yêu cầu. Dữ liệu đã lưu vẫn được giữ." : e.message;
-    res.status(status).json({ error,...(e.code==='SCOPE_POLICY'?{code:e.code,details:e.details}:{}) });
+    res.status(status).json({ error,...(e instanceof ZodError&&req.path.startsWith('/runner/planning/')?{code:'PLAN_SCHEMA',details:e.issues.slice(0,12).map(i=>({path:i.path.join('.'),code:i.code,message:i.message.slice(0,300)}))}:{}),...(e.code==='SCOPE_POLICY'?{code:e.code,details:e.details}:{}) });
   });
   return { app, db, service, pipeline, delivery, lark, agent, knowledge, maintenance, dataManagement, cloud, repairs, recovery, learning };
 }
