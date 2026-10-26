@@ -525,6 +525,9 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
       r.ciObservation={commit:observation.commit,prNumber:observation.prNumber,prUrl:observation.prUrl,jobs:observation.jobs,failures:observation.failures,failed:observation.failed,observedAt:now()};
       const note=observation.failed?'GitHub CI chưa đạt: '+observation.failures.map(f=>f.name+' ('+f.conclusion+')').join('; ')+'. Giữ PR để sửa; hệ thống tự kiểm tra commit sửa nối tiếp.': 'GitHub CI: '+observation.jobs.map(j=>j.name+' '+({completed:j.conclusion,queued:'đang xếp hàng',in_progress:'đang chạy',missing:'chưa có job'}[j.status]||j.status)).join(' · ')+'. Chưa merge.';
       r.criterionCiStatus=note;r.criterionCiNextAt=new Date(Date.now()+60000).toISOString();
+      if(!observation.failed&&r.workflowProtocol==='direct-v1'&&r.ciRepair?.phase==='pushed'&&r.ciRepair.commit===observation.commit&&r.verification?.phase==='failed'){
+        r.status='verifying';Object.assign(r.verification,{phase:'ci',pendingCommit:observation.commit,note:'Đang kiểm tra bản sửa CI mới '+observation.commit.slice(0,12)+'. '+note,at:now()});
+      }
       if(r.verification&&observation.failed){r.status='failed';Object.assign(r.verification,{phase:'failed',note,at:now()});}
       save(r);
       return observation.failed&&(!previous?.failed||previous.commit!==observation.commit)?changed(r,'browser_verification_failed','GitHub CI',note):publicRequest(r);
