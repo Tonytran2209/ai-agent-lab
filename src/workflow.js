@@ -11,6 +11,7 @@ export const workflowLabels = {
   failed: "Kiểm tra thất bại — cần xử lý",
   rejected: "Request đã bị từ chối",
 };
+const preparationFailed=r=>r.preparation?.status==='failed'&&['feedback','needs-triage','draft','awaiting-approval'].includes(r.status)&&!r.approval&&!r.result&&!r.lease;
 export function preparationRunning(request) {
   if(request.preparation?.engine==="codex-local")return request.preparation.status==="running"&&Boolean(request.planning?.lease)&&Date.parse(request.planning.lease.expiresAt)>Date.now();
   return request.preparation?.status === "running" && Date.now() - Date.parse(request.preparation.startedAt) < 90000;
@@ -27,7 +28,7 @@ export function workflowMessage(request, runner, aiConfigured = true) {
   if(request.workflowProtocol!=='direct-v1'&&request.status==='failed'&&request.result&&request.contract?.required&&!request.contract.complete)return "Liên kết tiêu chí/bằng chứng hoặc đánh giá tài liệu chưa đủ. Xem Quy định MD → tiêu chí → bằng chứng; CI chung không thay thế phần còn thiếu.";
   if(request.contractProtocol&&request.preparation?.status==='queued'&&runner?.contractProtocol!==request.contractProtocol)return "Feedback đã lưu. Chờ Mac runner nạp bản hỗ trợ liên kết MD; chưa gọi khảo sát AI.";
   if(request.status==="rechecking")return "Mac sẽ kiểm tra lại artifact trên đúng commit, nhận diện CRLF. Không gọi AI hoặc sửa code; lỗi cũ vẫn nằm trong lịch sử.";
-  if(request.preparation?.engine==='codex-local'&&['queued','running','failed'].includes(request.preparation.status)){
+  if(request.preparation?.engine==='codex-local'&&(['queued','running'].includes(request.preparation.status)||preparationFailed(request))){
     if(request.preparation.status==='queued'&&request.planning?.budgetRemaining===0)return 'Project đã dùng hết 20 lượt khảo sát hôm nay (UTC). Feedback vẫn được giữ và sẽ tiếp tục khi ngân sách ngày mới mở; không gọi thêm AI.';
     if(request.preparation.status==='queued')return runner?.connected?'Đã lưu feedback. Codex sẽ đọc code và MD khi worker rảnh.':'Đã lưu feedback. Chờ worker kết nối để đọc code và MD.';
     if(request.preparation.status==='failed')return request.preparation.error||'Khảo sát trên Mac đã dừng; kiểm tra trước khi thử lại.';
@@ -44,7 +45,7 @@ export function workflowMessage(request, runner, aiConfigured = true) {
   if (request.policyVersion === "risk-v2" && request.status === "awaiting-approval") return request.draft?.risk === "high" ? "Rủi ro cao: admin cần đọc kế hoạch và phê duyệt rõ ràng trước khi chạy." : "Admin kiểm tra kế hoạch và các giả định bên dưới, rồi nhấn Đã kiểm tra · chạy. Không cần soạn lại feedback.";
   if (preparationRunning(request)) return "AI đang đọc feedback và chuẩn bị phạm vi, tiêu chí nghiệm thu. Chưa gửi công việc sang Codex.";
   if (request.preparation?.status === "running") return "Lần chuẩn bị trước có thể bị gián đoạn. Feedback vẫn được giữ; hãy nhấn Chuẩn bị để thử lại.";
-  if (request.preparation?.status === "failed") return (request.preparation.error ? request.preparation.error + " " : "") + "Chuẩn bị request chưa thành công. Feedback vẫn được giữ; thử lại hoặc soạn thủ công. Chưa gửi công việc sang Codex.";
+  if (preparationFailed(request)) return (request.preparation.error ? request.preparation.error + " " : "") + "Chuẩn bị request chưa thành công. Feedback vẫn được giữ; thử lại hoặc soạn thủ công. Chưa gửi công việc sang Codex.";
   if (request.status === "feedback") return "Feedback đã lưu. Admin cần nhấn Chuẩn bị để AI tạo request; chưa có tác vụ nào được gửi sang Mac.";
   if (request.status === "awaiting-approval") return "Nhãn low risk chỉ là mức rủi ro, chưa phải quyền thực thi. Kiểm tra phạm vi bên dưới và nhấn Duyệt & chạy để đưa request vào hàng đợi.";
   if (request.status === "approved") return runner?.connected
@@ -74,7 +75,7 @@ export function requiresAttention(r) {
   if(r.preparation?.status==='queued'||preparationRunning(r))return false;
   if(r.status==='approved'&&r.executionReadiness?.ready===false)return true;
   if(r.status==='review')return !r.delivery?.approvalHash||r.delivery.phase==='failed';
-  return ['awaiting-approval','failed','needs-triage'].includes(r.status)||r.release?.phase==='failed'||r.preparation?.status==='failed';
+  return ['awaiting-approval','failed','needs-triage'].includes(r.status)||r.release?.phase==='failed'||preparationFailed(r);
 }
 
 // Stage progress, never a fabricated elapsed-time percentage or proof of deployment.
@@ -82,7 +83,9 @@ export function taskProgress(r,runner){
  if(['queued','running'].includes(r.ciRepair?.phase))return {steps:['Tiếp nhận','Phân loại','Codex','Kiểm tra','Phát hành'],current:3,done:false,failed:false,waiting:r.ciRepair.phase==='queued',title:'Tự sửa CI · lượt '+(r.ciRepair.attempts||1)+'/2',message:'Codex kiểm tra lỗi trên cùng PR trong scope đã duyệt; chờ CI xác minh lại trước merge.'};
  if(r.projectQueue?.blocked)return {steps:['Tiếp nhận','Phân loại','Codex','Kiểm tra','Phát hành'],current:0,done:false,failed:false,waiting:true,title:'Chờ lượt · vị trí '+r.projectQueue.position,message:'Project đang xử lý '+r.projectQueue.blockedBy+'. Chỉ bắt đầu sau khi request trước hoàn tất deploy và đồng bộ MD; không ghi đè lên bản đang chạy.'};
  if(r.projectQueue?.staleBase&&r.draft&&!r.lease)return {steps:['Tiếp nhận','Phân loại','Codex','Kiểm tra','Phát hành'],current:2,done:false,failed:false,waiting:true,title:'Cần cập nhật base',message:'Main đã thay đổi. Chuẩn bị lại kế hoạch trên base mới trước khi thực thi; quyền cũ không được dùng cho nội dung mới.'};
- if(r.preparation?.engine==='codex-local'&&(r.preparation.status==='queued'||preparationRunning(r)))return {steps:['Tiếp nhận','Phân loại','Codex','Kiểm tra','Phát hành'],current:2,done:false,failed:false,waiting:r.preparation.status==='queued',title:r.preparation.status==='queued'?'Chờ Codex khảo sát':r.preparation.stage==='investigating'?'Codex đang điều tra':'Codex đang khảo sát',message:'Đang cập nhật phương án từ feedback, code và MD. Không cần duyệt kế hoạch cũ; low/medium đủ điều kiện sẽ tự tiếp tục.'};
+ const progress=r.planning?.progress;
+ const modelIdle=preparationRunning(r)&&progress&&progress.stage!=='completed'&&progress.stage!=='failed'&&progress.elapsedSeconds>=180&&(!progress.lastEventAt||Date.now()-Date.parse(progress.lastEventAt)>=180000);
+ if(r.preparation?.engine==='codex-local'&&(r.preparation.status==='queued'||preparationRunning(r)))return {steps:['Tiếp nhận','Phân loại','Codex','Kiểm tra','Phát hành'],current:2,done:false,failed:false,waiting:r.preparation.status==='queued',title:r.preparation.status==='queued'?'Chờ Codex khảo sát':modelIdle?'Đang chờ phản hồi từ Codex':r.preparation.stage==='investigating'?'Codex đang điều tra':'Codex đang khảo sát',message:modelIdle?'Runner vẫn kết nối, nhưng Codex chưa có hoạt động mới trong ít nhất 3 phút. Hệ thống đang chờ trong giới hạn thời gian; chưa sửa code.':'Đang cập nhật phương án từ feedback, code và MD. Không cần duyệt kế hoạch cũ; low/medium đủ điều kiện sẽ tự tiếp tục.'};
  if(['awaiting-approval','needs-triage','approved','failed'].includes(r.status)&&r.executionReadiness?.ready===false)return {steps:['Tiếp nhận','Phân loại','Codex','Kiểm tra','Phát hành'],current:2,done:false,failed:false,waiting:true,title:r.executionReadiness.needsUser===false?'Điều tra chưa hoàn tất':'Cần thông tin từ bạn',message:r.executionReadiness.needsUser===false?'Codex chưa xác định được phương án an toàn trong giới hạn khảo sát. Xem Nhật ký để kiểm tra bước điều tra.':r.executionReadiness.blockers[0]};
  const steps=['Tiếp nhận','Phân loại','Codex','Kiểm tra','Phát hành'];
  let current=0,done=r.release?.phase==='deployed';
@@ -91,14 +94,14 @@ export function taskProgress(r,runner){
  if(r.result||['verifying','review','completed','rechecking'].includes(r.status))current=3;
  if(r.release?.phase==='deploying'||r.release?.mergeCommit||done)current=4;
  const expired=[r.lease,r.planning?.lease,r.verification?.lease,r.recheck?.lease,r.release?.lease].some(l=>l&&Date.parse(l.expiresAt)<=Date.now());
- const failed=expired||r.status==='failed'||r.release?.phase==='failed'||r.delivery?.phase==='failed'||r.preparation?.status==='failed';
+ const failed=expired||r.status==='failed'||r.release?.phase==='failed'||r.delivery?.phase==='failed'||preparationFailed(r);
  const waiting=['awaiting-approval','needs-triage','rejected'].includes(r.status)||r.status==='review'&&!r.delivery?.approvalHash;
  let title=done?'Đã cập nhật ứng dụng':failed?'Cần xử lý':waiting?r.status==='rejected'?'Đã dừng':'Cần xác nhận':steps[current];
  let message=done?'Thay đổi đã được triển khai.':failed?'Có bước chưa hoàn tất. Xem Nhật ký để biết nguyên nhân và cách tiếp tục.':waiting?r.status==='rejected'?'Request đã được dừng.':'Xem phạm vi và xác nhận bên dưới để tiếp tục.':current===0?'Feedback đã được lưu.':current===1?'AI phân loại nội dung và mức độ rủi ro.':current===2?['claimed','running'].includes(r.status)?'Codex đang sửa code, chạy kiểm tra và cập nhật MD nếu cần.':r.preparation?.engine==='codex-local'?(r.preparation.status==='queued'?'Đã chuyển feedback; chờ Codex nhận việc.':'Codex đọc code và MD, xác định phương án sửa.'):r.status==='approved'?'Đã có kế hoạch; chờ worker nhận việc.':'Codex đang thực hiện thay đổi và cập nhật tài liệu nếu cần.':current===3?r.workflowProtocol==='direct-v1'?'CI kiểm tra bản sửa; đạt sẽ tự merge và deploy. Không cần bổ sung bằng chứng từng tiêu chí.':'Đang kiểm tra kết quả trước khi phát hành.':'Đã merge; đang xác nhận Railway deploy.';
  if(r.attachments?.length&&r.preparation?.status==='queued'&&runner?.connected&&runner.attachmentProtocol!=='feedback-images-v1')message='Ảnh và feedback đã lưu. Mac runner cần nạp bản hỗ trợ ảnh trước khi nhận việc.';
  if(failed){
   const badCheck=r.result?.checks?.find(c=>!c.passed);
-  const reason=expired?'Phiên xử lý đã hết hạn; cần kiểm tra worker trước khi tiếp tục.':r.release?.phase==='failed'?r.release.note:r.preparation?.status==='failed'?r.preparation.error:r.verification?.phase==='failed'?r.verification.note:r.executionFailure?.note||(!r.contract?.complete&&r.contract?.required?'Thiếu bằng chứng tiêu chí hoặc đánh giá tài liệu.':badCheck?'Kiểm tra chưa đạt: '+badCheck.command:null);
+  const reason=expired?'Phiên xử lý đã hết hạn; cần kiểm tra worker trước khi tiếp tục.':r.release?.phase==='failed'?r.release.note:preparationFailed(r)?r.preparation.error:r.verification?.phase==='failed'?r.verification.note:r.executionFailure?.note||(!r.contract?.complete&&r.contract?.required?'Thiếu bằng chứng tiêu chí hoặc đánh giá tài liệu.':badCheck?'Kiểm tra chưa đạt: '+badCheck.command:null);
   if(reason)message=String(reason).replace(/\s+/g,' ').slice(0,200)+' Xem Nhật ký.';
  }
  if(current===3&&!failed&&!waiting&&r.workflowProtocol!=='direct-v1'&&r.criterionCiStatus)message=r.criterionCiStatus;
