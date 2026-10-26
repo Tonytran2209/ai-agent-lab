@@ -186,3 +186,19 @@
 .task-logbook .triage-checklist{margin:20px 4px 20px 24px}.triage-checklist ul{padding-left:18px;margin:0;display:grid;gap:10px}.triage-checklist li{font-size:12px;line-height:1.8;color:#aaa}
 
 .ci-status{margin:16px 0;padding:16px;border:1px solid var(--border);border-radius:8px}.ci-status-row{display:flex;align-items:center;flex-wrap:wrap;gap:10px 16px;padding:12px 0}.ci-status-row+ .ci-status-row{border-top:1px solid var(--border)}.ci-status-row strong{margin-right:auto}.ci-status>p{margin-bottom:0}
+
+/* Consistent section rhythm across project, model, knowledge and notification settings. */
+.settings-group>.settings-list+.settings-list{margin-top:20px}
+.settings-project-options{display:grid;gap:20px;margin-top:24px}
+.settings-subgroup{min-width:0}
+.settings-subgroup>h3{margin:0 0 10px;font-size:11px;font-weight:500;color:#949aa4;line-height:1.6}
+.settings-project-options>.settings-extra{margin-top:0}
+.settings-group+.settings-extra,.settings-extra+.settings-group{margin-top:28px}
+.settings-page .settings-row-copy p{margin-top:6px;line-height:1.75}
+.settings-page .settings-row-control>span{text-align:right;line-height:1.6;max-width:200px}
+.settings-warning{color:#c8b68b;line-height:1.75}
+.settings-page .settings-extra[open]>summary{margin-bottom:14px}
+.settings-page .settings-extra>textarea{margin:12px 0 16px}
+.settings-nav button{white-space:normal;line-height:1.5}
+@media(max-width:1200px){.settings-nav button{white-space:nowrap}}
+@media(max-width:560px){.settings-page .settings-row-control>span{text-align:left;max-width:100%}.settings-project-options{gap:18px}.settings-group-heading{align-items:flex-start}.settings-group-heading .settings-state{text-align:right}}

@@ -81,6 +81,7 @@ export function createApp(config, options = {}) {
   app.use("/api", auth.require, limiter(180));
   app.post("/api/auth/logout", (req, res) => { auth.logout(res); res.json({ ok: true }); });
   app.get("/api/config", (req, res) => res.json({ aiConfigured: agent.enabled()?agent.settings().keyConfigured:config.LAB_PLANNING_MODE!=="server"||Boolean(config.OPENAI_API_KEY), planningMode:agent.enabled()?"lab-agent":config.LAB_PLANNING_MODE==="server"?"server":"codex-local", model: agent.enabled()?agent.settings().model:config.LAB_PLANNING_MODE==="server"?(config.OPENAI_MODEL||"gpt-4.1-mini"):"Codex trên Mac",
+    workflow:{mode:(options.simplifiedWorkflow??config.LAB_WORKFLOW_MODE!=='legacy')?'direct-v1':'legacy',serializedProjects:options.serializeProjects??true}, classifier:{enabled:agent.enabled(),configured:agent.settings().keyConfigured,model:agent.settings().model,strategy:agent.settings().strategy},
     aiUsage: req.user.role === "admin" ? {...service.aiLedger.summary(config),coordinatorUsage:service.projects().map(p=>({projectId:p.id,...agent.usage(p.id)}))} : undefined, policyVersion: "risk-v2", runner: service.runnerStatus(), mcpUrl: (config.APP_URL || "http://localhost:3000").replace(/\/$/, "") + "/mcp", project: service.project("writer-studio") }));
   app.get('/api/settings/cloud',auth.admin,(req,res)=>res.json(cloud.get()));
   app.put('/api/settings/cloud',auth.admin,(req,res)=>res.json(cloud.update(req.body)));
