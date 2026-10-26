@@ -50,10 +50,18 @@ export async function publishStep({ request: r, config, run, api, signal, purpos
   }
   if (release.phase === 'ci') {
     const pr = await api(prefix + '/pulls/' + release.prNumber);
-    if (pr.head?.sha !== r.result.commit || pr.base?.ref !== baseBranch || pr.base?.repo?.full_name !== repo || pr.head?.repo?.full_name!==repo) throw new Error('PR đã đổi head/base sau nghiệm thu.');
+    if (pr.base?.ref !== baseBranch || pr.base?.repo?.full_name !== repo || pr.head?.repo?.full_name!==repo) throw new Error('PR đã đổi head repository hoặc base nhánh đích.');
     const prFiles = await api(prefix + '/pulls/' + release.prNumber + '/files?per_page=100');
     if (pr.changed_files !== prFiles.length || prFiles.some(f => !r.draft.allowedPaths.includes(f.filename)||f.previous_filename&&!r.draft.allowedPaths.includes(f.previous_filename)) || JSON.stringify(prFiles.map(f=>f.filename).sort())!==JSON.stringify([...r.result.changedPaths].sort())) throw new Error('PR chứa file ngoài phạm vi.');
     if (purpose === 'verification' && (pr.merged || pr.state !== 'open')) throw new Error('PR kiểm tra đã bị đóng hoặc merge ngoài luồng.');
+    if(pr.head?.sha!==r.result.commit){
+      const repair=r.ciRepair;
+      if(purpose!=='verification'||repair?.phase!=='pushed'||repair.lease||repair.commit!==pr.head?.sha||repair.prNumber!==pr.number||!repair.checks?.some(c=>c.command==='npm run check'&&c.passed)||repair.checks.some(c=>!c.passed))throw new Error('PR đã đổi head ngoài bản sửa CI đang được theo dõi.');
+      await verifyArtifactLineage(suffix=>api(prefix+'/'+suffix),r.baseCommit,repair.commit,r.result.commit);
+      // The server independently validates this head and promotes it only after CI succeeds.
+      return {phase:'ci',note:'Đang kiểm tra bản sửa CI mới '+repair.commit.slice(0,12)+'. Chờ server xác minh CI đúng commit trước khi nghiệm thu.'};
+    }
+
     if (pr.merged) return { phase: 'deploying', mergeCommit: pr.merge_commit_sha, note: 'PR đã merge. Đang xác nhận Railway deploy đúng commit.' };
     if (pr.state !== 'open') throw new Error('PR đã đóng mà chưa merge.');
     await verifyArtifactLineage(suffix=>api(prefix+'/'+suffix),r.baseCommit,r.result.commit);
