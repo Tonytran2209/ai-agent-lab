@@ -9,7 +9,7 @@ export async function sharedWorktree(config,base,run,options={}){
  try{const stat=await lstat(target);if(stat.isSymbolicLink()||!stat.isDirectory())throw Error('Workspace không hợp lệ.');
   if(await git(['rev-parse','--path-format=absolute','--git-common-dir'],target)!==await git(['rev-parse','--path-format=absolute','--git-common-dir']))throw Error('Workspace thuộc repo khác.');
   if(await realpath(target)!==path.join(await realpath(config.stateDir),'workspace'))throw Error('Workspace qua symlink.');
-  if(await git(['status','--porcelain','--untracked-files=all'],target))throw Error('Workspace còn thay đổi chưa lưu; giữ nguyên để phục hồi, chưa nhận task khác.');
+  if(await git(['status','--porcelain','--untracked-files=all'],target))throw Object.assign(Error('Workspace còn thay đổi chưa lưu; giữ nguyên để phục hồi, chưa nhận task khác.'),{code:'WORKSPACE_DIRTY'});
   await git(['switch','--detach',base],target);
  }catch(e){if(e.code!=='ENOENT')throw e;await git(['worktree','add','--detach',target,base]);}
  return target;

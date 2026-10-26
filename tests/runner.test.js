@@ -148,3 +148,4 @@ test("command distinguishes timeout from shutdown and never accepts signal death
   assert.notEqual(result.code,0);
   assert.equal(result.signal,'SIGTERM');
 });
+test('Playwright report output is isolated from source and credentials',async()=>{const {executionEnvironment}=await import('../mac/runner.js');const env=await executionEnvironment({AI_AGENT_LAB_MCP_TOKEN:'secret',PLAYWRIGHT_HTML_OUTPUT_DIR:'playwright-report'},'REQ-1234ABCD');try{assert.equal(env.AI_AGENT_LAB_MCP_TOKEN,undefined);assert.ok(path.isAbsolute(env.PLAYWRIGHT_HTML_OUTPUT_DIR));assert.equal(env.PLAYWRIGHT_HTML_OPEN,'never');assert.equal(path.dirname(env.PLAYWRIGHT_JSON_OUTPUT_FILE),path.dirname(env.PLAYWRIGHT_HTML_OUTPUT_DIR));assert.throws(()=>checkScope(['playwright-report/index.html'],['src/App.tsx']),/playwright-report/);}finally{await rm(path.dirname(env.PLAYWRIGHT_HTML_OUTPUT_DIR),{recursive:true,force:true});}});
