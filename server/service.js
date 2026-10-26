@@ -268,6 +268,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
         }
       });
     },
+    recoverSupplementalChecks(id){return transaction(db,()=>{const r=get(id),p=projects.get(r.projectId);if(r.status!=='awaiting-approval'||r.workflowProtocol!=='direct-v1'||r.draft?.risk!=='medium'||r.approval||r.lease||r.result||r.executionBlocked||r.preparation?.status!=='completed'||r.ai?.source!=='codex-local'||r.ai.observedBaseCommit!==r.baseCommit||r.delivery?.configurationRevision!==p.configurationRevision||r.delivery?.environment!==p.releaseEnvironment||r.review?.by||!p.enabled||!p.runnerEnabled||r.automation?.reasons?.length!==1||r.automation.reasons[0]!=='Medium tự chạy cần ít nhất một test hành vi; tiêu chí còn lại cần test hoặc kiểm tra cụ thể.'||decideAutomation(r,p).mode!=='automatic')return false;assertTurn(r);return service.routeByRisk(id,hash(JSON.stringify(publicRequest(r))));});},
     routeByRisk(id, expectedHash) {
       return transaction(db, () => {
         const r = get(id); mutable(r);
