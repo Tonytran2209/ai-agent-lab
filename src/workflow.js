@@ -34,7 +34,7 @@ export function workflowMessage(request, runner, aiConfigured = true) {
     if(request.preparation.status==='failed')return request.preparation.error||'Khảo sát trên Mac đã dừng; kiểm tra trước khi thử lại.';
     return preparationRunning(request)?'Codex đang đọc code và kinh nghiệm liên quan. Chưa có quyền sửa file; server sẽ kiểm tra rủi ro của kế hoạch.':'Claim khảo sát đã hết hạn. Admin cần xác nhận planner cũ đã dừng trước khi khôi phục.';
   }
-  if (request.workflowProtocol!=='direct-v1'&&request.status === 'verifying' && request.criterionCiStatus) return request.criterionCiStatus;
+  if (request.status === 'verifying' && request.criterionCiStatus) return request.criterionCiStatus;
   if (request.status === "verifying" && request.delivery?.approvalHash) return "Đang kiểm tra CI trên PR. Khi đạt, hệ thống tự merge và theo dõi deploy theo quyền đã duyệt.";
   if (request.status === "verifying") return request.verification?.note || "Đang chờ GitHub kiểm tra trình duyệt trước nghiệm thu. Chưa merge/deploy.";
   if (request.status === "review" && request.delivery?.approvalHash) return request.delivery.phase==="failed" ? "Tự phát hành đã dừng: "+request.delivery.note : "Đang xác minh CI độc lập để tự phát hành theo quyền đã duyệt.";
@@ -98,6 +98,7 @@ export function taskProgress(r,runner){
  const waiting=['awaiting-approval','needs-triage','rejected'].includes(r.status)||r.status==='review'&&!r.delivery?.approvalHash;
  let title=done?'Đã cập nhật ứng dụng':failed?'Cần xử lý':waiting?r.status==='rejected'?'Đã dừng':'Cần xác nhận':steps[current];
  let message=done?'Thay đổi đã được triển khai.':failed?'Có bước chưa hoàn tất. Xem Nhật ký để biết nguyên nhân và cách tiếp tục.':waiting?r.status==='rejected'?'Request đã được dừng.':'Xem phạm vi và xác nhận bên dưới để tiếp tục.':current===0?'Feedback đã được lưu.':current===1?'AI phân loại nội dung và mức độ rủi ro.':current===2?['claimed','running'].includes(r.status)?'Codex đang sửa code, chạy kiểm tra và cập nhật MD nếu cần.':r.preparation?.engine==='codex-local'?(r.preparation.status==='queued'?'Đã chuyển feedback; chờ Codex nhận việc.':'Codex đọc code và MD, xác định phương án sửa.'):r.status==='approved'?'Đã có kế hoạch; chờ worker nhận việc.':'Codex đang thực hiện thay đổi và cập nhật tài liệu nếu cần.':current===3?r.workflowProtocol==='direct-v1'?'CI kiểm tra bản sửa; đạt sẽ tự merge và deploy. Không cần bổ sung bằng chứng từng tiêu chí.':'Đang kiểm tra kết quả trước khi phát hành.':'Đã merge; đang xác nhận Railway deploy.';
+ if(current===3&&r.criterionCiStatus)message=r.criterionCiStatus;
  if(r.attachments?.length&&r.preparation?.status==='queued'&&runner?.connected&&runner.attachmentProtocol!=='feedback-images-v1')message='Ảnh và feedback đã lưu. Mac runner cần nạp bản hỗ trợ ảnh trước khi nhận việc.';
  if(failed){
   const badCheck=r.result?.checks?.find(c=>!c.passed);
