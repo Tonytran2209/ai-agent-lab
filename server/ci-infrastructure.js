@@ -1,7 +1,8 @@
 // Read-only diagnosis of the current GitHub Actions browser jobs. Never marks CI green.
 export async function ciInfrastructure(api,response,commit){
+ const hasMatrix=(response.check_runs||[]).some(r=>r.head_sha===commit&&r.app?.slug==='github-actions'&&/^browser-tests \((desktop|mobile)\)$/.test(r.name));
  const latest=new Map();
- for(const run of response.check_runs||[]){if(run.head_sha!==commit||run.app?.slug!=='github-actions'||!/^browser-tests \((desktop|mobile)\)$/.test(run.name))continue;const old=latest.get(run.name);if(!old||Number(run.id)>Number(old.id))latest.set(run.name,run);}
+ for(const run of response.check_runs||[]){if(run.head_sha!==commit||run.app?.slug!=='github-actions'||!(/^browser-tests \((desktop|mobile)\)$/.test(run.name)||!hasMatrix&&run.name==='browser-check'))continue;const old=latest.get(run.name);if(!old||Number(run.id)>Number(old.id))latest.set(run.name,run);}
  const jobs=[];let failed=0,infrastructure=0,unknown=false;
  for(const run of latest.values()){
   const row={name:run.name,status:run.status,conclusion:run.conclusion||null,url:run.details_url,startedAt:run.started_at,completedAt:run.completed_at};jobs.push(row);
