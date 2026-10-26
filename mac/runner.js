@@ -42,9 +42,10 @@ export function checkScope(files, allowed) {
 export function command(executable, args, { cwd, env = process.env, input, signal, timeout = 30 * 60000 } = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(executable, args, { cwd, env, stdio: ["pipe", "pipe", "pipe"], detached: true });
-    let stdout = "", stderr = "", aborted = false, killTimer;
-    const stop = () => {
-      aborted = true;
+    let stdout = "", stderr = "", stopReason = null, killTimer;
+    const stop = reason => {
+      if (stopReason) return;
+      stopReason = reason;
       try { process.kill(-child.pid, "SIGTERM"); } catch {}
       killTimer ??= setTimeout(() => { try { process.kill(-child.pid, "SIGKILL"); } catch {} }, 5000);
     };
@@ -52,12 +53,17 @@ export function command(executable, args, { cwd, env = process.env, input, signa
     child.stderr.on("data", d => { stderr = (stderr + d).slice(-100_000); });
     child.stdin.on("error", () => {});
     child.stdin.end(input);
-    const timer = setTimeout(stop, timeout);
-    signal?.addEventListener("abort", stop, { once: true });
-    if (signal?.aborted) stop();
-    const cleanup = () => { clearTimeout(timer); clearTimeout(killTimer); signal?.removeEventListener("abort", stop); };
+    const onAbort = () => stop("COMMAND_ABORTED");
+    const timer = setTimeout(() => stop("COMMAND_TIMEOUT"), timeout);
+    signal?.addEventListener("abort", onAbort, { once: true });
+    if (signal?.aborted) onAbort();
+    const cleanup = () => { clearTimeout(timer); clearTimeout(killTimer); signal?.removeEventListener("abort", onAbort); };
     child.once("error", e => { cleanup(); reject(e); });
-    child.once("close", code => { cleanup(); aborted ? reject(new Error("Tiến trình đã dừng do timeout, mất heartbeat hoặc shutdown.")) : resolve({ code, stdout, stderr }); });
+    child.once("close", (code, exitSignal) => {
+      cleanup();
+      if (stopReason) return reject(Object.assign(new Error(stopReason === "COMMAND_TIMEOUT" ? "Tiến trình vượt thời gian cho phép." : "Tiến trình bị hủy do mất heartbeat hoặc shutdown."), {code:stopReason}));
+      resolve({code:code ?? 1, stdout, stderr, signal:exitSignal});
+    });
   });
 }
 async function git(repo, args, options = {}) {

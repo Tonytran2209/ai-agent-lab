@@ -8,7 +8,10 @@ export const planningFailureMessages={
  scope:'Kế hoạch bị từ chối: phạm vi file không thuộc layer được phép. Kiểm tra đường dẫn source/test; chưa chạy sửa code.',
  validation:'Kế hoạch bị từ chối khi kiểm tra tiêu chí, bằng chứng hoặc quy định MD. Kế hoạch cục bộ được giữ; chưa chạy sửa code.',
  report:'Đã có kế hoạch nhưng chưa gửi thành công về Lab. Kiểm tra kết nối; không cần khảo sát lại trước khi kiểm tra bản lưu.',
- codex:'Codex khảo sát đã dừng hoặc hết thời gian trước khi hoàn tất kế hoạch.',
+ codex:'Codex khảo sát kết thúc với lỗi trước khi hoàn tất kế hoạch. Kiểm tra đăng nhập, kết nối và log Codex trên worker.',
+ codex_timeout:'Codex khảo sát đã vượt thời gian cho phép trước khi hoàn tất kế hoạch. Chưa sửa code; không tự gọi lại AI.',
+ heartbeat:'Khảo sát dừng vì worker mất heartbeat với Lab. Kiểm tra kết nối trước khi thử lại.',
+ cancelled:'Khảo sát dừng vì runner bị tắt hoặc khởi động lại. Chưa có kế hoạch hoàn chỉnh.',
  artifact:'Không đọc hoặc xác minh được kế hoạch cục bộ đã lưu. Không gọi AI thay thế; kiểm tra artifact trên Mac.',
  worker:'Khảo sát trên Mac chưa hoàn tất. Kiểm tra runner; không tự gọi lại AI.'
 };

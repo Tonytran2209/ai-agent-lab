@@ -37,19 +37,19 @@ export async function surveyFeedback({job,config,api,run,signal,environment,imag
  if(!direct)await git(['worktree','add','--detach',worktree,job.baseCommit]);
  let failureReason="worker";
  let investigation=null;
- let claim,heartbeat,busy=false,heartbeatTask=Promise.resolve();const controller=new AbortController(),abort=()=>controller.abort();signal?.addEventListener('abort',abort,{once:true});if(signal?.aborted)abort();
+ let claim,heartbeat,busy=false,heartbeatLost=false,heartbeatTask=Promise.resolve();const controller=new AbortController(),abort=()=>controller.abort();signal?.addEventListener('abort',abort,{once:true});if(signal?.aborted)abort();
  try{
   const head=await git(['rev-parse','HEAD'],worktree);claim=await api('/'+job.requestId+'/claim',{jobId:job.id,observedBaseCommit:head,contractProtocol:"md-trace-v1",governanceProtocol:"impact-v1",replayProtocol:"planning-replay-v1",attachmentProtocol:"feedback-images-v1",workflowProtocol:"direct-v1"});
   if(claim.request.baseCommit!==head||claim.request.repository!==config.repository||claim.request.projectId!==config.projectId||claim.library.projectId!==config.projectId||claim.library.sourceCommit!==head)throw new Error('Packet khảo sát không khớp checkout.');
   const credentials={jobId:job.id,planningToken:claim.planningToken};
-  heartbeat=setInterval(()=>{if(busy)return;busy=true;heartbeatTask=api('/'+job.requestId+'/heartbeat',credentials).catch(()=>controller.abort()).finally(()=>{busy=false;});},60000);
+  heartbeat=setInterval(()=>{if(busy)return;busy=true;heartbeatTask=api('/'+job.requestId+'/heartbeat',credentials).catch(()=>{heartbeatLost=true;controller.abort();}).finally(()=>{busy=false;});},60000);
   const outputPath=path.join(config.stateDir,'planning',job.id+'-plan.json');await mkdir(path.dirname(outputPath),{recursive:true,mode:0o700});
   if(job.mode!=='report-only'){
    failureReason="codex";
    const imageArgs=await feedbackImageArgs(claim.request,config,imageToken);
    const invoke=async(input,timeout)=>run(config.codexPath,['exec',...imageArgs,...codexModelArgs(config,'planning',claim.ai),'--ignore-user-config','--sandbox','read-only','-C',worktree,'--output-schema',fileURLToPath(new URL(claim.request.workflowProtocol==='direct-v1'?'./direct-plan-schema.json':'./plan-schema.json',import.meta.url)),'--output-last-message',outputPath,'-'],{cwd:worktree,env:environment,input,signal:controller.signal,timeout});
    const started=Date.now();
-   const result=await invoke(planningPrompt(claim),6*60000);
+   const result=await invoke(planningPrompt(claim),15*60000);
    if(result.code||controller.signal.aborted)throw new Error('Codex khảo sát đã dừng.');
    const first=JSON.parse(await readFile(outputPath,'utf8'));
    const checkpoints=first.draft?.impact?.checkpoints||[];
@@ -59,7 +59,7 @@ export async function surveyFeedback({job,config,api,run,signal,environment,imag
     if(await git(['rev-parse','HEAD'],worktree)!==head||await git(['status','--porcelain','--untracked-files=all'],worktree))throw new Error('Khảo sát đã thay đổi checkout.');
     await api('/'+job.requestId+'/diagnose',credentials);
     investigation={protocol:'diagnostic-survey-v1',passes:2,previousCheckpoints:checkpoints,startedAt:new Date().toISOString()};
-    const followup=await invoke(planningPrompt(claim)+'\nDIAGNOSTIC FOLLOW-UP (last pass; total survey budget 10 minutes): '+JSON.stringify({previousPlan:first.draft})+'\nInvestigate the technical checkpoints against all relevant callers, backend, logs and canonical MD. Run existing offline non-browser tests if feasible under read-only restrictions. Resolve hypotheses into a safe exact-scope regression/implementation plan when justified. Missing production samples are optional unless indispensable after these checks. Reassess the layer and include exact backend/test/MD paths if supported. Do not repeat an already implemented fix. Preserve genuine product/access/external blockers with concrete attempted checks; do not silently erase them. Return the complete revised plan. Never claim a production reproduction from a synthetic fixture.',Math.max(1000,10*60000-(Date.now()-started)));
+    const followup=await invoke(planningPrompt(claim)+'\nDIAGNOSTIC FOLLOW-UP (last pass; total survey budget 20 minutes): '+JSON.stringify({previousPlan:first.draft})+'\nInvestigate the technical checkpoints against all relevant callers, backend, logs and canonical MD. Run existing offline non-browser tests if feasible under read-only restrictions. Resolve hypotheses into a safe exact-scope regression/implementation plan when justified. Missing production samples are optional unless indispensable after these checks. Reassess the layer and include exact backend/test/MD paths if supported. Do not repeat an already implemented fix. Preserve genuine product/access/external blockers with concrete attempted checks; do not silently erase them. Return the complete revised plan. Never claim a production reproduction from a synthetic fixture.',Math.max(1000,20*60000-(Date.now()-started)));
     if(followup.code||controller.signal.aborted)throw new Error('Codex điều tra đã dừng.');
    }
   }
@@ -72,7 +72,7 @@ export async function surveyFeedback({job,config,api,run,signal,environment,imag
   const report={observedBaseCommit:head,draft:plan.draft,evidence:plan.evidence,...(investigation?{investigation}:job.mode==='report-only'&&plan.investigation?{investigation:plan.investigation}:{})};await writeFile(outputPath,JSON.stringify(report),{mode:0o600});
   failureReason="report";
   return await api('/'+job.requestId+'/report',{...credentials,report});
- }catch(e){clearInterval(heartbeat);await heartbeatTask;if(claim)await api('/'+job.requestId+'/fail',{jobId:job.id,planningToken:claim.planningToken,reason:e.planningFailureReason||failureReason}).catch(()=>{});throw new Error('Khảo sát trên Mac chưa hoàn tất; xem trạng thái Lab.');}
+ }catch(e){clearInterval(heartbeat);await heartbeatTask;if(claim)await api('/'+job.requestId+'/fail',{jobId:job.id,planningToken:claim.planningToken,reason:heartbeatLost?'heartbeat':e.code==='COMMAND_ABORTED'?'cancelled':e.code==='COMMAND_TIMEOUT'&&failureReason==='codex'?'codex_timeout':e.planningFailureReason||failureReason}).catch(()=>{});throw new Error('Khảo sát trên Mac chưa hoàn tất; xem trạng thái Lab.');}
  finally{clearInterval(heartbeat);signal?.removeEventListener('abort',abort);if(!direct)await git(['worktree','remove',worktree]).catch(()=>{});}
 }
 export async function pollPlanning(configs,token,run,signal,environment,onStatus=async()=>{}){
