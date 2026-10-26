@@ -18,7 +18,7 @@ export function latestChecks(runs) {
   for(const run of runs){const key=(run.app?.id||run.app?.slug||"unknown")+":"+run.name;const old=newest.get(key);if(!old||Number(run.id||0)>Number(old.id||0))newest.set(key,run);}
   return [...newest.values()];
 }
-export async function publishStep({ request: r, config, run, api, signal, purpose = "release", fetcher=fetch }) {
+export async function publishStep({ request: r, config, run, api, signal, purpose = "release", fetcher=fetch, readyRefresh = false }) {
   const repo = config.repository || 'Tonytran2209/RebuildWriterStudioTool';
   const baseBranch = r.branch || config.branch || 'main';
   if (r.repository !== repo || config.projectId && r.projectId !== config.projectId || r.status !== (purpose === 'verification' ? 'verifying' : 'completed') || !r.release || !/^[a-f0-9]{40}$/.test(r.result?.commit)) throw new Error('Sai repository hoặc quyền phát hành.');
@@ -72,8 +72,10 @@ export async function publishStep({ request: r, config, run, api, signal, purpos
     }
     if (purpose === 'verification') return {phase:'passed',evidenceUrl:browser.details_url,note:r.delivery?.approvalHash?'CI đã đạt trên đúng commit. Đang đối chiếu tiêu chí để tự phát hành.':'CI đã đạt trên đúng commit. Chờ nghiệm thu tiêu chí trước khi phát hành.'};
     if (pr.draft) {
+      if (readyRefresh) return {phase:'ci',note:'Đang chờ GitHub xác nhận PR đã sẵn sàng merge.'};
       await api('graphql','POST',{query:'mutation($id:ID!){markPullRequestReadyForReview(input:{pullRequestId:$id}){pullRequest{id}}}',variables:{id:pr.node_id}});
-      return {phase:'ci',note:'Admin đã nghiệm thu; draft PR đã chuyển sang ready. Đang chờ GitHub xác nhận điều kiện merge.'};
+      // Re-read identity, scope, lineage and CI after the mutation; never merge stale evidence.
+      return publishStep({request:r,config,run,api,signal,purpose,fetcher,readyRefresh:true});
     }
     if (!pr.mergeable || pr.mergeable_state === 'blocked' || pr.mergeable_state === 'behind') throw new Error('PR xung đột, chưa đủ điều kiện hoặc cần cập nhật main. Không tự xử lý xung đột.');
     const merged = await api(prefix + '/pulls/' + release.prNumber + '/merge', 'PUT', { sha: r.result.commit, merge_method: 'squash' });

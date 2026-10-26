@@ -91,3 +91,18 @@ test('publisher ignores checks on another SHA and rejects rename sources outside
 });
 
 test('expired publisher cannot be replaced until confirmed stopped; recovery preserves the merged deployment stage',()=>{const dir=mkdtempSync(path.join(os.tmpdir(),'release-expired-')),db=openDatabase(dir),s=createService(db);try{const r=s.create({feedback:'Update the preview layout without data changes.'},'User');s.submit(r.id,draft,'Admin');const c=s.claim(r.id,'Mac',r.baseCommit);s.complete(r.id,c.claimToken,report);s.accept(r.id,'Admin');s.claimRelease(r.id,'publisher');const raw=s.rawForAnalysis(r.id);raw.release.phase='deploying';raw.release.mergeCommit=merged;raw.release.lease.expiresAt=new Date(0).toISOString();db.prepare('UPDATE requests SET data=? WHERE id=?').run(JSON.stringify(raw),r.id);assert.throws(()=>s.claimRelease(r.id,'replacement'));assert.throws(()=>s.releasePublication(r.id,'Admin',false));s.releasePublication(r.id,'Admin',true);const recovered=s.publish(r.id,'Admin');assert.equal(recovered.release.phase,'deploying');assert.equal(recovered.release.mergeCommit,merged);assert.ok(s.claimRelease(r.id,'replacement').releaseToken);}finally{db.close();rmSync(dir,{recursive:true,force:true});}});
+
+test('ready transition revalidates once and merges without another polling interval',async()=>{
+ let ready=false,reads=0,writes=0;const normal=ciApi();
+ const api=async(e,m,b)=>{if(e==='graphql'){ready=true;writes++;return {};}if(e.endsWith('/pulls/1')){reads++;return {...pr,draft:!ready};}return normal(e,m,b);};
+ assert.equal((await publishStep({request:packet('ci'),config,run:gitRun,api})).phase,'deploying');assert.equal(reads,2);assert.equal(writes,1);
+});
+test('ready transition stops on changed head and never loops on a persistent draft',async()=>{
+ for(const changed of [true,false]){let ready=false,writes=0;const normal=ciApi();const api=async(e,m,b)=>{if(e==='graphql'){ready=true;writes++;return {};}if(m==='PUT')throw Error('must not merge');if(e.endsWith('/pulls/1'))return {...pr,draft:true,...(changed&&ready?{head:{sha:merged}}:{})};return normal(e,m,b);};
+ const call=()=>publishStep({request:packet('ci'),config,run:gitRun,api});if(changed)await assert.rejects(call,/head/);else assert.equal((await call()).phase,'ci');assert.equal(writes,1);}
+});
+test('post-ready validation rejects changed scope or CI and leaves unknown mergeability pending',async()=>{
+ for(const mode of ['scope','ci','unknown']){let ready=false;const normal=ciApi();const api=async(e,m,b)=>{if(e==='graphql'){ready=true;return {};}if(m==='PUT')throw Error('must not merge');if(e.endsWith('/pulls/1'))return {...pr,draft:!ready,mergeable:ready&&mode==='unknown'?null:true};if(ready&&mode==='scope'&&e.includes('/files?'))return [{filename:'backend/secrets.ts'}];if(ready&&mode==='ci'&&e.includes('/check-runs?'))return {total_count:2,check_runs:[check,{...check,name:'browser-check',conclusion:'failure'}]};return normal(e,m,b);};
+ const call=()=>publishStep({request:packet('ci'),config,run:gitRun,api});if(mode==='unknown')assert.equal((await call()).phase,'ci');else await assert.rejects(call,mode==='scope'?/phạm vi/:/CI/);
+ }
+});
