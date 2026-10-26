@@ -39,7 +39,7 @@ export function checkScope(files, allowed) {
   if (files.some(p => !allowed.includes(p))) throw new ScopeError("Diff có file ngoài allowedPaths; đã dừng.");
 }
 // No shell interpolation. Terminate the whole process group and await close before releasing a claim.
-export function command(executable, args, { cwd, env = process.env, input, signal, timeout = 30 * 60000 } = {}) {
+export function command(executable, args, { cwd, env = process.env, input, signal, onStdout, timeout = 30 * 60000 } = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(executable, args, { cwd, env, stdio: ["pipe", "pipe", "pipe"], detached: true });
     let stdout = "", stderr = "", stopReason = null, killTimer;
@@ -49,7 +49,7 @@ export function command(executable, args, { cwd, env = process.env, input, signa
       try { process.kill(-child.pid, "SIGTERM"); } catch {}
       killTimer ??= setTimeout(() => { try { process.kill(-child.pid, "SIGKILL"); } catch {} }, 5000);
     };
-    child.stdout.on("data", d => { stdout = (stdout + d).slice(-2_000_000); });
+    child.stdout.on("data", d => { stdout = (stdout + d).slice(-2_000_000); onStdout?.(d); });
     child.stderr.on("data", d => { stderr = (stderr + d).slice(-100_000); });
     child.stdin.on("error", () => {});
     child.stdin.end(input);

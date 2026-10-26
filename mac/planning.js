@@ -1,3 +1,4 @@
+import {codexEvents} from './codex-events.js';
 import {sharedWorktree} from './shared-worktree.js';
 import {riskRubric} from '../server/risk-rubric.js';
 import {codexModelArgs} from './codex.js';
@@ -36,18 +37,18 @@ export async function surveyFeedback({job,config,api,run,signal,environment,imag
  if(!direct)try{await lstat(worktree);throw new Error('Worktree khảo sát đã tồn tại; kiểm tra lần chạy cũ.');}catch(e){if(e.code!=='ENOENT')throw e;}
  if(!direct)await git(['worktree','add','--detach',worktree,job.baseCommit]);
  let failureReason="worker";
- let investigation=null;
+ let investigation=null,activity;
  let claim,heartbeat,busy=false,heartbeatLost=false,heartbeatTask=Promise.resolve();const controller=new AbortController(),abort=()=>controller.abort();signal?.addEventListener('abort',abort,{once:true});if(signal?.aborted)abort();
  try{
   const head=await git(['rev-parse','HEAD'],worktree);claim=await api('/'+job.requestId+'/claim',{jobId:job.id,observedBaseCommit:head,contractProtocol:"md-trace-v1",governanceProtocol:"impact-v1",replayProtocol:"planning-replay-v1",attachmentProtocol:"feedback-images-v1",workflowProtocol:"direct-v1"});
   if(claim.request.baseCommit!==head||claim.request.repository!==config.repository||claim.request.projectId!==config.projectId||claim.library.projectId!==config.projectId||claim.library.sourceCommit!==head)throw new Error('Packet khảo sát không khớp checkout.');
   const credentials={jobId:job.id,planningToken:claim.planningToken};
-  heartbeat=setInterval(()=>{if(busy)return;busy=true;heartbeatTask=api('/'+job.requestId+'/heartbeat',credentials).catch(()=>{heartbeatLost=true;controller.abort();}).finally(()=>{busy=false;});},60000);
+  heartbeat=setInterval(()=>{if(busy)return;busy=true;heartbeatTask=api('/'+job.requestId+'/heartbeat',{...credentials,...(activity?{progress:activity.snapshot()}:{})}).catch(()=>{heartbeatLost=true;controller.abort();}).finally(()=>{busy=false;});},60000);
   const outputPath=path.join(config.stateDir,'planning',job.id+'-plan.json');await mkdir(path.dirname(outputPath),{recursive:true,mode:0o700});
   if(job.mode!=='report-only'){
    failureReason="codex";
    const imageArgs=await feedbackImageArgs(claim.request,config,imageToken);
-   const invoke=async(input,timeout)=>run(config.codexPath,['exec',...imageArgs,...codexModelArgs(config,'planning',claim.ai),'--ignore-user-config','--sandbox','read-only','-C',worktree,'--output-schema',fileURLToPath(new URL(claim.request.workflowProtocol==='direct-v1'?'./direct-plan-schema.json':'./plan-schema.json',import.meta.url)),'--output-last-message',outputPath,'-'],{cwd:worktree,env:environment,input,signal:controller.signal,timeout});
+   const invoke=async(input,timeout)=>{activity=codexEvents();return run(config.codexPath,['exec','--json',...imageArgs,...codexModelArgs(config,'planning',claim.ai),'--ignore-user-config','--sandbox','read-only','-C',worktree,'--output-schema',fileURLToPath(new URL(claim.request.workflowProtocol==='direct-v1'?'./direct-plan-schema.json':'./plan-schema.json',import.meta.url)),'--output-last-message',outputPath,'-'],{cwd:worktree,env:environment,input,signal:controller.signal,timeout,onStdout:d=>activity.push(d)});};
    const started=Date.now();
    const result=await invoke(planningPrompt(claim),15*60000);
    if(result.code||controller.signal.aborted)throw new Error('Codex khảo sát đã dừng.');
