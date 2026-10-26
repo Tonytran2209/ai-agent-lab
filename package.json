@@ -14,8 +14,9 @@
     "build": "vite build",
     "start": "node server/index.js",
     "test": "node --test --test-concurrency=1 tests/*.test.js",
-    "check": "node --check server/semantic.js && node --check server/orchestrator.js && node --check server/knowledge.js && node --check server/knowledge-maintenance.js && node --check server/cloud-dispatch.js && node --check server/data-management.js && node --check cloud/worker.js && node --check mac/images.js && node --check server/feedback-images.js && node --check server/impact.js && node --check server/lark.js && node --check server/contracts.js && node --check server/contract-json.js && node --check server/rechecks.js && node --check mac/recheck.js && node --check server/delivery.js && node --check server/index.js && node --check server/service.js && node --check server/mcp.js && node --check server/pipeline.js && node --check server/releases.js && node --check mac/release.js && node --check mac/verify.js && node --check server/verification.js && node --check mac/runner.js && node --check mac/install.js && node --check mac/planning.js && node --check server/local-planning.js && node --check server/project-memory.js && npm run test && npm run build",
-    "eval:impact": "node --test tests/impact.test.js"
+    "check": "node scripts/sync-planning-schemas.js --check && node --check server/semantic.js && node --check server/orchestrator.js && node --check server/knowledge.js && node --check server/knowledge-maintenance.js && node --check server/cloud-dispatch.js && node --check server/data-management.js && node --check cloud/worker.js && node --check mac/images.js && node --check server/feedback-images.js && node --check server/impact.js && node --check server/lark.js && node --check server/contracts.js && node --check server/contract-json.js && node --check server/rechecks.js && node --check mac/recheck.js && node --check server/delivery.js && node --check server/index.js && node --check server/service.js && node --check server/mcp.js && node --check server/pipeline.js && node --check server/releases.js && node --check mac/release.js && node --check mac/verify.js && node --check server/verification.js && node --check mac/runner.js && node --check mac/install.js && node --check mac/planning.js && node --check server/local-planning.js && node --check server/project-memory.js && npm run test && npm run build",
+    "eval:impact": "node --test tests/impact.test.js",
+    "schemas:sync": "node scripts/sync-planning-schemas.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.1",
@@ -31,6 +32,7 @@
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^5.1.1",
-    "vite": "^7.3.1"
+    "vite": "^7.3.1",
+    "zod-to-json-schema": "3.25.2"
   }
 }
