@@ -30,13 +30,15 @@ export const planningPrompt=packet=>packet.request.workflowProtocol==='direct-v1
 export async function surveyFeedback({job,config,api,run,signal,environment,imageToken=process.env.AI_AGENT_LAB_MCP_TOKEN}){
  if(!/^[a-f0-9-]{36}$/.test(job.id)||!/^REQ-[A-F0-9]{8}$/.test(job.requestId)||!/^[a-f0-9]{40}$/.test(job.baseCommit)||job.projectId!==config.projectId||job.repository!==config.repository)throw new Error('Sai định danh khảo sát/project.');
  const git=async(args,cwd=config.repoPath)=>{const r=await run('git',['-c','core.hooksPath=/dev/null','-C',cwd,...args],{signal,timeout:120000});if(r.code)throw new Error('Git khảo sát thất bại.');return r.stdout.trim();};
+ let worktree;const direct=job.workflowProtocol==='direct-v1';
+ try{
  const origin=await git(['remote','get-url','origin']);if(!['https://github.com/'+job.repository+'.git','https://github.com/'+job.repository,'git@github.com:'+job.repository+'.git'].includes(origin))throw new Error('Remote khảo sát không khớp.');
  await git(['fetch','--no-tags','origin',job.baseCommit]);
- const direct=job.workflowProtocol==='direct-v1';
- const worktree=direct?await sharedWorktree(config,job.baseCommit,run,{signal,env:environment}):path.join(config.stateDir,'planning',job.id);await mkdir(path.dirname(worktree),{recursive:true,mode:0o700});
+ worktree=direct?await sharedWorktree(config,job.baseCommit,run,{signal,env:environment}):path.join(config.stateDir,'planning',job.id);await mkdir(path.dirname(worktree),{recursive:true,mode:0o700});
  // Every claim gets a fresh job UUID; an existing directory must never be reused blindly.
  if(!direct)try{await lstat(worktree);throw new Error('Worktree khảo sát đã tồn tại; kiểm tra lần chạy cũ.');}catch(e){if(e.code!=='ENOENT')throw e;}
  if(!direct)await git(['worktree','add','--detach',worktree,job.baseCommit]);
+ }catch(e){await api('/'+job.requestId+'/preflight-failed',{jobId:job.id,observedBaseCommit:job.baseCommit,reason:e.code==='WORKSPACE_DIRTY'?'workspace_dirty':'workspace_prepare'}).catch(()=>{});throw e;}
  let failureReason="worker";
  let investigation=null,activity;
  let claim,heartbeat,busy=false,heartbeatLost=false,heartbeatTask=Promise.resolve();const controller=new AbortController(),abort=()=>controller.abort();signal?.addEventListener('abort',abort,{once:true});if(signal?.aborted)abort();
