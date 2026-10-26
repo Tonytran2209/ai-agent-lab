@@ -15,3 +15,5 @@ A fast-forward test-only commit after an already-reviewed repair may complete wi
 Read-only Codex surveys have a 15-minute first-pass deadline and a 20-minute total budget if one successful plan needs a diagnostic pass. Heartbeats continue throughout; the process group is stopped and awaited before releasing a claim. Timeout, heartbeat loss, runner shutdown and nonzero Codex exit have separate public reasons. Failed model calls are never automatically retried.
 
 Survey activity is collected from Codex JSON events, independently of runner heartbeat. Only stage/counters/timestamps reach Lab; model text and tool arguments are excluded. After three minutes without an event, the task shows that it is waiting on Codex rather than implying ongoing source activity. This telemetry grants no scope, approval or completion authority.
+
+A classification-to-survey handoff failure is recorded as failed with an actionable queue/budget message. Exhausting three survey attempts must never look like a successful handoff or automatically create another model call; manual planning remains available.
