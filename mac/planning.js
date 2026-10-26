@@ -1,4 +1,3 @@
-import {planReport} from '../server/local-planning.js';
 import {directSurveyPrompt} from './direct-survey.js';
 import {codexEvents} from './codex-events.js';
 import {sharedWorktree} from './shared-worktree.js';
@@ -11,7 +10,7 @@ import {mkdir,readFile,writeFile,lstat} from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import {fileURLToPath} from 'node:url';
-import {relativePath} from '../server/schemas.js';
+import {relativePath,draftSchema} from '../server/schemas.js';
 export const planningPrompt=packet=>packet.request.workflowProtocol==='direct-v1'?directSurveyPrompt(packet):[
  'Survey this pinned repository in READ-ONLY mode and return a concise Vietnamese implementation plan. You have NO permission to edit files, install dependencies, commit, push, approve, merge, deploy, or call MCP tools. You may run existing targeted offline non-browser tests inside the read-only sandbox with a short timeout; no network, production calls, writes or broad package scripts. If dependencies or write access are missing, record that limitation and plan the scoped regression for execution. Never claim a test ran when it did not.',
  'Read AGENTS.md and relevant actual source. Never read secrets, .env, credentials, keys, home files or anything outside this checkout. Verify root-cause hypotheses against code, cite exact paths and existing line ranges. Do not claim tests ran. Preserve the original feedback intent; do not ask users for internal file names. Separate technical investigation from product decisions. Missing root-cause knowledge alone is not a human checkpoint or a reason to inflate risk.',
@@ -75,7 +74,7 @@ export async function surveyFeedback({job,config,api,run,signal,environment,imag
   for(const e of plan.evidence){relativePath.parse(e.path);if(!sourcePaths.includes(e.path)||!Number.isInteger(e.startLine)||!Number.isInteger(e.endLine)||e.startLine<1||e.endLine<e.startLine)throw new Error('Sai bằng chứng khảo sát.');let full=worktree;for(const part of e.path.split('/')){full=path.join(full,part);if((await lstat(full)).isSymbolicLink())throw new Error('Không đọc bằng chứng qua symlink.');}const text=await readFile(full,'utf8');if(e.endLine>text.split('\n').length)throw new Error('Dòng bằng chứng không tồn tại.');const actualHash=crypto.createHash('sha256').update(text).digest('hex');if(job.mode==='report-only'&&e.contentHash!==actualHash)throw new Error('Artifact không khớp bằng chứng pinned source.');e.contentHash=actualHash;}
   clearInterval(heartbeat);await heartbeatTask;if(controller.signal.aborted)throw new Error('Mất heartbeat khảo sát.');
   const report={observedBaseCommit:head,draft:plan.draft,evidence:plan.evidence,...(investigation?{investigation}:job.mode==='report-only'&&plan.investigation?{investigation:plan.investigation}:{})};await writeFile(outputPath,JSON.stringify(report),{mode:0o600});
-  const validated=planReport.safeParse(report);if(!validated.success)throw Object.assign(Error('Kế hoạch không khớp schema server.'),{planningFailureReason:'validation',validationDetails:validated.error.issues.map(i=>({path:i.path.join('.'),code:i.code,message:i.message})).slice(0,12)});
+  const validated=draftSchema.safeParse(report.draft);if(!validated.success)throw Object.assign(Error('Kế hoạch không khớp schema server.'),{planningFailureReason:'validation',validationDetails:validated.error.issues.map(i=>({path:'draft.'+i.path.join('.'),code:i.code,message:i.message})).slice(0,12)});
   failureReason="report";
   return await api('/'+job.requestId+'/report',{...credentials,report});
  }catch(e){clearInterval(heartbeat);await heartbeatTask;await writeFile(path.join(config.stateDir,'planning',job.id+'-diagnostic.json'),JSON.stringify({protocol:'survey-diagnostic-v1',requestId:job.requestId,jobId:job.id,phase:failureReason,reason:e.code||e.planningFailureReason||failureReason,activity:activity?.diagnostics(),process:e.diagnostics||null,validationDetails:e.validationDetails||[],at:new Date().toISOString()}),{mode:0o600}).catch(()=>{});if(claim)await api('/'+job.requestId+'/fail',{jobId:job.id,planningToken:claim.planningToken,...(e.validationDetails?{validationDetails:e.validationDetails}:{}),reason:heartbeatLost?'heartbeat':e.code==='COMMAND_ABORTED'?'cancelled':e.code==='COMMAND_TIMEOUT'&&failureReason==='codex'?'codex_timeout':e.planningFailureReason||failureReason}).catch(()=>{});throw new Error('Khảo sát trên Mac chưa hoàn tất; xem trạng thái Lab.');}
