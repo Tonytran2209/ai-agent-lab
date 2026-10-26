@@ -1,3 +1,4 @@
+import {reportedRetryPassed} from './recheck-policy.js';
 import {isTestFollowupPath} from './criterion-ci.js';
 import {executionReadiness} from './execution-readiness.js';
 import {projectQueueState} from './project-queue.js';
@@ -458,7 +459,10 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
         const ci = result.browserVerification === "ci" && localChecksPassed(r);
         if (ci) r.verification = newVerification(r, owner);
         r.status = ci ? "verifying" : passed && contractSatisfied(r) ? "review" : "failed"; r.lease = null;
-        return changed(r, ci ? "browser_verification_queued" : passed && contractSatisfied(r) ? "ready_for_review" : "verification_failed", owner, result.summary);
+        const completed=changed(r, ci ? "browser_verification_queued" : passed && contractSatisfied(r) ? "ready_for_review" : "verification_failed", owner, result.summary);
+        // A claimed retry is only a reason to recheck, never proof of success.
+        if(reportedRetryPassed(r)&&!r.recheck?.lease&&(r.recheck?.attempts||0)<3&&projects.get(r.projectId).runnerEnabled&&projects.get(r.projectId).enabled)return service.rechecks.queue(id,owner,resultRevision(r));
+        return completed;
       });
     },
     release(id, actor, note) {
