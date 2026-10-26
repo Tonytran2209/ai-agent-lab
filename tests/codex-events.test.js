@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {codexEvents} from '../mac/codex-events.js';
-import {taskProgress} from '../src/workflow.js';
+import {taskProgress,requiresAttention,workflowMessage} from '../src/workflow.js';
 
 test('Codex progress handles fragmented JSON without retaining model/tool contents',()=>{
  let now=Date.parse('2026-10-26T02:00:00Z');const p=codexEvents(()=>now);
@@ -16,4 +16,10 @@ test('live runner heartbeat cannot disguise silent Codex as source activity',()=
  assert.equal(taskProgress(r).title,'Đang chờ phản hồi từ Codex');
  r.planning.progress.lastEventAt=new Date().toISOString();assert.equal(taskProgress(r).title,'Codex đang khảo sát');
  delete r.planning.progress;assert.equal(taskProgress(r).title,'Codex đang khảo sát');
+});
+
+
+test('historical preparation failure cannot mask a recovered execution',()=>{
+ const r={status:'running',preparation:{engine:'lab-agent',status:'failed',error:'OLD_HANDOFF_FAILURE'},approval:{},lease:{expiresAt:new Date(Date.now()+600000).toISOString()}};
+ assert.equal(taskProgress(r).failed,false);assert.equal(requiresAttention(r),false);assert.ok(!workflowMessage(r,{online:true}).includes('OLD_HANDOFF_FAILURE'));
 });
