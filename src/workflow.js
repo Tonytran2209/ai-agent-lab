@@ -27,7 +27,7 @@ export function workflowMessage(request, runner, aiConfigured = true) {
   if(request.verification?.phase==='failed')return request.verification.note;
   if(request.workflowProtocol!=='direct-v1'&&request.status==='failed'&&request.result&&request.contract?.required&&!request.contract.complete)return "Liên kết tiêu chí/bằng chứng hoặc đánh giá tài liệu chưa đủ. Xem Quy định MD → tiêu chí → bằng chứng; CI chung không thay thế phần còn thiếu.";
   if(request.contractProtocol&&request.preparation?.status==='queued'&&runner?.contractProtocol!==request.contractProtocol)return "Feedback đã lưu. Chờ Mac runner nạp bản hỗ trợ liên kết MD; chưa gọi khảo sát AI.";
-  if(request.status==="rechecking")return "Mac sẽ kiểm tra lại artifact trên đúng commit, nhận diện CRLF. Không gọi AI hoặc sửa code; lỗi cũ vẫn nằm trong lịch sử.";
+  if(request.status==="rechecking")return "Mac kiểm tra lại build/typecheck và diff trên đúng commit đã lưu. Không gọi AI hoặc sửa code; lỗi cũ vẫn nằm trong lịch sử.";
   if(request.preparation?.engine==='codex-local'&&(['queued','running'].includes(request.preparation.status)||preparationFailed(request))){
     if(request.preparation.status==='queued'&&request.planning?.budgetRemaining===0)return 'Project đã dùng hết 20 lượt khảo sát hôm nay (UTC). Feedback vẫn được giữ và sẽ tiếp tục khi ngân sách ngày mới mở; không gọi thêm AI.';
     if(request.preparation.status==='queued')return runner?.connected?'Đã lưu feedback. Codex sẽ đọc code và MD khi worker rảnh.':'Đã lưu feedback. Chờ worker kết nối để đọc code và MD.';
