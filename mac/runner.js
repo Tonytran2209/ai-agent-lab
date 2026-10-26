@@ -1,3 +1,4 @@
+import {codexFailureCategory} from './codex-events.js';
 import {sharedWorktree} from './shared-worktree.js';
 import {pollCiRepairs} from './repair.js';
 import {startMonitor} from './monitor.js';
@@ -43,6 +44,7 @@ export function command(executable, args, { cwd, env = process.env, input, signa
   return new Promise((resolve, reject) => {
     const child = spawn(executable, args, { cwd, env, stdio: ["pipe", "pipe", "pipe"], detached: true });
     let stdout = "", stderr = "", stopReason = null, killTimer;
+    const started=Date.now();
     const stop = reason => {
       if (stopReason) return;
       stopReason = reason;
@@ -61,8 +63,9 @@ export function command(executable, args, { cwd, env = process.env, input, signa
     child.once("error", e => { cleanup(); reject(e); });
     child.once("close", (code, exitSignal) => {
       cleanup();
-      if (stopReason) return reject(Object.assign(new Error(stopReason === "COMMAND_TIMEOUT" ? "Tiến trình vượt thời gian cho phép." : "Tiến trình bị hủy do mất heartbeat hoặc shutdown."), {code:stopReason}));
-      resolve({code:code ?? 1, stdout, stderr, signal:exitSignal});
+      const diagnostics={elapsedSeconds:Math.floor((Date.now()-started)/1000),stdoutBytes:Buffer.byteLength(stdout),stderrBytes:Buffer.byteLength(stderr),exitCode:code,signal:exitSignal,category:codexFailureCategory(stderr)};
+      if (stopReason) return reject(Object.assign(new Error(stopReason === "COMMAND_TIMEOUT" ? "Tiến trình vượt thời gian cho phép." : "Tiến trình bị hủy do mất heartbeat hoặc shutdown."), {code:stopReason,diagnostics}));
+      resolve({code:code ?? 1, stdout, stderr, signal:exitSignal,diagnostics});
     });
   });
 }
