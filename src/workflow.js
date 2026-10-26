@@ -11,7 +11,7 @@ export const workflowLabels = {
   failed: "Kiểm tra thất bại — cần xử lý",
   rejected: "Request đã bị từ chối",
 };
-const preparationFailed=r=>r.preparation?.status==='failed'&&['feedback','needs-triage','draft','awaiting-approval'].includes(r.status)&&!r.approval&&!r.result&&!r.lease;
+export const preparationFailed=r=>r.preparation?.status==='failed'&&['feedback','needs-triage','draft','awaiting-approval'].includes(r.status)&&!r.approval&&!r.result&&!r.lease;
 export function preparationRunning(request) {
   if(request.preparation?.engine==="codex-local")return request.preparation.status==="running"&&Boolean(request.planning?.lease)&&Date.parse(request.planning.lease.expiresAt)>Date.now();
   return request.preparation?.status === "running" && Date.now() - Date.parse(request.preparation.startedAt) < 90000;
