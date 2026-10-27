@@ -29,3 +29,8 @@ test('control APIs require admin session and CSRF; worker bearer can only poll f
  assert.equal((await post('/api/settings/runner-control',admin,{action:'restart'})).status,200);
  }finally{await new Promise(r=>server.close(r));db.close();rmSync(dir,{recursive:true,force:true});}
 });
+
+test('CI/deploy monitor stays busy until its active work drains before restart can be considered idle',async()=>{
+ const {startMonitor}=await import('../mac/monitor.js');let resolve;const state=[];const monitor=startMonitor(()=>new Promise(r=>{resolve=r;}),{intervalMs:100000,onState:v=>state.push(v)});
+ const run=monitor.tick();await Promise.resolve();await Promise.resolve();assert.equal(monitor.isBusy(),true);assert.deepEqual(state,[true]);const stopped=monitor.stop();assert.equal(monitor.isBusy(),true);resolve();await run;await stopped;assert.equal(monitor.isBusy(),false);assert.deepEqual(state,[true,false]);
+});

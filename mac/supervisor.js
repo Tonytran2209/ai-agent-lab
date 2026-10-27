@@ -23,14 +23,14 @@ export async function supervise(configPath){
  const start=()=>{
   connected=false;childBootAt=new Date().toISOString();state={safeIdle:false};seen=Date.now();
   child=fork(fileURLToPath(new URL('./runner.js',import.meta.url)),[configPath],{env:process.env,stdio:['ignore','inherit','inherit','ipc']});const owned=child;
-  owned.on('message',m=>{if(m?.type==='runner-state'){state={safeIdle:m.safeIdle===true};seen=Date.now();}if(m?.type==='connected'){connected=true;if(pending&&['restart','reconnect'].includes(pending.action))void finish(pending,'completed',pending.action==='restart'?'Runner mới đã kết nối Lab.':'Đã tạo lại kết nối Lab.').catch(()=>{});}});
+  owned.on('message',m=>{if(m?.type==='runner-state'){state={safeIdle:m.safeIdle===true};seen=Date.now();}if(m?.type==='connected'){connected=true;if(pending?.sent&&['restart','reconnect'].includes(pending.action))void finish(pending,'completed',pending.action==='restart'?'Runner mới đã kết nối Lab.':'Đã tạo lại kết nối Lab.').catch(()=>{});}});
   let exited=false;
   const onExit=async()=>{if(exited)return;exited=true;
    child=null;connected=false;
    // Never discard locks from a busy crashed coding process: its detached tools may still be writing.
    if(!stopping&&state.safeIdle){const lock=path.join(config.stateDir,'runner.lock');try{if((await readFile(path.join(lock,'pid'),'utf8')).trim()===String(owned.pid))await rm(lock,{recursive:true});}catch{}}
    restarts=restarts.filter(t=>Date.now()-t<10*60000);restarts.push(Date.now());await writeFile(restartsFile,JSON.stringify(restarts),{mode:0o600});nextStart=Date.now()+restartDelay(restarts);
-  };owned.once('exit',()=>void onExit());owned.once('error',()=>void onExit());
+  };owned.once('exit',()=>void onExit().catch(()=>{nextStart=Date.now()+60000;}));owned.once('error',()=>void onExit().catch(()=>{nextStart=Date.now()+60000;}));
  };
  const stop=()=>{stopping=true;child?.kill('SIGTERM');};process.once('SIGTERM',stop);process.once('SIGINT',stop);
  const tick=async()=>{
@@ -45,7 +45,8 @@ export async function supervise(configPath){
    const c=(await api('?workerId='+workerId)).command;
    if(!c)pending=null;
    if(c&&!['restart','reconnect','check-codex'].includes(c.action))throw Error('Unknown control action');
-   if(c&&pending?.id!==c.id){await api('/'+c.id+'/claim',{workerId});pending=c;
+   if(c){if(pending?.id!==c.id){if(!child||!idleRestart(state))return;await api('/'+c.id+'/claim',{workerId});pending={...c,sent:false};}
+    if(!child||!idleRestart(state)||pending.sent)return;pending.sent=true;
     if(c.action==='restart'){child.kill('SIGTERM');}
     else if(c.action==='reconnect'){child.send({type:'reconnect'});}
     else if(c.action==='check-codex'){await check();await finish(c,health.state==='ready'?'completed':'failed',health.state==='ready'?'Phiên Codex CLI đang đăng nhập; chưa gọi model.':health.state==='login-required'?'Cần đăng nhập Codex trên Mac.':'Chưa xác minh được Codex CLI; kiểm tra cài đặt/kết nối trên Mac.');}

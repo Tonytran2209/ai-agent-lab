@@ -275,7 +275,7 @@ export async function main(configPath) {
   let lastTelemetry={phase:"polling",requestId:null,contractProtocol:"md-trace-v1",governanceProtocol:"impact-v1",attachmentProtocol:"feedback-images-v1"};
   const reportStatus = async value => {
     lastTelemetry={...lastTelemetry,...value};
-    ipc({type:'runner-state',safeIdle,phase:lastTelemetry.phase,at:new Date().toISOString()});
+    ipc({type:'runner-state',safeIdle:safeIdle&&!monitor.isBusy(),phase:lastTelemetry.phase,at:new Date().toISOString()});
     // Telemetry failure never grants/releases execution authority. Old backends may return 404.
     try {
       await fetch(new URL("/runner/status", config.mcpUrl), { method: "POST", signal: AbortSignal.timeout(10000),
@@ -292,7 +292,7 @@ export async function main(configPath) {
         {name:c.projectId+' / release',run:()=>pollReleases(c,token,command,controller.signal)}
       ],controller.signal,name=>log('Monitor '+name+' chưa hoàn tất; sẽ kiểm tra lại.'));
     }
-  },{onError:()=>log('Monitor CI/deploy sẽ kiểm tra lại.')});
+  },{onError:()=>log('Monitor CI/deploy sẽ kiểm tra lại.'),onState:active=>ipc({type:'runner-state',safeIdle:safeIdle&&!active,at:new Date().toISOString()})});
   try {
     log("Mac runner started; local-planning-v1; polling approved requests.");
     while (!controller.signal.aborted) {
@@ -326,7 +326,7 @@ export async function main(configPath) {
         }
       } catch { connectionFailures++;wasConnected = false; await reportStatus({phase:"error",requestId:null}); log("Không kết nối được Lab. Sẽ thử lại; kiểm tra URL/token/network."); }
       finally { await connection?.client.close().catch(() => {}); }
-      safeIdle=true;ipc({type:'runner-state',safeIdle,at:new Date().toISOString()});
+      safeIdle=true;ipc({type:'runner-state',safeIdle:safeIdle&&!monitor.isBusy(),at:new Date().toISOString()});
       if (!controller.signal.aborted) await new Promise(resolve => {
         const finish = () => { clearTimeout(timer);wake=null;controller.signal.removeEventListener("abort", finish); resolve(); };wake=finish;
         const timer = setTimeout(finish, Math.min(60000,Math.max(5000, Number(config.pollIntervalMs) || 15000)*2**Math.min(connectionFailures,3))+Math.floor(Math.random()*1000));
