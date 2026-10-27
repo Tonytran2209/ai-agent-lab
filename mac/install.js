@@ -1,3 +1,4 @@
+import {managedMacFiles} from './install-files.js';
 import { execFileSync } from "node:child_process";
 import { mkdir, writeFile, chmod, cp, access } from "node:fs/promises";
 import { homedir, userInfo } from "node:os";
@@ -32,7 +33,7 @@ if (!dryRun) {
     await cp(path.join(sourceRoot,"mac","ci-templates"),path.join(root,"mac","ci-templates"),{recursive:true});
     await cp(path.join(sourceRoot, "package.json"), path.join(root, "package.json"));
     await mkdir(path.join(root, "mac"), { recursive: true });
-    for (const name of ["shared-worktree.js", "direct-plan-schema.json", "repair.js", "codex.js", "monitor.js", "images.js", "runner.js", "recheck.js", "release.js", "verify.js", "projects.js", "ci-setup.js", "ci-template.js", "planning.js", "plan-schema.json", "install.js", "result-schema.json"]) await cp(path.join(sourceRoot, "mac", name), path.join(root, "mac", name));
+    for (const name of await managedMacFiles(path.join(sourceRoot,'mac'))) await cp(path.join(sourceRoot, "mac", name), path.join(root, "mac", name));
   }
   repoPath = path.join(root, "repository");
   let exists = true;
