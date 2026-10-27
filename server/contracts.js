@@ -3,7 +3,7 @@ import crypto from 'node:crypto';
 import {z} from 'zod';
 const path=z.string().min(1).max(240).regex(/^[a-zA-Z0-9_./-]+$/).refine(p=>!p.includes('..')&&!p.startsWith('/')&&!/(^|\/)(\.env|\.git|node_modules)(\/|\.|$)/.test(p));
 const docPath=path.refine(p=>p.startsWith('.agent-hub/')&&p.endsWith('.md'));
-export const documentationReviewSchema=z.object({updatesNeeded:z.boolean(),documents:z.array(docPath).max(11),reason:z.string().trim().min(20).max(2000)});
+export const documentationReviewSchema=z.object({updatesNeeded:z.boolean(),documents:z.array(docPath).max(11),referenceDocuments:z.array(docPath).max(11).optional(),reason:z.string().trim().min(20).max(2000)});
 export const ruleReferenceSchema=z.object({path:docPath,startLine:z.number().int().positive(),endLine:z.number().int().positive(),quote:z.string().min(15).max(1500),contentHash:z.string().regex(/^[a-f0-9]{64}$/).optional(),libraryCommit:z.string().optional()});
 export const traceSchema=z.array(z.object({criterionIndex:z.number().int().min(0).max(11),criterion:z.string().min(5).max(1000),rules:z.array(ruleReferenceSchema).min(1).max(3),verification:z.object({method:z.enum(['test','inspection']),command:z.string().max(200),files:z.array(path).min(1).max(5),expected:z.string().min(15).max(1000)})})).min(1).max(12);
 export const criterionEvidenceSchema=z.array(z.object({criterionIndex:z.number().int().min(0).max(11),outcome:z.enum(['passed','failed','pending-ci']),method:z.enum(['test','inspection']),command:z.string().max(200),files:z.array(path).min(1).max(5),detail:z.string().min(30).max(2000)})).max(12);
@@ -44,4 +44,15 @@ export function documentationImpact(r,library){
  if(code.some(p=>/^(supabase\/|backend\/supabase)/.test(p)))for(const p of ['database/data-model.md','database/storage.md'])add('.agent-hub/'+p,'Thay đổi có thể ảnh hưởng dữ liệu/storage.');
  if(code.some(p=>/^src\//.test(p)))for(const p of ['design/components.md','design/flows.md'])add('.agent-hub/'+p,'Thay đổi frontend cần đối chiếu mô tả component/luồng.');
  return {attestation:'deterministic-candidates',candidates:[...targets].map(([path,reasons])=>({path,reasons})),review:r.result?.documentationReview||r.draft?.documentationReview||null,note:'Đây là dấu hiệu cần rà soát, không tự kết luận tài liệu đã lỗi thời.'};
+}
+
+// Shared worker/server contract. References never grant edit scope.
+export function documentationScopeIssues(draft,library){
+ const review=draft.documentationReview;if(!review)return [];
+ const issues=[];const add=(path,code,message)=>issues.push({path,code,message});
+ if(review.updatesNeeded&&!review.documents.length)add('draft.documentationReview.documents','MD_UPDATE_EMPTY','Cần liệt kê chính xác MD phải sửa; tài liệu chỉ tham khảo thuộc referenceDocuments.');
+ if(review.updatesNeeded)for(const [i,p] of review.documents.entries())if(!draft.allowedPaths.includes(p))add('draft.documentationReview.documents.'+i,'MD_UPDATE_OUTSIDE_SCOPE','MD cần sửa chưa nằm trong allowedPaths: '+p+'. Nếu chỉ đọc đối chiếu, chuyển sang referenceDocuments; không tự mở rộng phạm vi.');
+ if(review.updatesNeeded)for(const [i,p] of (review.referenceDocuments||[]).entries())if(review.documents.includes(p))add('draft.documentationReview.referenceDocuments.'+i,'MD_ROLE_CONFLICT','Tài liệu vừa được khai báo cần sửa vừa chỉ tham khảo: '+p);
+ if(library)for(const field of ['documents','referenceDocuments'])for(const [i,p] of (review[field]||[]).entries())if(!library.documents.some(d=>d.path===p))add('draft.documentationReview.'+field+'.'+i,'MD_NOT_PINNED','Tài liệu không thuộc MD library đã ghim: '+p);
+ return issues;
 }
