@@ -1,3 +1,4 @@
+import {offlineContractCheck,offlineContractRequest} from '../server/recheck-policy.js';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import {mkdir} from 'node:fs/promises';
@@ -16,7 +17,7 @@ export async function recheckArtifact(r,config,run,signal,prepare,env){
   const build=await run('npm',['run','check'],{cwd:worktree,env,signal,timeout:5*60000});
   const whitespace=await run('git',['-C',worktree,'-c','core.whitespace=cr-at-eol','diff','--check',r.baseCommit,r.result.commit],{env,signal,timeout:60000});
   const additional=[];
-  for(const cmd of r.recheck?.commands||[]){if(!['npm run typecheck','npm run build'].includes(cmd))throw new Error('Unsupported recheck command');const checked=await run('npm',['run',cmd.slice(8)],{cwd:worktree,env,signal,timeout:5*60000});additional.push({command:cmd,passed:checked.code===0,output:'Independent exact-commit recheck '+r.result.commit+'; exit '+checked.code});}
+  for(const cmd of r.recheck?.commands||[]){if(!['npm run typecheck','npm run build',offlineContractCheck].includes(cmd)||cmd===offlineContractCheck&&!offlineContractRequest(r))throw new Error('Unsupported recheck command');const checked=cmd===offlineContractCheck?await run(process.execPath,['node_modules/@playwright/test/cli.js','test','--config=playwright.agent-lab.config.mjs','tests/agent-lab/gate3-channels.spec.mjs','--grep','G3_OFFLINE|offline Threads','--reporter=line'],{cwd:worktree,env,signal,timeout:5*60000}):await run('npm',['run',cmd.slice(8)],{cwd:worktree,env,signal,timeout:5*60000});additional.push({command:cmd,passed:checked.code===0,output:('Independent exact-commit recheck '+r.result.commit+'; exit '+checked.code+'\n'+checked.stdout+'\n'+checked.stderr).slice(-3500)});}
   const status=await run('git',['-C',worktree,'status','--porcelain','--untracked-files=no'],{env,signal,timeout:60000});
   const observed=await run('git',['-C',worktree,'rev-parse','HEAD'],{env,signal,timeout:60000});
   if(observed.code||observed.stdout.trim()!==r.result.commit)throw new Error('HEAD đã thay đổi trong lúc kiểm tra.');
