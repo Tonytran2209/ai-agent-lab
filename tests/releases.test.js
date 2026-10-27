@@ -70,7 +70,7 @@ test('Railway success must belong to the expected commit, environment and Railwa
 test('release HTTP endpoints require admin acceptance and authenticated publisher; claims never leak to readers',async()=>{
  const {createApp}=await import('../server/index.js');
  const dir=mkdtempSync(path.join(os.tmpdir(),'release-http-'));
- const config={DATA_DIR:dir,MD_TRACEABILITY_ENABLED:"false",ADMIN_PASSWORD:'admin-'.repeat(6),USER_PASSWORD:'member-'.repeat(6),MCP_TOKEN:'mcp-'.repeat(10),SESSION_SECRET:'session-'.repeat(6)};
+ const config={NODE_ENV:'test',DATA_DIR:dir,MD_TRACEABILITY_ENABLED:"false",ADMIN_PASSWORD:'admin-'.repeat(6),USER_PASSWORD:'member-'.repeat(6),MCP_TOKEN:'mcp-'.repeat(10),SESSION_SECRET:'session-'.repeat(6)};
  const {app,db,service:s}=createApp(config);const server=app.listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));const origin='http://127.0.0.1:'+server.address().port;
  try{
   const r=s.create({feedback:'Thay dấu gạch ngang hiển thị Draft.'},'Member');s.submit(r.id,draft,'Admin');const c=s.claim(r.id,'Mac',r.baseCommit);s.complete(r.id,c.claimToken,report);

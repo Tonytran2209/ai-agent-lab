@@ -1,3 +1,4 @@
+import {readCiProfile} from './ci-profile.js';
 import { fail } from './schemas.js';
 import { repositorySchema, branchSchema, projectIdSchema } from './projects.js';
 export const canonicalDocuments = ['project.md','policies/ownership.md','policies/automation.md','design/components.md','design/design.md','design/flows.md','design/sources.md','backend/api-contracts.md','backend/workflow.md','database/data-model.md','database/storage.md'].map(p=>'.agent-hub/'+p);
@@ -30,7 +31,7 @@ export async function readRepositoryLibrary(repository, branch, token, existing)
     return {path:file,content:Buffer.from(v.content,'base64').toString('utf8')};
   })));}
   const identity=parseProjectContract(documents.find(d=>d.path==='.agent-hub/project.md').content,repository);
-  return {...identity,repository,branch,sourceCommit:commit.sha,syncedAt:new Date().toISOString(),documents,sourcePaths:paths,ciReady:paths.some(p=>/^\.github\/workflows\/[^/]+\.ya?ml$/.test(p))};
+  return {...identity,repository,branch,sourceCommit:commit.sha,syncedAt:new Date().toISOString(),documents,sourcePaths:paths,ciProfile:await readCiProfile(tree.tree,github,commit.sha),ciReady:paths.some(p=>/^\.github\/workflows\/[^/]+\.ya?ml$/.test(p))};
 }
 export async function syncLibrary(service, token, projectId='writer-studio') {
   const p=service.project(projectId),previous=service.currentLibrary(projectId),next=await readRepositoryLibrary(p.repository,p.branch,token,previous);return next===previous?previous:service.addLibrary(next);

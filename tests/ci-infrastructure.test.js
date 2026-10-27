@@ -9,7 +9,7 @@ test('a separate code failure cannot be hidden by an infrastructure failure',asy
 test('single browser-check workflows also expose setup failures before tests',async()=>{const mono={...run,name:'browser-check'};const out=await ciInfrastructure(async()=>({...job,name:mono.name}),{check_runs:[mono]},sha);assert.equal(out.failureKind,'infrastructure');assert.equal(out.jobs[0].name,'browser-check');});
 
 test('named browser assertions are test failures, with the exact failed step',async()=>{
- const out=await ciInfrastructure(async()=>({...job,steps:[{name:'Run browser tests',status:'completed',conclusion:'failure'}]}),response,sha);
+ const out=await ciInfrastructure(async(p,logs)=>logs?'Error: expect(locator).toHaveCSS(expected) failed':({...job,steps:[{name:'Run browser tests',status:'completed',conclusion:'failure'}]}),response,sha);
  assert.equal(out.failureKind,'test');assert.equal(out.jobs[0].failedStep,'Run browser tests');
 });
 test('container startup failures and pinned Chromium preflight remain infrastructure failures',async()=>{

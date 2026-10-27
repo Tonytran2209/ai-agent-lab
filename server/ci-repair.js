@@ -9,7 +9,7 @@ const hash=s=>crypto.createHash('sha256').update(s).digest('hex');
 export function createCiRepair(db,service){
  const read=id=>service.rawForAnalysis(id),save=r=>db.prepare('UPDATE requests SET data=? WHERE id=?').run(JSON.stringify(r),r.id);
  const pub=r=>{const c=r.ciRepair;if(!c)return null;const {lease,...rest}=c;return {...rest,lease:lease?{expiresAt:lease.expiresAt}:null};};
- const authority=r=>{service.assertProjectTurn(r.id);service.assertRepairAuthority(r.id);if(!service.project(r.projectId).ciRepairEnabled||r.draft.risk==='high'||r.release||!r.ciObservation?.failed||['infrastructure','unknown'].includes(r.ciObservation.failureKind)||r.lease||r.verification?.lease)fail('Request chưa đủ quyền sửa CI.');};
+ const authority=r=>{service.assertProjectTurn(r.id);service.assertRepairAuthority(r.id);if(!service.project(r.projectId).ciRepairEnabled||r.draft.risk==='high'||r.release||!r.ciObservation?.failed||['infrastructure','configuration','unknown'].includes(r.ciObservation.failureKind)||r.lease||r.verification?.lease)fail('Request chưa đủ quyền sửa CI.');};
  const event=(r,type,note)=>{r.updatedAt=new Date().toISOString();save(r);db.prepare('INSERT INTO events(request_id,data) VALUES (?,?)').run(r.id,JSON.stringify({type,actor:'CI recovery',detail:note,at:r.updatedAt}));};
  const verify=(id,token)=>{const r=read(id);authority(r);if(typeof token!=='string'||!r.ciRepair?.lease||r.ciRepair.lease.hash!==hash(token)||Date.parse(r.ciRepair.lease.expiresAt)<=Date.now())fail('Claim sửa CI không hợp lệ.');return r;};
  return {

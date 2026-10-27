@@ -1,7 +1,8 @@
+import {classifyCiLog} from './ci-failure.js';
 // Read-only diagnosis of exact-head GitHub jobs. Observation never grants CI success.
 const matrixName=/^browser-tests \((desktop|mobile)\)$/;
 const testStep=/playwright test|Run browser tests|npm run test:browser/;
-const setupStep=/playwright install|Prepare Chromium|install-deps|Verify pinned Playwright environment|Initialize containers|Set up job|actions\/(setup-node|checkout)@/;
+const setupStep=/playwright install|Prepare Chromium|install-deps|Verify pinned Playwright environment|Initialize containers|Set up job|Checkout pinned CI tools|actions\/(setup-node|checkout)@/;
 export async function ciInfrastructure(api,response,commit){
  const latest=new Map();
  for(const run of response.check_runs||[]){
@@ -28,14 +29,16 @@ export async function ciInfrastructure(api,response,commit){
   row.failedStep=step?.name;
   if(aggregate){row.stage='Thiếu kết quả desktop/mobile hoặc tổng hợp bằng chứng thất bại';continue;}
   const testsStarted=job.steps?.some(s=>testStep.test(s.name)&&(s.status==='in_progress'||s.status==='completed'&&s.conclusion!=='skipped'));
-  const kind=step&&setupStep.test(step.name)&&!testsStarted?'infrastructure':step&&testStep.test(step.name)?'test':step&&run.name==='writer-check'&&/^Run (?:npm (?:run (?:check|typecheck|build)|(?:--prefix backend )?test)|node --test)/.test(step.name)?'code':'unknown';
-  row.failureKind=kind;row.stage=kind==='infrastructure'?'Lỗi chuẩn bị Chromium/môi trường; chưa chạy test':kind==='test'?'Kiểm thử giao diện thất bại':kind==='code'?'Kiểm tra code thất bại':'Chưa xác định nguyên nhân; cần xem bước lỗi';kinds.push(kind);
+  let log;try{if(step)log=await api('actions/jobs/'+match[1]+'/logs',true);}catch{}
+  const diagnosed=classifyCiLog(log,commit,run.name!=='writer-check');
+  const kind=diagnosed||(step?.name==='Verify CI configuration'?'configuration':null)||(step&&setupStep.test(step.name)&&!testsStarted?'infrastructure':'unknown');
+  row.failureKind=kind;row.stage=kind==='configuration'?'Cấu hình CI không tương thích; cần đồng bộ công cụ/fixture':kind==='infrastructure'?'Lỗi chuẩn bị Chromium/môi trường; chưa chạy test':kind==='test'?'Kiểm thử giao diện thất bại':kind==='code'?'Kiểm tra code thất bại':'Chưa xác định nguyên nhân; cần xem bước lỗi';kinds.push(kind);
  }
  // Do not hide independent failures or a broken aggregate whose shards all passed.
  const otherFailure=[...latest.values()].some(r=>r.status==='completed'&&!['success','neutral','skipped'].includes(r.conclusion)&&!['writer-check','browser-check'].includes(r.name)&&!matrixName.test(r.name));
  const aggregate=latest.get('browser-check');
  if(hasMatrix&&aggregate?.status==='completed'&&!['success','neutral','skipped'].includes(aggregate.conclusion)&&!kinds.length)kinds.push('unknown');
  if(otherFailure)kinds.push('unknown');
- const failureKind=!kinds.length?undefined:kinds.includes('unknown')?'unknown':kinds.includes('test')?'test':kinds.includes('code')?'code':'infrastructure';
+ const failureKind=!kinds.length?undefined:kinds.includes('unknown')?'unknown':kinds.includes('configuration')?'configuration':kinds.includes('test')?'test':kinds.includes('code')?'code':'infrastructure';
  return {jobs,failureKind};
 }
