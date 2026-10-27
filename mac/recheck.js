@@ -1,3 +1,4 @@
+import {offlineCheck} from './offline-check.js';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import {mkdir} from 'node:fs/promises';
@@ -16,7 +17,7 @@ export async function recheckArtifact(r,config,run,signal,prepare,env){
   const build=await run('npm',['run','check'],{cwd:worktree,env,signal,timeout:5*60000});
   const whitespace=await run('git',['-C',worktree,'-c','core.whitespace=cr-at-eol','diff','--check',r.baseCommit,r.result.commit],{env,signal,timeout:60000});
   const additional=[];
-  for(const cmd of r.recheck?.commands||[]){if(!['npm run typecheck','npm run build'].includes(cmd))throw new Error('Unsupported recheck command');const checked=await run('npm',['run',cmd.slice(8)],{cwd:worktree,env,signal,timeout:5*60000});additional.push({command:cmd,passed:checked.code===0,output:'Independent exact-commit recheck '+r.result.commit+'; exit '+checked.code});}
+  for(const cmd of r.recheck?.commands||[]){if(cmd==='lab:offline-check'){additional.push(await offlineCheck(r,worktree,run,env,signal));continue;}if(!['npm run typecheck','npm run build'].includes(cmd))throw new Error('Unsupported recheck command');const checked=await run('npm',['run',cmd.slice(8)],{cwd:worktree,env,signal,timeout:5*60000});additional.push({command:cmd,passed:checked.code===0,output:'Independent exact-commit recheck '+r.result.commit+'; exit '+checked.code});}
   const status=await run('git',['-C',worktree,'status','--porcelain','--untracked-files=no'],{env,signal,timeout:60000});
   const observed=await run('git',['-C',worktree,'rev-parse','HEAD'],{env,signal,timeout:60000});
   if(observed.code||observed.stdout.trim()!==r.result.commit)throw new Error('HEAD đã thay đổi trong lúc kiểm tra.');
@@ -26,10 +27,10 @@ export async function recheckArtifact(r,config,run,signal,prepare,env){
 }
 export async function pollRechecks(config,token,run,signal,prepare,env){
  const endpoint=new URL('/runner/rechecks',config.mcpUrl);
- const request=async(suffix='',body)=>{const res=await fetch(endpoint.href+(suffix||'?protocol=artifact-recheck-v2'),{method:body?'POST':'GET',signal:AbortSignal.timeout(15000),headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});if(res.status===404&&!suffix)return {requests:[]};if(!res.ok)throw new Error('Recheck API HTTP '+res.status);return res.json();};
+ const request=async(suffix='',body)=>{const res=await fetch(endpoint.href+(suffix||'?protocol=artifact-recheck-v3'),{method:body?'POST':'GET',signal:AbortSignal.timeout(15000),headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});if(res.status===404&&!suffix)return {requests:[]};if(!res.ok)throw new Error('Recheck API HTTP '+res.status);return res.json();};
  for(const r of (await request()).requests){
   if(signal?.aborted)return;if(!matchesProject(r,config))continue;
-  let claim;try{claim=await request('/'+r.id+'/claim',{protocol:'artifact-recheck-v2'});}catch{continue;}
+  let claim;try{claim=await request('/'+r.id+'/claim',{protocol:r.recheck?.protocol||'artifact-recheck-v2'});}catch{continue;}
   const controller=new AbortController(),abort=()=>controller.abort();signal?.addEventListener('abort',abort,{once:true});if(signal?.aborted)abort();
   let pending=Promise.resolve(),busy=false;
   const timer=setInterval(()=>{if(busy)return;busy=true;pending=request('/'+r.id+'/heartbeat',{recheckToken:claim.recheckToken}).catch(()=>controller.abort()).finally(()=>{busy=false;});},60000);

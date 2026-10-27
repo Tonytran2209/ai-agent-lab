@@ -1,3 +1,4 @@
+import {reportedRetryPassed} from './recheck-policy.js';
 import {createLearning} from './learning.js';
 import {createCiRepair} from './ci-repair.js';
 import {createRecovery} from './recovery.js';
@@ -35,6 +36,8 @@ export function createApp(config, options = {}) {
   const auth = createAuth(config);
   const db = options.db ?? openDatabase(config.DATA_DIR || path.join(root, "data"));
   const service = createService(db, {...options,serializeProjects:options.serializeProjects??true,simplifiedWorkflow:options.simplifiedWorkflow??config.LAB_WORKFLOW_MODE!=='legacy',requireTraceability:config.MD_TRACEABILITY_ENABLED!=="false"});
+  // Resume only independently verifiable retries; never repeat a model call after restart.
+  for(const r of service.list())if(reportedRetryPassed(r)&&!r.lease&&!r.recheck?.lease&&!r.verification?.lease&&(r.recheck?.attempts||0)<3){try{service.rechecks.queue(r.id,'Recovery supervisor',r.resultRevision);}catch{ /* Disabled project or revoked authority remains blocked. */ }}
   const knowledge=createKnowledge(db,service);
   const agent=createOrchestrator(db,service,knowledge,config,options.agentOptions);
   const learning=createLearning(db,service,knowledge,agent,config,options.learningOptions);service.learning=learning;
