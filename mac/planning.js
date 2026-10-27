@@ -1,3 +1,4 @@
+import {sourceGuide,validateSourceEvidence} from './source-evidence.js';
 import {directSurveyPrompt} from './direct-survey.js';
 import {codexEvents} from './codex-events.js';
 import {sharedWorktree} from './shared-worktree.js';
@@ -25,7 +26,8 @@ export const planningPrompt=packet=>packet.request.workflowProtocol==='direct-v1
  'When planning browser action tests, inspect the actual fixture config and action preconditions (enabled model, roles, selected output, confirmation). Include the managed fixture in allowedPaths when it must change. Use a fake model only in the isolated fixture and intercept every model/mutation API; never require live keys. Plan both enabled-action and intentionally-disabled cases. Assert action readiness before clicking; do not mask missing preconditions with larger timeouts.',
  packet.request.workflowProtocol==='direct-v1'?'Direct workflow: read relevant MD and source, then give exact implementation scope, at most three acceptance criteria, documentationReview and verificationPlan (method, command, files, expected). No MD quote/line-number matrix or per-criterion evidence. Include at least one targeted behavioral test for medium; existing full browser suite commands are allowed. Code, regression tests and necessary MD updates are one task.':planningContractInstructions, impactInstructions, investigationInstructions,
  'Use at most 5 acceptance criteria and 4 assumptions. Do not generate generic boilerplate or a questionnaire. No implementation yet: the server validates risk and issues a separate execution claim.',
- JSON.stringify({request:Object.fromEntries(['id','workflowProtocol','projectId','repository','branch','baseCommit','libraryVersionId','contractProtocol','governanceProtocol','feedback','screen','reproduction','expected','classification','attachments'].map(k=>[k,packet.request[k]])),recoveryContext:packet.request.executionBlocked?{previousStop:packet.request.draft?.questions||[],previousUncertainty:packet.request.draft?.impact?.uncertainty||[]}:null,library:packet.library,memory:packet.memory,riskFeedback:packet.riskFeedback,operatingPolicy:packet.operatingPolicy})
+ 'Read evidence using nl -ba and return an exact complete-line quote. Verify line ranges against sourceGuide; never estimate or invent line numbers.',
+ JSON.stringify({sourceGuide:packet.sourceGuide,request:Object.fromEntries(['id','workflowProtocol','projectId','repository','branch','baseCommit','libraryVersionId','contractProtocol','governanceProtocol','feedback','screen','reproduction','expected','classification','attachments'].map(k=>[k,packet.request[k]])),recoveryContext:packet.request.executionBlocked?{previousStop:packet.request.draft?.questions||[],previousUncertainty:packet.request.draft?.impact?.uncertainty||[]}:null,library:packet.library,memory:packet.memory,riskFeedback:packet.riskFeedback,operatingPolicy:packet.operatingPolicy})
 ].join('\n');
 export async function surveyFeedback({job,config,api,run,signal,environment,imageToken=process.env.AI_AGENT_LAB_MCP_TOKEN}){
  if(!/^[a-f0-9-]{36}$/.test(job.id)||!/^REQ-[A-F0-9]{8}$/.test(job.requestId)||!/^[a-f0-9]{40}$/.test(job.baseCommit)||job.projectId!==config.projectId||job.repository!==config.repository)throw new Error('Sai định danh khảo sát/project.');
@@ -52,6 +54,8 @@ export async function surveyFeedback({job,config,api,run,signal,environment,imag
    failureReason="codex";
    const imageArgs=await feedbackImageArgs(claim.request,config,imageToken);
    const invoke=async(input,timeout)=>{activity=codexEvents();return run(config.codexPath,['exec','--json',...imageArgs,...codexModelArgs(config,'planning',claim.ai),'--ignore-user-config','--sandbox','read-only','-C',worktree,'--output-schema',fileURLToPath(new URL(claim.request.workflowProtocol==='direct-v1'?'./direct-plan-schema.json':'./plan-schema.json',import.meta.url)),'--output-last-message',outputPath,'-'],{cwd:worktree,env:environment,input,signal:controller.signal,timeout,onStdout:d=>activity.push(d)});};
+   const guide=await sourceGuide(worktree,claim.library.sourcePaths,claim.request.feedback);
+   claim.sourceGuide=guide;
    const started=Date.now();
    const result=await invoke(planningPrompt(claim),15*60000);
    if(result.code||controller.signal.aborted)throw Object.assign(new Error('Codex khảo sát đã dừng.'),{diagnostics:result.diagnostics});
@@ -69,9 +73,10 @@ export async function surveyFeedback({job,config,api,run,signal,environment,imag
   }
   failureReason=job.mode==='report-only'?'artifact':'validation';
   if(await git(['rev-parse','HEAD'],worktree)!==head||(await git(['status','--porcelain','--untracked-files=all'],worktree)))throw new Error('Khảo sát đã thay đổi checkout; không chấp nhận kế hoạch.');
-  const plan=JSON.parse(await readFile(outputPath,'utf8'));if(job.mode==='report-only'&&plan.observedBaseCommit!==head)throw new Error('Artifact sai base.');if(!Array.isArray(plan.evidence)||plan.evidence.length>20)throw new Error('Thiếu bằng chứng code.');
-  const sourcePaths=claim.library.sourcePaths;
-  for(const e of plan.evidence){relativePath.parse(e.path);if(!sourcePaths.includes(e.path)||!Number.isInteger(e.startLine)||!Number.isInteger(e.endLine)||e.startLine<1||e.endLine<e.startLine)throw new Error('Sai bằng chứng khảo sát.');let full=worktree;for(const part of e.path.split('/')){full=path.join(full,part);if((await lstat(full)).isSymbolicLink())throw new Error('Không đọc bằng chứng qua symlink.');}const text=await readFile(full,'utf8');if(e.endLine>text.split('\n').length)throw new Error('Dòng bằng chứng không tồn tại.');const actualHash=crypto.createHash('sha256').update(text).digest('hex');if(job.mode==='report-only'&&e.contentHash!==actualHash)throw new Error('Artifact không khớp bằng chứng pinned source.');e.contentHash=actualHash;}
+  const plan=JSON.parse(await readFile(outputPath,'utf8'));if(job.mode==='report-only'&&plan.observedBaseCommit!==head)throw new Error('Artifact sai base.');
+  const checked=await validateSourceEvidence(plan.evidence,{root:worktree,sourcePaths:claim.library.sourcePaths,replay:job.mode==='report-only'});
+  plan.evidence=checked.evidence;
+  if(checked.repairs.length){await writeFile(outputPath+'-before-repair.json',await readFile(outputPath),{mode:0o600});await writeFile(outputPath+'-repairs.json',JSON.stringify({baseCommit:head,repairs:checked.repairs,at:new Date().toISOString()}),{mode:0o600});}
   clearInterval(heartbeat);await heartbeatTask;if(controller.signal.aborted)throw new Error('Mất heartbeat khảo sát.');
   const report={observedBaseCommit:head,draft:plan.draft,evidence:plan.evidence,...(investigation?{investigation}:job.mode==='report-only'&&plan.investigation?{investigation:plan.investigation}:{})};await writeFile(outputPath,JSON.stringify(report),{mode:0o600});
   const validated=draftSchema.safeParse(report.draft);if(!validated.success)throw Object.assign(Error('Kế hoạch không khớp schema server.'),{planningFailureReason:'validation',validationDetails:validated.error.issues.map(i=>({path:'draft.'+i.path.join('.'),code:i.code,message:i.message})).slice(0,12)});
