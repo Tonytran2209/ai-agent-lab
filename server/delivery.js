@@ -14,7 +14,7 @@ export async function validateDelivery(r, token, fetcher=fetch) {
   const files=await api(`pulls/${pr.number}/files?per_page=100`),reported=new Set(r.result.changedPaths);
   if(!files.length||files.length!==pr.changed_files||files.length!==reported.size||files.some(f=>!reported.has(f.filename)||!r.draft.allowedPaths.includes(f.filename)||f.previous_filename&&!r.draft.allowedPaths.includes(f.previous_filename)))reject('Diff PR vượt phạm vi đã duyệt hoặc khác kết quả báo cáo.');
   await verifyArtifactLineage(api,r.baseCommit,commit);
-  const evidence=assessCi(await api(`commits/${commit}/check-runs?per_page=100`),await api(`commits/${commit}/status`),commit);
+  const evidence=assessCi(await api(`commits/${commit}/check-runs?per_page=100`),await api(`commits/${commit}/status`),commit,r.ciPolicy);
   if(!evidence.ready){const e=new Error('CI chưa đạt độc lập trên đúng commit.');e.retryable=!evidence.failed;throw e;}
   return evidence.evidenceUrl;
 }
@@ -22,6 +22,7 @@ export function createDelivery(service,config,{validate=validateDelivery,repairs
   let timer,active;
   async function reconcile(){
     service.simplifyWorkflow?.();
+    service.recoverCodeOnlyDelivery?.();
     for(const candidate of service.criterionCiCandidates()){
       try{const proof=await collectCriterionCi(candidate,config.GITHUB_TOKEN);if(proof?.pending){service.observeCriterionCi(candidate.id,candidate.resultRevision,proof);if(proof.failed)repairs?.enqueue(candidate.id);}else if(proof)service.reconcileCriterionCi(candidate.id,candidate.resultRevision,proof);else service.criterionCiWaiting(candidate.id,candidate.resultRevision);}catch(e){const message=String(e.message);const safe=/^Bằng chứng cục bộ cần xác minh lại trên commit hiện tại: [0-9]{1,2}$/.test(message)||/^Chưa đọc được GitHub CI: [0-9]{3}$/.test(message)||/^Chưa có bằng chứng browser cho [A-Za-z0-9_-]+ trên (desktop|mobile)$/.test(message)||['Artifact phải có lịch sử tuyến tính từ base đã duyệt.','Artifact phải có lịch sử tuyến tính từ base đã duyệt, giữ commit đã báo cáo.','Artifact vượt phạm vi đã duyệt.','PR không khớp project.','Artifact phải là một commit từ base đã duyệt.','Job browser sai commit hoặc chưa đạt.','Thiếu job browser độc lập.','Commit mới cần đánh giá tài liệu/phạm vi lại; không chỉ sửa test.','Tiêu chí chưa có command browser được hỗ trợ.','Thiếu tiêu chí để đối chiếu CI.','Quyền tự phát hành không còn khớp kế hoạch/cấu hình. Cần admin kiểm tra.','Bằng chứng CI chưa đủ hợp đồng tiêu chí/tài liệu.'].includes(message)?message:'Lỗi kết nối hoặc không đủ bản ghi test desktop/mobile.';service.criterionCiWaiting(candidate.id,candidate.resultRevision,safe);}
     }
