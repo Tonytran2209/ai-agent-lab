@@ -11,3 +11,19 @@ test('active resurvey takes precedence over an old medium approval checkpoint',a
 test('local discovery failures are superseded only by exact-commit matching criterion proof',async()=>{const {checkPresentation,workflowMessage}=await import('../src/workflow.js');const command='npx playwright test tests/agent-lab/draft.spec.mjs --grep DATE';const r={result:{commit:'head'},criterionCi:{commit:'head',criteria:[{command}]}};assert.equal(checkPresentation(r,{command:command+' --list',passed:false}).superseded,true);assert.equal(checkPresentation(r,{command:'npm run check',passed:false}).superseded,false);r.criterionCi.commit='old';assert.equal(checkPresentation(r,{command:command+' --list',passed:false}).superseded,false);assert.equal(workflowMessage({status:'failed',result:{},contract:{required:true,complete:false},verification:{phase:'failed',note:'browser-check failure'}}),'browser-check failure');});
 
 test('direct workflow shows the current Chromium setup stage rather than a generic waiting message',async()=>{const {taskProgress,workflowMessage}=await import('../src/workflow.js');const r={workflowProtocol:'direct-v1',status:'verifying',criterionCiStatus:'GitHub CI: browser-tests (mobile) Đang chuẩn bị Chromium.',result:{checks:[]},verification:{phase:'ci'},delivery:{approvalHash:'pinned'}};assert.equal(taskProgress(r).message,r.criterionCiStatus);assert.equal(workflowMessage(r),r.criterionCiStatus);assert.equal(taskProgress(r).failed,false);});
+
+test('inbox shows deployment check only after Railway success, never after acceptance or while queued',async()=>{
+ const {inboxIndicator}=await import('../src/workflow.js');
+ assert.equal(inboxIndicator({status:'completed'}),'idle');
+ assert.equal(inboxIndicator({status:'completed',release:{phase:'deploying'}}),'processing');
+ assert.equal(inboxIndicator({status:'completed',release:{phase:'deployed'}}),'deployed');
+ assert.equal(inboxIndicator({status:'completed',release:{phase:'failed'}}),'idle');
+ assert.equal(inboxIndicator({status:'running',projectQueue:{blocked:true}}),'waiting');
+ assert.equal(inboxIndicator({status:'approved'}),'waiting');
+ assert.equal(inboxIndicator({status:'rejected',release:{phase:'deploying'}}),'idle');
+});
+test('inbox loading covers active source survey, code, CI and repair but stops on expired claims',async()=>{
+ const {inboxIndicator}=await import('../src/workflow.js'),now=Date.now(),lease={expiresAt:new Date(now+60000).toISOString()},expired={expiresAt:new Date(now-1).toISOString()};
+ for(const r of [{status:'running',lease},{status:'feedback',preparation:{engine:'codex-local',status:'running'},planning:{lease}},{status:'verifying',verification:{phase:'ci'}},{status:'failed',ciRepair:{phase:'running',lease}},{status:'rechecking',recheck:{phase:'running',lease}},{status:'review',delivery:{phase:'checking'}}])assert.equal(inboxIndicator(r,now),'processing');
+ for(const r of [{status:'running',lease:expired},{status:'failed'},{status:'rechecking',recheck:{phase:'running',lease:expired}},{status:'awaiting-approval'}])assert.equal(inboxIndicator(r,now),'idle');
+});

@@ -115,3 +115,22 @@ export function checkPresentation(request,check){
  const verified=request.criterionCi?.commit===request.result?.commit&&request.criterionCi?.criteria?.some(p=>check.command===p.command||check.command===p.command+' --list');
  return {superseded:!check.passed&&Boolean(verified),label:check.passed?'Đạt':verified?'Lỗi cục bộ · đã có CI xác minh':'Chưa đạt trên Mac'};
 }
+
+// Inbox decoration follows real work stages; acceptance alone is not deployment.
+export function inboxIndicator(r,now=Date.now()) {
+  if(r.status==='rejected')return 'idle';
+  if(r.release?.phase==='deployed')return 'deployed';
+  if(r.projectQueue?.blocked)return 'waiting';
+  const live=lease=>!lease||Date.parse(lease.expiresAt)>now;
+  if(r.ciRepair?.phase==='running')return live(r.ciRepair.lease)?'processing':'idle';
+  if(r.ciRepair?.phase==='queued')return 'waiting';
+  if(r.release?.phase==='failed'||r.status==='failed')return 'idle';
+  if(r.release&&['ci','deploying'].includes(r.release.phase))return live(r.release.lease)?'processing':'idle';
+  if(r.status==='rechecking'&&r.recheck?.phase==='running')return live(r.recheck.lease)?'processing':'idle';
+  if(['claimed','running'].includes(r.status))return live(r.lease)?'processing':'idle';
+  if(r.status==='verifying'&&r.verification?.phase==='ci')return live(r.verification.lease)?'processing':'idle';
+  if(r.preparation?.status==='running')return preparationRunning(r)?'processing':'idle';
+  if(r.status==='review'&&r.delivery?.phase==='checking')return 'processing';
+  if(r.status==='approved'||r.preparation?.status==='queued'||r.recheck?.phase==='queued'||r.verification?.phase==='queued'||r.release?.phase==='queued'||r.status==='review'&&r.delivery?.phase==='authorized')return 'waiting';
+  return 'idle';
+}
