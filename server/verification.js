@@ -14,7 +14,7 @@ export function checksSatisfied(r) {
   return contractSatisfied(r) && Boolean(r.result) && r.result.checks.some(c=>c.command==='npm run check'&&c.passed) && r.result.checks.every(c=>c.passed||browserFailure(c)&&verificationPassed(r));
 }
 export function newVerification(r,actor) {
-  return {phase:'queued',resultRevision:resultRevision(r),actor,queuedAt:new Date().toISOString(),lease:null,note:'Chờ Mac đẩy draft PR để GitHub kiểm tra trình duyệt. Chưa được nghiệm thu, merge hoặc deploy.'};
+  return {phase:'queued',resultRevision:resultRevision(r),actor,queuedAt:new Date().toISOString(),lease:null,kind:r.ciPolicy?.browserRequired===false?'code-only':'code-and-browser',note:r.ciPolicy?.browserRequired===false?'Chờ GitHub kiểm tra code đúng commit. Browser test đang tạm tắt; chưa xác minh giao diện.':'Chờ Mac đẩy draft PR để GitHub kiểm tra trình duyệt. Chưa được nghiệm thu, merge hoặc deploy.'};
 }
 
 export const verificationUpdate=z.object({phase:z.enum(['ci','passed','failed']),note:z.string().min(5).max(2000),prNumber:z.number().int().positive().optional(),prUrl:z.string().url().optional(),evidenceUrl:z.string().url().optional()}).strict();
