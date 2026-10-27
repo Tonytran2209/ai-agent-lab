@@ -1,3 +1,4 @@
+import {reportedRetryPassed} from './recheck-policy.js';
 import {createLearning} from './learning.js';
 import {createCiRepair} from './ci-repair.js';
 import {createRecovery} from './recovery.js';
@@ -35,6 +36,8 @@ export function createApp(config, options = {}) {
   const auth = createAuth(config);
   const db = options.db ?? openDatabase(config.DATA_DIR || path.join(root, "data"));
   const service = createService(db, {...options,serializeProjects:options.serializeProjects??true,simplifiedWorkflow:options.simplifiedWorkflow??config.LAB_WORKFLOW_MODE!=='legacy',requireTraceability:config.MD_TRACEABILITY_ENABLED!=="false"});
+  // Resume only independently verifiable retries; never repeat a model call after restart.
+  for(const r of service.list())if(reportedRetryPassed(r)&&!r.lease&&!r.recheck?.lease&&!r.verification?.lease&&(r.recheck?.attempts||0)<3){try{service.rechecks.queue(r.id,'Recovery supervisor',r.resultRevision);}catch{ /* Disabled project or revoked authority remains blocked. */ }}
   const knowledge=createKnowledge(db,service);
   const agent=createOrchestrator(db,service,knowledge,config,options.agentOptions);
   const learning=createLearning(db,service,knowledge,agent,config,options.learningOptions);service.learning=learning;
@@ -211,7 +214,7 @@ export function createApp(config, options = {}) {
   app.get('/runner/rechecks',auth.mcp,(req,res)=>res.json({requests:service.rechecks.list(req.query.protocol)}));
   app.post('/runner/rechecks/:id/claim',auth.mcp,(req,res)=>res.json(service.rechecks.claim(req.params.id,'Mac recheck worker',req.body?.protocol)));
   app.post('/runner/rechecks/:id/heartbeat',auth.mcp,(req,res)=>res.json(service.rechecks.heartbeat(req.params.id,z.object({recheckToken:z.string().regex(/^[a-f0-9]{64}$/)}).strict().parse(req.body).recheckToken)));
-  app.post('/runner/rechecks/:id/report',auth.mcp,(req,res)=>{const b=z.object({recheckToken:z.string().regex(/^[a-f0-9]{64}$/),resultRevision:z.string().regex(/^[a-f0-9]{64}$/),checks:z.array(z.object({command:z.string().max(200),passed:z.boolean(),output:z.string().max(4000)}).strict()).min(2).max(4),note:z.string().min(10).max(2000)}).strict().parse(req.body);res.json(service.rechecks.report(req.params.id,b.recheckToken,b));});
+  app.post('/runner/rechecks/:id/report',auth.mcp,(req,res)=>{const b=z.object({recheckToken:z.string().regex(/^[a-f0-9]{64}$/),resultRevision:z.string().regex(/^[a-f0-9]{64}$/),checks:z.array(z.object({command:z.string().max(200),passed:z.boolean(),output:z.string().max(4000)}).strict()).min(2).max(5),note:z.string().min(10).max(2000)}).strict().parse(req.body);res.json(service.rechecks.report(req.params.id,b.recheckToken,b));});
   app.post('/runner/rechecks/:id/fail',auth.mcp,(req,res)=>{const b=z.object({recheckToken:z.string().regex(/^[a-f0-9]{64}$/),note:z.string().min(5).max(2000)}).strict().parse(req.body);res.json(service.rechecks.fail(req.params.id,b.recheckToken,b.note));});
   app.post('/api/requests/:id/planning/schema-recovery',auth.admin,(req,res)=>{const b=z.object({jobId:z.string().uuid(),expectedRevision:z.string(),confirmedInvalidSchema:z.literal(true)}).strict().parse(req.body);res.json(service.localPlanning.recoverSchema(req.params.id,req.user.name,b.jobId,b.expectedRevision));});
   app.post('/api/requests/:id/planning/replay',auth.admin,(req,res)=>{const b=z.object({expectedRevision:z.string().min(1)}).strict().parse(req.body);res.json(service.localPlanning.replay(req.params.id,req.user.name,b.expectedRevision));});
