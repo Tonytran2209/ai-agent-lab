@@ -48,7 +48,7 @@ export function validateDraft(draft, library, requireTraceability=false) {
 }
 function addVersion(library) {
   const documents = library.documents.map(d => ({ ...d, contentHash: hash(d.content) }));
-  return { ...library, documents, id: hash(JSON.stringify({ projectId:library.projectId, repository:library.repository, commit: library.sourceCommit, ...(library.ciProfile?{ciProfile:library.ciProfile}:{}), documents: documents.map(d => [d.path, d.contentHash]) })).slice(0, 40) };
+  return { ...library, documents, id: hash(JSON.stringify({ projectId:library.projectId, repository:library.repository, commit: library.sourceCommit, ...(library.ciInspectionVersion?{ciInspectionVersion:library.ciInspectionVersion}:{}), ...(library.ciProfile?{ciProfile:library.ciProfile}:{}), documents: documents.map(d => [d.path, d.contentHash]) })).slice(0, 40) };
 }
 export function createService(db, options = {}) {
   const feedbackImages=createFeedbackImages(db);

@@ -19,7 +19,7 @@ export async function readRepositoryLibrary(repository, branch, token, existing)
   if(!branch)branch=(await github('')).default_branch;
   branch=branchSchema.parse(branch);
   const commit=await github('commits/'+encodeURIComponent(branch));
-  if(existing&&existing.repository===repository&&existing.branch===branch&&existing.sourceCommit===commit.sha)return existing;
+  if(existing?.ciInspectionVersion===1&&existing.repository===repository&&existing.branch===branch&&existing.sourceCommit===commit.sha)return existing;
   const tree=await github('git/trees/'+commit.sha+'?recursive=1');
   if(!/^[a-f0-9]{40}$/.test(commit.sha)||tree.truncated)fail('Không thể xác minh toàn bộ source map.',502);
   const paths=tree.tree.filter(v=>v.type==='blob').map(v=>v.path);
@@ -31,7 +31,7 @@ export async function readRepositoryLibrary(repository, branch, token, existing)
     return {path:file,content:Buffer.from(v.content,'base64').toString('utf8')};
   })));}
   const identity=parseProjectContract(documents.find(d=>d.path==='.agent-hub/project.md').content,repository);
-  return {...identity,repository,branch,sourceCommit:commit.sha,syncedAt:new Date().toISOString(),documents,sourcePaths:paths,ciProfile:await readCiProfile(tree.tree,github,commit.sha),ciReady:paths.some(p=>/^\.github\/workflows\/[^/]+\.ya?ml$/.test(p))};
+  return {...identity,repository,branch,sourceCommit:commit.sha,syncedAt:new Date().toISOString(),documents,sourcePaths:paths,ciInspectionVersion:1,ciProfile:await readCiProfile(tree.tree,github,commit.sha),ciReady:paths.some(p=>/^\.github\/workflows\/[^/]+\.ya?ml$/.test(p))};
 }
 export async function syncLibrary(service, token, projectId='writer-studio') {
   const p=service.project(projectId),previous=service.currentLibrary(projectId),next=await readRepositoryLibrary(p.repository,p.branch,token,previous);return next===previous?previous:service.addLibrary(next);
