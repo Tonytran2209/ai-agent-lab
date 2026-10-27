@@ -173,6 +173,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
         if(options.requireTraceability&&!options.simplifiedWorkflow)r.contractProtocol="md-trace-v1";
         if(options.requireTraceability)r.governanceProtocol="impact-v1";
         const project=projects.get(r.projectId);
+        if(r.workflowProtocol==='direct-v1')r.ciPolicy={browserRequired:project.browserCheckRequired!==false};
         if(project.autoCompleteAfterApproval)r.delivery={mode:"single-approval-v1",phase:"pending-approval",environment:project.releaseEnvironment,configurationRevision:project.configurationRevision};
         save(r); queueTicket(r); feedbackImages.put(r.id,preparedImages); event(r.id, "feedback_received", actor); return publicRequest(r);
       });
@@ -537,7 +538,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
     reconcileCriterionCi(id,expectedRevision,proof){return transaction(db,()=>{const r=get(id);deliveryAuthority(r);if(!['failed','verifying','review'].includes(r.status)||r.lease||r.ciRepair?.lease||r.verification?.lease||resultRevision(r)!==expectedRevision||!localChecksPassed(r))fail('Kết quả đã đổi hoặc worker còn chạy.');
       if(proof.source!=='github-actions'||proof.branch!==r.result.localArtifact.branch||!proof.changedPaths.every(p=>r.draft.allowedPaths.includes(p)))fail('Bằng chứng CI không khớp scope.');
       if(r.workflowProtocol==='direct-v1'){
-        const wholeCi=proof.wholeCi?.commit===proof.commit&&['writer-check','browser-check'].every(name=>proof.wholeCi.jobs?.some(j=>j.name===name&&j.status==='completed'&&j.conclusion==='success'));
+        const wholeCi=proof.wholeCi?.commit===proof.commit&&(r.ciPolicy?.browserRequired===false?['writer-check']:['writer-check','browser-check']).every(name=>proof.wholeCi.jobs?.some(j=>j.name===name&&j.status==='completed'&&j.conclusion==='success'));
         const reviewed=r.ciRepair?.phase==='pushed'?r.ciRepair.commit:r.result.commit;
         const followup=wholeCi&&proof.verifiedTestFollowup?.reviewedCommit===reviewed&&proof.verifiedTestFollowup.changedPaths?.length&&proof.verifiedTestFollowup.changedPaths.every(p=>isTestFollowupPath(p)&&r.draft.allowedPaths.includes(p)&&proof.changedPaths.includes(p));
         if(proof.commit!==r.result.commit&&r.ciRepair?.commit!==proof.commit&&!followup)fail('Commit CI khác kết quả; cần báo cáo bản sửa tương ứng.');
