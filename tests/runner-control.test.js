@@ -34,3 +34,11 @@ test('CI/deploy monitor stays busy until its active work drains before restart c
  const {startMonitor}=await import('../mac/monitor.js');let resolve;const state=[];const monitor=startMonitor(()=>new Promise(r=>{resolve=r;}),{intervalMs:100000,onState:v=>state.push(v)});
  const run=monitor.tick();await Promise.resolve();await Promise.resolve();assert.equal(monitor.isBusy(),true);assert.deepEqual(state,[true]);const stopped=monitor.stop();assert.equal(monitor.isBusy(),true);resolve();await run;await stopped;assert.equal(monitor.isBusy(),false);assert.deepEqual(state,[true,false]);
 });
+
+test('idle wake observes a safe gap between periodic polls and coalesces duplicate IPC events',async()=>{
+ const {controlWake}=await import('../mac/control-wake.js');let state='busy',runs=0;const scheduled=new Map();let id=0;
+ const wake=controlWake(()=>{assert.equal(state,'idle');runs++;},{schedule:fn=>{scheduled.set(++id,fn);return id;},cancel:key=>scheduled.delete(key)});
+ // Periodic polling can repeatedly land on a busy CI stage. The idle transition must create a new opportunity.
+ state='idle';wake.wake();wake.wake();assert.equal(scheduled.size,1);const [key,fn]=[...scheduled.entries()][0];scheduled.delete(key);fn();assert.equal(runs,1);
+ wake.wake();wake.stop();assert.equal(scheduled.size,0);wake.wake();assert.equal(scheduled.size,0);
+});
