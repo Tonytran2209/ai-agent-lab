@@ -202,3 +202,11 @@
 .settings-nav button{white-space:normal;line-height:1.5}
 @media(max-width:1200px){.settings-nav button{white-space:nowrap}}
 @media(max-width:560px){.settings-page .settings-row-control>span{text-align:left;max-width:100%}.settings-project-options{gap:18px}.settings-group-heading{align-items:flex-start}.settings-group-heading .settings-state{text-align:right}}
+
+/* Status icon stays inline with the card label and never changes button geometry. */
+.inbox-state{display:inline-flex;align-items:center;gap:7px;min-width:0;line-height:1.5}
+.inbox-state-icon{flex-shrink:0}
+.inbox-state.is-processing .inbox-state-icon{animation:rotate 1s linear infinite}
+.inbox-state.is-deployed,.inbox-state.is-deployed .inbox-state-icon{color:#a3bba9}
+.inbox-state.is-waiting .inbox-state-icon{color:var(--muted)}
+@media(prefers-reduced-motion:reduce){.inbox-state.is-processing .inbox-state-icon{animation:none}}
