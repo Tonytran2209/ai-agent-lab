@@ -366,6 +366,10 @@
             "pattern": "^[A-Za-z0-9_./-]+$",
             "type": "string"
           },
+          "quote": {
+            "description": "Server-validated string length: 15 to 2000 characters.",
+            "type": "string"
+          },
           "reason": {
             "description": "Server-validated string length: 5 to 500 characters.",
             "type": "string"
@@ -378,7 +382,8 @@
           "path",
           "startLine",
           "endLine",
-          "reason"
+          "reason",
+          "quote"
         ],
         "type": "object"
       },
