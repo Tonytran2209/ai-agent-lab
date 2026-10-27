@@ -40,7 +40,7 @@ export async function surveyFeedback({job,config,api,run,signal,environment,imag
  if(!direct)await git(['worktree','add','--detach',worktree,job.baseCommit]);
  }catch(e){await api('/'+job.requestId+'/preflight-failed',{jobId:job.id,observedBaseCommit:job.baseCommit,reason:e.code==='WORKSPACE_DIRTY'?'workspace_dirty':'workspace_prepare'}).catch(()=>{});throw e;}
  let failureReason="worker";
- let investigation=null,activity;
+ let investigation=null,activity,sessionId;
  let claim,heartbeat,busy=false,heartbeatLost=false,heartbeatTask=Promise.resolve();const controller=new AbortController(),abort=()=>controller.abort();signal?.addEventListener('abort',abort,{once:true});if(signal?.aborted)abort();
  try{
   const head=await git(['rev-parse','HEAD'],worktree);claim=await api('/'+job.requestId+'/claim',{jobId:job.id,observedBaseCommit:head,contractProtocol:"md-trace-v1",governanceProtocol:"impact-v1",replayProtocol:"planning-replay-v1",attachmentProtocol:"feedback-images-v1",workflowProtocol:"direct-v1"});
@@ -51,7 +51,7 @@ export async function surveyFeedback({job,config,api,run,signal,environment,imag
   if(job.mode!=='report-only'){
    failureReason="codex";
    const imageArgs=await feedbackImageArgs(claim.request,config,imageToken);
-   const invoke=async(input,timeout)=>{activity=codexEvents();return run(config.codexPath,['exec','--json',...imageArgs,...codexModelArgs(config,'planning',claim.ai),'--ignore-user-config','--sandbox','read-only','-C',worktree,'--output-schema',fileURLToPath(new URL(claim.request.workflowProtocol==='direct-v1'?'./direct-plan-schema.json':'./plan-schema.json',import.meta.url)),'--output-last-message',outputPath,'-'],{cwd:worktree,env:environment,input,signal:controller.signal,timeout,onStdout:d=>activity.push(d)});};
+   const invoke=async(input,timeout)=>{activity=codexEvents();const resumed=direct&&sessionId;const result=await run(config.codexPath,['exec','--sandbox','read-only','-C',worktree,...(resumed?['resume']:[]),'--json',...imageArgs,...codexModelArgs(config,'planning',claim.ai),'--ignore-user-config','--output-schema',fileURLToPath(new URL(direct?'./direct-plan-schema.json':'./plan-schema.json',import.meta.url)),'--output-last-message',outputPath,...(resumed?[sessionId]:[]),'-'],{cwd:worktree,env:environment,input,signal:controller.signal,timeout,onStdout:d=>activity.push(d)});sessionId=activity.threadId()||sessionId;return result;};
    const started=Date.now();
    const result=await invoke(planningPrompt(claim),15*60000);
    if(result.code||controller.signal.aborted)throw Object.assign(new Error('Codex khảo sát đã dừng.'),{diagnostics:result.diagnostics});
@@ -75,6 +75,7 @@ export async function surveyFeedback({job,config,api,run,signal,environment,imag
   clearInterval(heartbeat);await heartbeatTask;if(controller.signal.aborted)throw new Error('Mất heartbeat khảo sát.');
   const report={observedBaseCommit:head,draft:plan.draft,evidence:plan.evidence,...(investigation?{investigation}:job.mode==='report-only'&&plan.investigation?{investigation:plan.investigation}:{})};await writeFile(outputPath,JSON.stringify(report),{mode:0o600});
   const validated=draftSchema.safeParse(report.draft);if(!validated.success)throw Object.assign(Error('Kế hoạch không khớp schema server.'),{planningFailureReason:'validation',validationDetails:validated.error.issues.map(i=>({path:'draft.'+i.path.join('.'),code:i.code,message:i.message})).slice(0,12)});
+  if(direct&&sessionId){await writeFile(path.join(config.stateDir,'planning',job.id+'-session.json'),JSON.stringify({protocol:'codex-continuity-v1',requestId:job.requestId,projectId:config.projectId,repository:config.repository,baseCommit:head,libraryVersionId:claim.request.libraryVersionId,worktree,sessionId,model:codexModelArgs(config,'planning',claim.ai)[1]}),{mode:0o600});}
   failureReason="report";
   return await api('/'+job.requestId+'/report',{...credentials,report});
  }catch(e){clearInterval(heartbeat);await heartbeatTask;await writeFile(path.join(config.stateDir,'planning',job.id+'-diagnostic.json'),JSON.stringify({protocol:'survey-diagnostic-v1',requestId:job.requestId,jobId:job.id,phase:failureReason,reason:e.code||e.planningFailureReason||failureReason,activity:activity?.diagnostics(),process:e.diagnostics||null,validationDetails:e.validationDetails||[],at:new Date().toISOString()}),{mode:0o600}).catch(()=>{});if(claim)await api('/'+job.requestId+'/fail',{jobId:job.id,planningToken:claim.planningToken,...(e.validationDetails?{validationDetails:e.validationDetails}:{}),reason:heartbeatLost?'heartbeat':e.code==='COMMAND_ABORTED'?'cancelled':e.code==='COMMAND_TIMEOUT'&&failureReason==='codex'?'codex_timeout':e.planningFailureReason||failureReason}).catch(()=>{});throw new Error('Khảo sát trên Mac chưa hoàn tất; xem trạng thái Lab.');}

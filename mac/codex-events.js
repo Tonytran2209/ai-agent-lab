@@ -1,6 +1,6 @@
 // Keep only bounded counters/timestamps. Never persist model text, tool input or credentials.
 export function codexEvents(now=()=>Date.now()) {
- let buffer='',events=0,lastEventAt=null,stage='starting',failureCategory='unknown';
+ let buffer='',events=0,lastEventAt=null,stage='starting',failureCategory='unknown',threadId=null;
  const started=now();
  return {
   push(chunk){
@@ -10,6 +10,7 @@ export function codexEvents(now=()=>Date.now()) {
     const line=buffer.slice(0,end);buffer=buffer.slice(end+1);
     let e;try{e=JSON.parse(line);}catch{continue;}
     if(!e||typeof e.type!=='string')continue;
+    if(e.type==='thread.started'&&/^[a-f0-9-]{36}$/.test(e.thread_id||''))threadId=e.thread_id;
     events++;lastEventAt=new Date(now()).toISOString();
     if(e.type==='turn.completed')stage='completed';
     else if(e.type==='turn.failed'||e.type==='error'){stage='failed';failureCategory=codexFailureCategory(JSON.stringify(e.error||e.message||''));}
@@ -18,6 +19,7 @@ export function codexEvents(now=()=>Date.now()) {
    }
    if(buffer.length>1000000)buffer='';
   },
+  threadId(){return threadId;},
   diagnostics(){return {...this.snapshot(),failureCategory};},
   snapshot(){return {elapsedSeconds:Math.max(0,Math.floor((now()-started)/1000)),events:Math.min(events,100000),lastEventAt,stage};}
  };

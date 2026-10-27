@@ -44,7 +44,7 @@ export async function collectCriterionCi(r,token,fetcher=fetch){
  const files=await api('pulls/'+pr.number+'/files?per_page=100');
  if(!files.length||files.length!==pr.changed_files||files.some(f=>!r.draft.allowedPaths.includes(f.filename)||f.previous_filename&&!r.draft.allowedPaths.includes(f.previous_filename)))throw Error('Artifact vượt phạm vi đã duyệt.');
  await verifyArtifactLineage(api,r.baseCommit,commit,r.result.commit);
- const checks=await api('commits/'+commit+'/check-runs?per_page=100'),evidence=assessCi(checks,await api('commits/'+commit+'/status'),commit);
+ const checks=await api('commits/'+commit+'/check-runs?per_page=100'),evidence=assessCi(checks,await api('commits/'+commit+'/status'),commit,r.ciPolicy);
  if(!evidence.ready){const infrastructure=await ciInfrastructure(api,checks,commit);return {pending:true,commit,prNumber:pr.number,prUrl:pr.html_url,failed:evidence.failed||evidence.failures.length>0,jobs:[...evidence.jobs.filter(j=>!infrastructure.jobs.some(row=>row.name===j.name)),...infrastructure.jobs],failureKind:infrastructure.failureKind,failures:evidence.failures};}
  if(r.workflowProtocol==='direct-v1'){
   const reviewed=r.ciRepair?.phase==='pushed'?r.ciRepair.commit:r.result.commit;
