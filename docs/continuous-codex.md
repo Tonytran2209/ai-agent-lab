@@ -11,3 +11,9 @@ After verified release/library sync, outcomes retain source/result/merge provena
 Project `browserCheckRequired=false` snapshots `ciPolicy.browserRequired=false` on new direct-workflow feedback only. Independent exact-head `writer-check` and all other non-browser checks still must pass. Browser evidence is not asserted. Existing packets retain their original policy.
 
 Managed GitHub workflows support repository variable `LAB_BROWSER_TESTS=disabled`, which skips browser jobs while keeping the code job. Set the variable in both connected repositories when temporarily disabling browser checks; restore it before enabling the project gate. If the workflow and pinned policy disagree, requests that require browser CI wait rather than treating skipped tests as success.
+
+## Documentation roles
+
+`documentationReview.documents` contains only canonical MD that must actually be edited and, when updates are needed, every entry must be in `allowedPaths`. `referenceDocuments` contains canonical MD read for comparison and left unchanged; it never grants edit permission. New model schemas explicitly request both arrays. Server clients may omit `referenceDocuments` for backward compatibility.
+
+The worker and server share `documentationScopeIssues`: reject empty required updates, update paths outside scope, contradictory edit/reference roles, and unpinned documents with precise field/path codes. The original saved plan is preserved. Never infer edit permission from prose, add paths automatically, silently remove an update, or make another paid model call to hide a contract failure.

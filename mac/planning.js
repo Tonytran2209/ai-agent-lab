@@ -1,3 +1,4 @@
+import {documentationScopeIssues} from '../server/contracts.js';
 import {directSurveyPrompt} from './direct-survey.js';
 import {codexEvents} from './codex-events.js';
 import {sharedWorktree} from './shared-worktree.js';
@@ -75,6 +76,7 @@ export async function surveyFeedback({job,config,api,run,signal,environment,imag
   clearInterval(heartbeat);await heartbeatTask;if(controller.signal.aborted)throw new Error('Mất heartbeat khảo sát.');
   const report={observedBaseCommit:head,draft:plan.draft,evidence:plan.evidence,...(investigation?{investigation}:job.mode==='report-only'&&plan.investigation?{investigation:plan.investigation}:{})};await writeFile(outputPath,JSON.stringify(report),{mode:0o600});
   const validated=draftSchema.safeParse(report.draft);if(!validated.success)throw Object.assign(Error('Kế hoạch không khớp schema server.'),{planningFailureReason:'validation',validationDetails:validated.error.issues.map(i=>({path:'draft.'+i.path.join('.'),code:i.code,message:i.message})).slice(0,12)});
+  const mdIssues=documentationScopeIssues(validated.data,claim.library);if(mdIssues.length)throw Object.assign(Error(mdIssues[0].message),{planningFailureReason:'validation',validationDetails:mdIssues});
   if(direct&&sessionId){await writeFile(path.join(config.stateDir,'planning',job.id+'-session.json'),JSON.stringify({protocol:'codex-continuity-v1',requestId:job.requestId,projectId:config.projectId,repository:config.repository,baseCommit:head,libraryVersionId:claim.request.libraryVersionId,worktree,sessionId,model:codexModelArgs(config,'planning',claim.ai)[1]}),{mode:0o600});}
   failureReason="report";
   return await api('/'+job.requestId+'/report',{...credentials,report});

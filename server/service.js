@@ -5,7 +5,7 @@ import {projectQueueState} from './project-queue.js';
 import {normalizeImages,createFeedbackImages} from './feedback-images.js';
 import {rejectedScopePaths} from './scope.js';
 import {impactRisk,decideAutomation} from './impact.js';
-import {validateContract,assessContract,contractSatisfied,documentationImpact} from './contracts.js';
+import {documentationScopeIssues,validateContract,assessContract,contractSatisfied,documentationImpact} from './contracts.js';
 import {createRechecks} from './rechecks.js';
 import {createProjectMemory} from './project-memory.js';
 import {createLocalPlanning,intentRisk} from './local-planning.js';
@@ -25,7 +25,7 @@ export function validateDraft(draft, library, requireTraceability=false) {
   const parsed = draftSchema.parse(draft);
   parsed.allowedPaths = [...new Set(parsed.allowedPaths)];
   if(parsed.verificationPlan?.some(v=>v.files.some(p=>!library.sourcePaths.includes(p)&&!parsed.allowedPaths.includes(p))))fail('File kiểm tra cần tồn tại hoặc thuộc phạm vi thực thi.',400);
-  if(parsed.documentationReview?.updatesNeeded&&(!parsed.documentationReview.documents.length||parsed.documentationReview.documents.some(p=>!parsed.allowedPaths.includes(p))))fail('Tài liệu cần cập nhật phải nằm trong allowedPaths.',400);
+  const mdIssues=documentationScopeIssues(parsed,library);if(mdIssues.length)throw Object.assign(new Error(mdIssues[0].message),{status:400,code:'MD_SCOPE_CONTRACT',details:mdIssues});
   const rejected=rejectedScopePaths(parsed,library);
   if(rejected.length)throw Object.assign(new Error('Phạm vi file không thuộc layer đã chọn.'),{status:400,code:'SCOPE_POLICY',details:rejected.map(path=>({path,reason:'outside-layer-or-test-policy'}))});
   // New files are allowed within declared layer boundaries; the reviewer must inspect them.
@@ -445,6 +445,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
     complete(id, token, input) {
       return transaction(db, () => {
         const r = get(id); verifyLease(r, token); const result = completionSchema.parse(input);
+        const mdIssues=documentationScopeIssues({allowedPaths:r.draft.allowedPaths,documentationReview:result.documentationReview},library(r.libraryVersionId));if(mdIssues.length)throw Object.assign(new Error(mdIssues[0].message),{status:400,code:'MD_SCOPE_CONTRACT',details:mdIssues});
         if(result.documentationReview?.documents.some(p=>!library(r.libraryVersionId).documents.some(d=>d.path===p)))fail("Tài liệu báo cáo không thuộc library đã ghim.",400);
         if (!result.changedPaths.every(p => r.draft.allowedPaths.includes(p))) fail("Diff chứa file ngoài allowedPaths.");
         if (result.artifactUrl) {
