@@ -88,7 +88,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
   const queueState=(r,rows)=>serialized?projectQueueState(r,Array.isArray(rows)?rows:queueRows(list().reverse()),projects.get(r.projectId),currentLibrary(r.projectId).sourceCommit):null;
   const assertTurn=r=>{if(queueState(r)?.blocked)fail('Project đang xử lý '+queueState(r).blockedBy+'; chờ deploy và đồng bộ MD trước khi nhận việc tiếp.',409);};
   const publicRequest = (r,queueRows) => {
-    const { lease, ...rest } = r;
+    const { lease, ciCollection, ...rest } = r;
     const release = rest.release ? { ...rest.release, lease: rest.release.lease ? { owner: rest.release.lease.owner, expiresAt: rest.release.lease.expiresAt } : null } : undefined;
     const recheck=rest.recheck?{...rest.recheck,lease:rest.recheck.lease?{owner:rest.recheck.lease.owner,expiresAt:rest.recheck.lease.expiresAt}:null}:undefined;
     const verification = rest.verification ? { ...rest.verification, lease: rest.verification.lease ? {owner:rest.verification.lease.owner,expiresAt:rest.verification.lease.expiresAt} : null } : undefined;
@@ -492,12 +492,13 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
         return changed(r,"browser_verification_queued",actor,r.verification.note);
       });
     },
-    verifications: () => list().filter(r=>!queueState(r)?.blocked&&r.status==="verifying"&&r.verification&&["queued","ci"].includes(r.verification.phase)).map(publicRequest),
+    verifications: () => list().filter(r=>!queueState(r)?.blocked&&r.status==="verifying"&&(!r.ciCollection||Date.parse(r.ciCollection.expiresAt)<=Date.now())&&r.verification&&["queued","ci"].includes(r.verification.phase)).map(publicRequest),
     claimVerification(id,owner) {
       return transaction(db,()=>{
         const r=get(id),v=r.verification; assertTurn(r);
         if(!projects.get(r.projectId).enabled)fail("Project đang tạm dừng.");
         if(r.status!=="verifying"||!["queued","ci"].includes(v?.phase)||v.resultRevision!==resultRevision(r)||!localChecksPassed(r))fail("Không có quyền kiểm tra kết quả này.");
+        if(r.ciCollection&&Date.parse(r.ciCollection.expiresAt)>Date.now())fail("Server đang đối chiếu CI; worker sẽ thử lại sau.");
         if(v.lease)fail("Worker kiểm tra còn claim; xác nhận đã dừng trước khi mở khóa, kể cả khi hết hạn.");
         const token=crypto.randomBytes(32).toString("hex");v.lease={owner,tokenHash:hash(token),expiresAt:new Date(Date.now()+15*60000).toISOString()};save(r);return {request:publicRequest(r),verificationToken:token};
       });
@@ -518,7 +519,12 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
         return previous!==v.phase?changed(r,"browser_verification_"+v.phase,owner,v.note):publicRequest(r);
       });
     },
-    criterionCiCandidates:()=>list().filter(r=>['failed','verifying','review'].includes(r.status)&&(r.workflowProtocol==='direct-v1'?['failed','verifying'].includes(r.status)&&r.verification?.phase!=='passed':r.contractProtocol&&!contractSatisfied(r))&&localChecksPassed(r)&&!r.lease&&!r.ciRepair?.lease&&!r.verification?.lease&&r.delivery?.approvalHash&&(!r.criterionCiNextAt||Date.parse(r.criterionCiNextAt)<=Date.now())).map(publicRequest),
+    criterionCiCandidates:()=>list().filter(r=>['failed','verifying','review'].includes(r.status)&&(r.workflowProtocol==='direct-v1'?['failed','verifying'].includes(r.status)&&r.verification?.phase!=='passed':r.contractProtocol&&!contractSatisfied(r))&&localChecksPassed(r)&&(!r.ciCollection||Date.parse(r.ciCollection.expiresAt)<=Date.now())&&!r.lease&&!r.ciRepair?.lease&&!r.verification?.lease&&r.delivery?.approvalHash&&(!r.criterionCiNextAt||Date.parse(r.criterionCiNextAt)<=Date.now())).map(publicRequest),
+    beginCriterionCi(id,expectedRevision){return transaction(db,()=>{
+      const r=get(id);if(resultRevision(r)!==expectedRevision||r.lease||r.ciRepair?.lease||r.verification?.lease||r.ciCollection&&Date.parse(r.ciCollection.expiresAt)>Date.now()||!['failed','verifying','review'].includes(r.status)||!localChecksPassed(r)||!r.delivery?.approvalHash)return null;
+      const collectionId=crypto.randomUUID();r.ciCollection={id:collectionId,resultRevision:expectedRevision,expiresAt:new Date(Date.now()+5*60000).toISOString()};save(r);return collectionId;
+    });},
+    endCriterionCi(id,collectionId){return transaction(db,()=>{const r=get(id);if(r.ciCollection?.id===collectionId){delete r.ciCollection;save(r);}});},
     observeCriterionCi(id,expectedRevision,observation){return transaction(db,()=>{
       const r=get(id);if(resultRevision(r)!==expectedRevision||!['failed','verifying','review'].includes(r.status)||r.lease||r.ciRepair?.lease||r.verification?.lease)return;
       if(!/^[a-f0-9]{40}$/.test(observation.commit)||observation.prUrl!==`https://github.com/${r.repository}/pull/${observation.prNumber}`)fail('Bằng chứng CI không khớp project.');

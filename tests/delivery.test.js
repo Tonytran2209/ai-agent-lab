@@ -17,3 +17,15 @@ test('manual browser attestation never triggers automatic acceptance',async()=>{
 test('restart after an interrupted third reconciliation stops visibly rather than stranding the request',async()=>{const f=fixture();try{f.enable();const r=f.create();f.s.approve(r.id,'Admin');f.complete(r);f.verify(r);for(let i=0;i<3;i++)f.s.beginDelivery(r.id);const value=f.s.rawForAnalysis(r.id);value.delivery.nextAttemptAt=new Date(0).toISOString();f.db.prepare('UPDATE requests SET data=? WHERE id=?').run(JSON.stringify(value),r.id);await createDelivery(f.s,{}).tick();assert.equal(f.s.get(r.id).delivery.phase,'failed');assert.equal(f.s.deliveryCandidates().length,0);}finally{f.close();}});
 
 test('saving unchanged project settings preserves bound publication while real changes still revoke it',async()=>{const f=fixture();try{f.enable();const r=f.create();f.s.approve(r.id,'Admin');f.complete(r);f.verify(r);const p=f.s.project('writer-studio');f.s.updateProject(p.id,{releaseEnabled:p.releaseEnabled,releaseEnvironment:p.releaseEnvironment,autoCompleteAfterApproval:p.autoCompleteAfterApproval});assert.equal(f.s.project(p.id).configurationRevision,p.configurationRevision);await createDelivery(f.s,{}, {validate:async()=>`https://github.com/${r.repository}/actions/runs/1`}).tick();assert.equal(f.s.get(r.id).release.phase,'ci');}finally{f.close();}});
+
+test('server CI collection excludes Mac polling claims and survives restart only until its read-only deadline',()=>{
+ const f=fixture();try{f.enable();const raw=f.create();f.s.approve(raw.id,'Admin');const r=f.complete(raw);
+ const collection=f.s.beginCriterionCi(r.id,r.resultRevision);assert.ok(collection);assert.equal(f.s.beginCriterionCi(r.id,r.resultRevision),null);assert.equal(f.s.verifications().length,0);assert.equal(f.s.get(r.id).ciCollection,undefined);assert.throws(()=>f.s.claimVerification(r.id,'Mac'),/Server đang đối chiếu CI/);
+ f.s.endCriterionCi(r.id,'wrong collection');assert.throws(()=>f.s.claimVerification(r.id,'Mac'),/Server đang đối chiếu CI/);
+ const restart=createService(f.db);assert.throws(()=>restart.claimVerification(r.id,'Mac'),/Server đang đối chiếu CI/);
+ f.s.endCriterionCi(r.id,collection);const claimed=f.s.claimVerification(r.id,'Mac');assert.equal(f.s.beginCriterionCi(r.id,r.resultRevision),null);
+ f.s.reportVerification(r.id,claimed.verificationToken,{phase:'ci',prNumber:3,prUrl:`https://github.com/${r.repository}/pull/3`,note:'Mac polling complete.'});
+ const old=f.s.beginCriterionCi(r.id,r.resultRevision),value=f.s.rawForAnalysis(r.id);value.ciCollection.expiresAt=new Date(0).toISOString();f.db.prepare('UPDATE requests SET data=? WHERE id=?').run(JSON.stringify(value),r.id);
+ const fresh=f.s.beginCriterionCi(r.id,r.resultRevision);assert.ok(fresh);assert.notEqual(fresh,old);f.s.endCriterionCi(r.id,old);assert.throws(()=>f.s.claimVerification(r.id,'Mac'),/Server đang đối chiếu CI/);f.s.endCriterionCi(r.id,fresh);assert.ok(f.s.claimVerification(r.id,'Mac').verificationToken);
+ }finally{f.close();}
+});
