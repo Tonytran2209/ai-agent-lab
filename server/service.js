@@ -5,7 +5,7 @@ import {projectQueueState} from './project-queue.js';
 import {normalizeImages,createFeedbackImages} from './feedback-images.js';
 import {rejectedScopePaths} from './scope.js';
 import {impactRisk,decideAutomation} from './impact.js';
-import {documentationScopeIssues,validateContract,assessContract,contractSatisfied,documentationImpact} from './contracts.js';
+import {validateContract,assessContract,contractSatisfied,documentationImpact} from './contracts.js';
 import {createRechecks} from './rechecks.js';
 import {createProjectMemory} from './project-memory.js';
 import {createLocalPlanning,intentRisk} from './local-planning.js';
@@ -25,7 +25,7 @@ export function validateDraft(draft, library, requireTraceability=false) {
   const parsed = draftSchema.parse(draft);
   parsed.allowedPaths = [...new Set(parsed.allowedPaths)];
   if(parsed.verificationPlan?.some(v=>v.files.some(p=>!library.sourcePaths.includes(p)&&!parsed.allowedPaths.includes(p))))fail('File kiểm tra cần tồn tại hoặc thuộc phạm vi thực thi.',400);
-  const mdIssues=documentationScopeIssues(parsed,library);if(mdIssues.length)throw Object.assign(new Error(mdIssues[0].message),{status:400,code:'MD_SCOPE_CONTRACT',details:mdIssues});
+  if(parsed.documentationReview?.updatesNeeded&&(!parsed.documentationReview.documents.length||parsed.documentationReview.documents.some(p=>!parsed.allowedPaths.includes(p))))fail('Tài liệu cần cập nhật phải nằm trong allowedPaths.',400);
   const rejected=rejectedScopePaths(parsed,library);
   if(rejected.length)throw Object.assign(new Error('Phạm vi file không thuộc layer đã chọn.'),{status:400,code:'SCOPE_POLICY',details:rejected.map(path=>({path,reason:'outside-layer-or-test-policy'}))});
   // New files are allowed within declared layer boundaries; the reviewer must inspect them.
@@ -173,7 +173,6 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
         if(options.requireTraceability&&!options.simplifiedWorkflow)r.contractProtocol="md-trace-v1";
         if(options.requireTraceability)r.governanceProtocol="impact-v1";
         const project=projects.get(r.projectId);
-        if(r.workflowProtocol==='direct-v1')r.ciPolicy={browserRequired:project.browserCheckRequired!==false};
         if(project.autoCompleteAfterApproval)r.delivery={mode:"single-approval-v1",phase:"pending-approval",environment:project.releaseEnvironment,configurationRevision:project.configurationRevision};
         save(r); queueTicket(r); feedbackImages.put(r.id,preparedImages); event(r.id, "feedback_received", actor); return publicRequest(r);
       });
@@ -445,7 +444,6 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
     complete(id, token, input) {
       return transaction(db, () => {
         const r = get(id); verifyLease(r, token); const result = completionSchema.parse(input);
-        const mdIssues=documentationScopeIssues({allowedPaths:r.draft.allowedPaths,documentationReview:result.documentationReview},library(r.libraryVersionId));if(mdIssues.length)throw Object.assign(new Error(mdIssues[0].message),{status:400,code:'MD_SCOPE_CONTRACT',details:mdIssues});
         if(result.documentationReview?.documents.some(p=>!library(r.libraryVersionId).documents.some(d=>d.path===p)))fail("Tài liệu báo cáo không thuộc library đã ghim.",400);
         if (!result.changedPaths.every(p => r.draft.allowedPaths.includes(p))) fail("Diff chứa file ngoài allowedPaths.");
         if (result.artifactUrl) {
@@ -539,7 +537,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
     reconcileCriterionCi(id,expectedRevision,proof){return transaction(db,()=>{const r=get(id);deliveryAuthority(r);if(!['failed','verifying','review'].includes(r.status)||r.lease||r.ciRepair?.lease||r.verification?.lease||resultRevision(r)!==expectedRevision||!localChecksPassed(r))fail('Kết quả đã đổi hoặc worker còn chạy.');
       if(proof.source!=='github-actions'||proof.branch!==r.result.localArtifact.branch||!proof.changedPaths.every(p=>r.draft.allowedPaths.includes(p)))fail('Bằng chứng CI không khớp scope.');
       if(r.workflowProtocol==='direct-v1'){
-        const wholeCi=proof.wholeCi?.commit===proof.commit&&(r.ciPolicy?.browserRequired===false?['writer-check']:['writer-check','browser-check']).every(name=>proof.wholeCi.jobs?.some(j=>j.name===name&&j.status==='completed'&&j.conclusion==='success'));
+        const wholeCi=proof.wholeCi?.commit===proof.commit&&['writer-check','browser-check'].every(name=>proof.wholeCi.jobs?.some(j=>j.name===name&&j.status==='completed'&&j.conclusion==='success'));
         const reviewed=r.ciRepair?.phase==='pushed'?r.ciRepair.commit:r.result.commit;
         const followup=wholeCi&&proof.verifiedTestFollowup?.reviewedCommit===reviewed&&proof.verifiedTestFollowup.changedPaths?.length&&proof.verifiedTestFollowup.changedPaths.every(p=>isTestFollowupPath(p)&&r.draft.allowedPaths.includes(p)&&proof.changedPaths.includes(p));
         if(proof.commit!==r.result.commit&&r.ciRepair?.commit!==proof.commit&&!followup)fail('Commit CI khác kết quả; cần báo cáo bản sửa tương ứng.');
@@ -551,11 +549,6 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
       r.result={...old,...(r.ciRepair?.commit===proof.commit&&r.ciRepair.documentationReview?{documentationReview:r.ciRepair.documentationReview}:{}),commit:proof.commit,changedPaths:proof.changedPaths,summary:old.summary,checks:[...old.checks.filter(c=>!r.draft.traceability.some(t=>t.verification.command===c.command)),...proof.criteria.filter(c=>c.method!=='inspection').map(c=>({command:c.command,passed:true,output:c.source==='agent-reported'?'Codex-reported; giữ nguyên bằng chứng cục bộ đúng commit':'GitHub CI độc lập: '+proof.evidenceUrl}))],criterionEvidence:proof.criteria.map(c=>({criterionIndex:c.criterionIndex,outcome:'passed',method:c.method||'test',command:c.command,files:c.files,detail:c.method==='inspection'||c.source==='agent-reported'?c.detail:'GitHub CI đã chạy thành công desktop/mobile: '+c.names.join('; ').slice(0,1700)}))};
       r.criterionCi={...proof,criteria:proof.criteria.filter(c=>c.source!=='agent-reported'),at:now()};delete r.ciObservation;delete r.criterionCiStatus;delete r.criterionCiNextAt;if(!contractSatisfied(r))fail('Bằng chứng CI chưa đủ hợp đồng tiêu chí/tài liệu.');
       r.verification={...newVerification(r,'GitHub CI'),phase:'passed',source:'github-actions',prNumber:proof.prNumber,prUrl:proof.prUrl,evidenceUrl:proof.evidenceUrl,at:now(),note:'Đã xác minh browser CI desktop/mobile; kiểm tra cục bộ giữ nguồn báo cáo riêng. Đang xác minh quyền tự phát hành.'};r.status='review';r.delivery={...r.delivery,phase:'authorized',attempts:0,nextAttemptAt:null};return changed(r,'criterion_ci_verified','AI Agent Lab','Đã đối chiếu browser CI và giữ bằng chứng cục bộ đúng commit, không đổi nguồn xác minh.');});},
-    recoverCodeOnlyDelivery(){return transaction(db,()=>{for(const r of list()){
-      if(r.status!=='review'||r.ciPolicy?.browserRequired!==false||r.delivery?.phase!=='failed'||r.delivery.note!=='CI chưa đạt độc lập trên đúng commit.'||r.delivery.codeOnlyRecoveryRevision===resultRevision(r)||!verificationPassed(r)||r.verification.source!=='github-actions'||r.release||r.lease)continue;
-      try{deliveryAuthority(r);}catch{continue;}
-      r.delivery={...r.delivery,codeOnlyRecoveryRevision:resultRevision(r),previousFailedAttempts:r.delivery.attempts,attempts:0,phase:'authorized',nextAttemptAt:null};changed(r,'delivery_check_recovered','AI Agent Lab','Kiểm tra lại chính sách code-only đã ghim; giữ lịch sử và xác minh GitHub độc lập trước khi phát hành. Không gọi AI.');
-    }});},
     deliveryCandidates: () => list().filter(r=>r.status==="review"&&r.delivery?.approvalHash&&!["failed","released"].includes(r.delivery.phase)&&(!r.delivery.nextAttemptAt||Date.parse(r.delivery.nextAttemptAt)<=Date.now())).map(publicRequest),
     beginDelivery(id) {
       return transaction(db,()=>{const r=get(id);deliveryAuthority(r);if(r.status!=="review"||!r.delivery?.approvalHash||["failed","released"].includes(r.delivery.phase)||(r.delivery.attempts||0)>=3)fail("Không có tiến trình tự phát hành.");r.delivery.attempts=(r.delivery.attempts||0)+1;r.delivery.phase="checking";r.delivery.nextAttemptAt=new Date(Date.now()+180000).toISOString();save(r);return publicRequest(r);});
@@ -564,7 +557,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
       return transaction(db,()=>{const r=get(id);if(r.status!=="review"||!r.delivery?.approvalHash)return publicRequest(r);r.delivery.phase=retryable&&r.delivery.attempts<3?"retrying":"failed";r.delivery.note=note;r.delivery.nextAttemptAt=new Date(Date.now()+60000*r.delivery.attempts).toISOString();return changed(r,"delivery_check_stopped","AI Agent Lab",note);});
     },
     finishDelivery(id, expectedRevision, evidenceUrl) {
-      return transaction(db,()=>{const r=get(id);deliveryAuthority(r);if(r.status!=="review"||r.delivery.phase!=="checking"||resultRevision(r)!==expectedRevision||!checksSatisfied(r)||!verificationPassed(r)||r.verification.source!=="github-actions")fail("Kết quả chưa đủ điều kiện tự phát hành.");r.status="completed";r.acceptance={mode:"automated-ci",authorizedBy:r.delivery.authorizedBy,at:now(),evidenceUrl};queueRelease(r,r.delivery.authorizedBy,{confirmHighRisk:r.delivery.highRiskConfirmed});if(r.ciObservation)r.ciObservationHistory=[...(r.ciObservationHistory||[]),r.ciObservation].slice(-3);delete r.ciObservation;delete r.criterionCiStatus;delete r.criterionCiNextAt;r.delivery.phase="released";r.delivery.note="Đã xác minh CI độc lập; Mac đang tự phát hành theo quyền đã duyệt.";return changed(r,"result_accepted","AI Agent Lab",r.delivery.note);});
+      return transaction(db,()=>{const r=get(id);deliveryAuthority(r);if(r.status!=="review"||r.delivery.phase!=="checking"||resultRevision(r)!==expectedRevision||!checksSatisfied(r)||!verificationPassed(r)||r.verification.source!=="github-actions")fail("Kết quả chưa đủ điều kiện tự phát hành.");r.status="completed";r.acceptance={mode:"automated-ci",authorizedBy:r.delivery.authorizedBy,at:now(),evidenceUrl};queueRelease(r,r.delivery.authorizedBy,{confirmHighRisk:r.delivery.highRiskConfirmed});r.delivery.phase="released";r.delivery.note="Đã xác minh CI độc lập; Mac đang tự phát hành theo quyền đã duyệt.";return changed(r,"result_accepted","AI Agent Lab",r.delivery.note);});
     },
     accept(id, actor, options = {}) {
       return transaction(db, () => {

@@ -72,13 +72,13 @@ export async function publishStep({ request: r, config, run, api, signal, purpos
     const required = checks.check_runs.find(c => c.name === 'writer-check' && c.app?.slug === 'github-actions');
     const browser = checks.check_runs.find(c => c.name === 'browser-check' && c.app?.slug === 'github-actions');
     if(config.ciReady===false&&!required&&!browser)throw new Error('Project chưa có writer-check và browser-check. Cần bổ sung CI hoặc admin xác minh trình duyệt thực tế trước nghiệm thu.');
-    const evidence=assessCi(response,statuses,r.result.commit,r.ciPolicy);
-    if(evidence.failed || r.ciPolicy?.browserRequired!==false&&browser?.status==='completed'&&browser.conclusion!=='success' || required?.status==='completed'&&required.conclusion!=='success')throw new Error('CI không đạt: '+(evidence.failures?.map(f=>f.name+' ('+f.conclusion+')'+(f.url?' '+f.url:'')).join('; ')||'xem check-run trên GitHub')+'. Giữ PR để sửa và kiểm tra lại, không merge.');
+    const evidence=assessCi(response,statuses,r.result.commit);
+    if(evidence.failed || browser?.status==='completed'&&browser.conclusion!=='success' || required?.status==='completed'&&required.conclusion!=='success')throw new Error('CI không đạt: '+(evidence.failures?.map(f=>f.name+' ('+f.conclusion+')'+(f.url?' '+f.url:'')).join('; ')||'xem check-run trên GitHub')+'. Giữ PR để sửa và kiểm tra lại, không merge.');
     if(!evidence.ready || pr.mergeable===null){
       if(Date.now()-Date.parse(release.phaseStartedAt||release.authorizedAt)>30*60000)throw new Error('Hết thời gian chờ CI. Kiểm tra PR rồi thử phát hành lại.');
-      return {phase:'ci',note:r.ciPolicy?.browserRequired===false?'Đang chờ kiểm tra code đúng commit. Browser test đang tạm tắt.':'Đang chờ writer-check và browser-check đạt trên đúng commit.'};
+      return {phase:'ci',note:'Đang chờ writer-check và browser-check đạt trên đúng commit.'};
     }
-    if (purpose === 'verification') return {phase:'passed',evidenceUrl:evidence.evidenceUrl,note:r.delivery?.approvalHash?'CI đã đạt trên đúng commit. Đang đối chiếu tiêu chí để tự phát hành.':'CI đã đạt trên đúng commit. Chờ nghiệm thu tiêu chí trước khi phát hành.'};
+    if (purpose === 'verification') return {phase:'passed',evidenceUrl:browser.details_url,note:r.delivery?.approvalHash?'CI đã đạt trên đúng commit. Đang đối chiếu tiêu chí để tự phát hành.':'CI đã đạt trên đúng commit. Chờ nghiệm thu tiêu chí trước khi phát hành.'};
     if (pr.draft) {
       if (readyRefresh) return {phase:'ci',note:'Đang chờ GitHub xác nhận PR đã sẵn sàng merge.'};
       await api('graphql','POST',{query:'mutation($id:ID!){markPullRequestReadyForReview(input:{pullRequestId:$id}){pullRequest{id}}}',variables:{id:pr.node_id}});
