@@ -1,3 +1,4 @@
+import {createRunnerControl,controlActions} from './runner-control.js';
 import {createLearning} from './learning.js';
 import {createCiRepair} from './ci-repair.js';
 import {createRecovery} from './recovery.js';
@@ -247,6 +248,13 @@ export function createApp(config, options = {}) {
       void recovery.tick().catch(()=>{});
     }
   });
+  const runnerControl=createRunnerControl(db,service);
+  app.get('/api/settings/runner-control',auth.admin,(req,res)=>res.json({supervisor:runnerControl.status(),commands:runnerControl.list()}));
+  app.post('/api/settings/runner-control',auth.admin,(req,res)=>{const b=z.object({action:z.enum(controlActions)}).strict().parse(req.body);res.json(runnerControl.queue(b.action,req.user.name));});
+  app.post('/runner/control/heartbeat',auth.mcp,limiter(60),(req,res)=>{const b=z.object({workerId:z.string().uuid(),controlProtocol:z.literal('runner-control-v1'),version:z.string().max(80),bootAt:z.string().datetime(),childBootAt:z.string().datetime().nullable().optional(),state:z.enum(['starting','idle','busy','restarting','stalled','backoff']),childSeenAt:z.string().datetime().nullable(),codex:z.object({state:z.enum(['unknown','ready','login-required','unavailable']),checkedAt:z.string().datetime().nullable()}).strict()}).strict().parse(req.body);res.json(runnerControl.heartbeat(b));});
+  app.get('/runner/control',auth.mcp,limiter(60),(req,res)=>{const workerId=z.string().uuid().parse(req.query.workerId);res.json({command:runnerControl.next(workerId)});});
+  app.post('/runner/control/:id/claim',auth.mcp,(req,res)=>{const b=z.object({workerId:z.string().uuid()}).strict().parse(req.body);res.json(runnerControl.claim(req.params.id,b.workerId));});
+  app.post('/runner/control/:id/result',auth.mcp,(req,res)=>{const b=z.object({workerId:z.string().uuid(),phase:z.enum(['completed','failed']),note:z.string().max(300)}).strict().parse(req.body);res.json(runnerControl.finish(req.params.id,b.workerId,b.phase,b.note));});
   app.get("/runner/status", auth.mcp, limiter(30), (req, res) => res.json(service.runnerStatus()));
   app.post("/runner/status", auth.mcp, limiter(30), (req, res) => {
     const input = z.object({ phase: z.enum(["idle", "running", "polling", "error"]), contractProtocol:z.literal("md-trace-v1").optional(), governanceProtocol:z.literal("impact-v1").optional(),attachmentProtocol:z.literal("feedback-images-v1").optional(), requestId: z.string().regex(/^REQ-[A-F0-9]{8}$/).nullable().default(null), projects:z.array(z.object({projectId:z.string().max(64),repository:repositorySchema,repoReady:z.boolean(),note:z.string().max(300).optional()})).max(50).optional() }).parse(req.body);

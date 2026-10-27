@@ -210,3 +210,7 @@
 .inbox-state.is-deployed,.inbox-state.is-deployed .inbox-state-icon{color:#a3bba9}
 .inbox-state.is-waiting .inbox-state-icon{color:var(--muted)}
 @media(prefers-reduced-motion:reduce){.inbox-state.is-processing .inbox-state-icon{animation:none}}
+
+.runner-controls{padding:16px 20px;border-top:1px solid var(--border)}
+.runner-control-actions{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+.runner-controls .settings-hint{margin:10px 0;line-height:1.6}

@@ -5,11 +5,21 @@ const payload=s=>Object.fromEntries(['mode','model','mainModel','dailyCalls','da
 const body=s=>JSON.stringify({...payload(s),strategy:'classify'});
 
 export function WorkerSettings({api,runner}){
- const [cloud,setCloud]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState('');
+ const [cloud,setCloud]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[control,setControl]=useState(null);
+ useEffect(()=>{let live=true;const load=()=>api('/settings/runner-control').then(v=>{if(live)setControl(v);}).catch(()=>{});load();const timer=setInterval(load,5000);return()=>{live=false;clearInterval(timer);};},[]);
+ async function command(action){setBusy(true);setError('');try{await api('/settings/runner-control',{method:'POST',body:JSON.stringify({action})});setControl(await api('/settings/runner-control'));}catch(e){setError(e.message);}finally{setBusy(false);}}
+ const supervisor=control?.supervisor,pending=control?.commands?.find(c=>['queued','running'].includes(c.phase)),latest=control?.commands?.[0];
  useEffect(()=>{let live=true;api('/settings/cloud').then(v=>{if(live)setCloud(v);}).catch(e=>{if(live)setError(e.message);});return()=>{live=false;};},[]);
  async function update(change){setBusy(true);setError('');try{setCloud(await api('/settings/cloud',{method:'PUT',body:JSON.stringify({enabled:cloud.enabled,publishEnabled:cloud.publishEnabled,dailyDispatches:cloud.dailyDispatches,...change})}));}catch(e){setError(e.message);}finally{setBusy(false);}}
  return <section className="settings-group"><h2>Nơi thực thi</h2><div className="settings-list">
   <SettingsRow title="Mac" description="Nhận feedback, đọc code/MD và thực thi theo quyền của từng project."><span className="settings-state">{runner?.connected?'Đã kết nối':'Chưa kết nối'}</span></SettingsRow>
+  <SettingsRow title="Kết nối & phục hồi Mac" description="Kết nối lại hoặc nạp runner mới khi rảnh. Không cắt ngang request đang sửa code."><span className="settings-state">{supervisor?.connected?({idle:'Sẵn sàng',busy:'Đang làm việc',starting:'Đang khởi động',restarting:'Đang khởi động lại',stalled:'Cần kiểm tra heartbeat',backoff:'Đang chờ phục hồi'}[supervisor.state]||'Đã kết nối'):'Supervisor chưa kết nối'}</span></SettingsRow>
+  <div className="runner-controls">
+   <div className="runner-control-actions">{[['reconnect','Kết nối lại'],['check-codex','Kiểm tra Codex'],['restart','Khởi động lại khi rảnh']].map(([action,label])=><button key={action} disabled={busy||!!pending||!supervisor?.workerId} onClick={()=>command(action)}>{label}</button>)}</div>
+   <p className="settings-hint">{supervisor?.workerId?<>Phiên bản {supervisor.version}{supervisor.childBootAt?' · Runner nạp lúc '+new Date(supervisor.childBootAt).toLocaleString('vi-VN'):''} · Heartbeat {supervisor.lastSeenAt?new Date(supervisor.lastSeenAt).toLocaleString('vi-VN'):'chưa có'}. Codex lần kiểm tra cuối: {{ready:'Đã đăng nhập',unknown:'Chưa kiểm tra','login-required':'Cần đăng nhập trên Mac',unavailable:'Chưa xác minh được CLI'}[supervisor.codex?.state]||'Chưa kiểm tra'}.</>:'Cần nạp supervisor một lần trên Mac để bật điều khiển từ app.'}</p>
+   {supervisor?.codex?.state==='login-required'&&<p className="settings-alert">Mở Codex CLI trên Mac để đăng nhập lại. App không lưu hoặc tự làm mới thông tin đăng nhập.</p>}
+   {latest&&<p role="status" className="settings-hint">{pending?'Lệnh đang chờ Mac xác nhận (tối đa 10 phút). ':''}{latest.note}</p>}
+  </div>
   {cloud&&<><SettingsRow title="Cloud dự phòng" description="Tự gọi GitHub Actions khi Mac mất kết nối và có việc chờ, trong hạn mức cloud. Bật công tắc không xác nhận workflow đã chạy thành công."><SettingsSwitch label="Worker cloud dự phòng" checked={cloud.enabled} disabled={busy||!cloud.dispatchTokenConfigured} onChange={enabled=>update({enabled})}/></SettingsRow>
   <SettingsRow title="Cho phép cloud phát hành" description="Áp dụng cùng phạm vi, quyền duyệt và kiểm tra CI của project."><SettingsSwitch label="Publisher cloud" checked={cloud.publishEnabled===true} disabled={busy||!cloud.enabled} onChange={publishEnabled=>update({publishEnabled})}/></SettingsRow></>}
  </div>{cloud&&!cloud.dispatchTokenConfigured&&<p className="settings-hint">Chưa có kết nối GitHub để gọi cloud. Xem AI & model → Chẩn đoán.</p>}{error&&<p role="alert" className="settings-alert error">{error}</p>}</section>;

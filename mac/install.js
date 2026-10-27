@@ -61,7 +61,7 @@ const tokenPath = path.join(stateDir, "mcp-token");
 const credentialCommand = fileCredentials
   ? `IFS= read -r AI_AGENT_LAB_MCP_TOKEN < ${quote(tokenPath)}\nexport AI_AGENT_LAB_MCP_TOKEN`
   : `export AI_AGENT_LAB_MCP_TOKEN="$(/usr/bin/security find-generic-password -a ${quote(userInfo().username)} -s ai-agent-lab-mcp -w)"`;
-await writeFile(wrapperPath, `#!/bin/zsh\nset -eu\n${credentialCommand}\nexport PATH=${quote(path.dirname(process.execPath) + ":/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin")}\ncd ${quote(root)}\nexec ${quote(process.execPath)} ${quote(path.join(root, "mac/runner.js"))} ${quote(configPath)}\n`, { mode: 0o700 });
+await writeFile(wrapperPath, `#!/bin/zsh\nset -eu\n${credentialCommand}\nexport PATH=${quote(path.dirname(process.execPath) + ":/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin")}\ncd ${quote(root)}\nexec ${quote(process.execPath)} ${quote(path.join(root, "mac/supervisor.js"))} ${quote(configPath)}\n`, { mode: 0o700 });
 await chmod(wrapperPath, 0o700);
 const xml = value => value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
 const plist = `<?xml version="1.0" encoding="UTF-8"?>

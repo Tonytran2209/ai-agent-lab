@@ -267,11 +267,15 @@ export async function main(configPath) {
   await writeFile(path.join(lock, "pid"), String(process.pid), { mode: 0o600 });
   const controller = new AbortController();
   const stop = () => controller.abort();
-  process.once("SIGTERM", stop); process.once("SIGINT", stop);
+  process.once("SIGTERM", stop); process.once("SIGINT", stop);process.once("disconnect",stop);
   const log = text => console.log(new Date().toISOString(), text);
+  let safeIdle=false,wake;
+  const ipc=message=>{try{process.send?.(message);}catch{}};
+  const onControl=message=>{if(message?.type==='reconnect')wake?.();};process.on('message',onControl);
   let lastTelemetry={phase:"polling",requestId:null,contractProtocol:"md-trace-v1",governanceProtocol:"impact-v1",attachmentProtocol:"feedback-images-v1"};
   const reportStatus = async value => {
     lastTelemetry={...lastTelemetry,...value};
+    ipc({type:'runner-state',safeIdle,phase:lastTelemetry.phase,at:new Date().toISOString()});
     // Telemetry failure never grants/releases execution authority. Old backends may return 404.
     try {
       await fetch(new URL("/runner/status", config.mcpUrl), { method: "POST", signal: AbortSignal.timeout(10000),
@@ -279,7 +283,7 @@ export async function main(configPath) {
     } catch {}
   };
   const presence=setInterval(()=>{void reportStatus({});},45000);
-  let wasConnected = false,monitorConfigs=[];
+  let wasConnected = false,monitorConfigs=[],connectionFailures=0;
   const monitor=startMonitor(async()=>{
     for(const c of monitorConfigs){
       if(controller.signal.aborted)return;
@@ -292,11 +296,13 @@ export async function main(configPath) {
   try {
     log("Mac runner started; local-planning-v1; polling approved requests.");
     while (!controller.signal.aborted) {
+      safeIdle=false;ipc({type:'runner-state',safeIdle,at:new Date().toISOString()});
       let connection;
       try {
         connection = await connect(config, token);
         const connected = await connectProjects(config, token, command, controller.signal);
         await reportStatus({phase:"polling",requestId:null,projects:connected.statuses});
+        ipc({type:'connected'});
         monitorConfigs=connected.configs;void monitor.tick();
         const workers=[{name:'ci-repair',run:()=>pollCiRepairs(connected.configs,token,command,controller.signal,{prepareDependencies,childEnvironment,changedFiles,checkScope,noSymlinks})},{name:'ci-setup',run:()=>pollCiSetups(connected.configs,token,command,controller.signal)}];
         for(const projectConfig of connected.configs){
@@ -307,7 +313,7 @@ export async function main(configPath) {
         const { requests } = await connection.call("list_ready_requests");
         await reportStatus({ phase: "idle", requestId: null, projects:connected.statuses });
         if (!wasConnected) log("Đã kết nối Lab; đang kiểm tra hàng đợi.");
-        wasConnected = true;
+        wasConnected = true;connectionFailures=0;
         for (const r of [...requests].reverse()) {
           if (controller.signal.aborted) break;
           const selectedConfig = connected.configs.find(c => matchesProject(r,c));
@@ -318,19 +324,21 @@ export async function main(configPath) {
             log("Reported " + done.requestId + " branch " + done.branch);
           } catch { log("Request " + r.id + " chưa chạy xong; kiểm tra trạng thái Lab và journal cục bộ."); }
         }
-      } catch { wasConnected = false; await reportStatus({phase:"error",requestId:null}); log("Không kết nối được Lab. Sẽ thử lại; kiểm tra URL/token/network."); }
+      } catch { connectionFailures++;wasConnected = false; await reportStatus({phase:"error",requestId:null}); log("Không kết nối được Lab. Sẽ thử lại; kiểm tra URL/token/network."); }
       finally { await connection?.client.close().catch(() => {}); }
+      safeIdle=true;ipc({type:'runner-state',safeIdle,at:new Date().toISOString()});
       if (!controller.signal.aborted) await new Promise(resolve => {
-        const finish = () => { clearTimeout(timer); controller.signal.removeEventListener("abort", finish); resolve(); };
-        const timer = setTimeout(finish, Math.max(5000, Number(config.pollIntervalMs) || 15000));
+        const finish = () => { clearTimeout(timer);wake=null;controller.signal.removeEventListener("abort", finish); resolve(); };wake=finish;
+        const timer = setTimeout(finish, Math.min(60000,Math.max(5000, Number(config.pollIntervalMs) || 15000)*2**Math.min(connectionFailures,3))+Math.floor(Math.random()*1000));
         controller.signal.addEventListener("abort", finish, { once: true });
       });
     }
   } finally {
+    process.removeListener('message',onControl);
     clearInterval(presence);
     controller.abort();await monitor.stop();
     await rm(lock, { recursive: true });
-    process.removeListener("SIGTERM", stop); process.removeListener("SIGINT", stop);
+    process.removeListener("SIGTERM", stop); process.removeListener("SIGINT", stop);process.removeListener("disconnect",stop);
   }
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
