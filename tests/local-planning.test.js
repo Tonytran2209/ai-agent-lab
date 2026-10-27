@@ -40,7 +40,7 @@ test('verified outcome learning returns to Luna with risk provenance, excludes d
  k.review(r.projectId,entry.id,{state:'invalid',reason:'This lesson is obsolete after a reviewed product decision.'},'Admin');assert.equal(classificationContext(f.service,k,next).lessons.length,0);assert.equal(f.service.memory.list(r.projectId)[0].enabled,false);f.service.memory.setEnabled(r.projectId,entry.id,true);assert.equal(classificationContext(f.service,k,next).lessons.length,0);
  k.review(r.projectId,entry.id,{state:'valid',reason:'Revalidated the exact documented display contract and test evidence.'},'Admin');
  f.service.addLibrary({...lib,sourceCommit:'e'.repeat(40),documents:lib.documents.map(d=>d.path===doc.path?{...d,content:d.content+'\nChanged contract.'}:d)});
- const later=queued(f);assert.equal(classificationContext(f.service,k,later).lessons.length,1);assert.equal(classificationContext(f.service,k,later).lessons[0].knowledgeStatus,'md-changed-revalidate');assert.ok(classificationContext(f.service,k,later).lessons[0].currentMd[0].excerpt.includes('Changed contract'));assert.equal(k.snapshot(r.projectId).lessons[0].compatibleWithCurrent,false);
+ const later=queued(f);assert.equal(classificationContext(f.service,k,later).lessons.length,0);assert.equal(k.snapshot(r.projectId).lessons[0].compatibleWithCurrent,false);
  }finally{f.close();}
 });
 

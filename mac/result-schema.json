@@ -93,26 +93,16 @@
           "items": {
             "type": "string",
             "pattern": "^\\.agent-hub/[A-Za-z0-9_./-]+\\.md$"
-          },
-          "description": "ONLY canonical MD files actually requiring edits. Every planned update must be in allowedPaths. Use [] if updatesNeeded=false."
+          }
         },
         "reason": {
           "type": "string"
-        },
-        "referenceDocuments": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "maxItems": 11,
-          "description": "Pinned canonical MD read for comparison but left unchanged. Reference only; does not grant edit scope."
         }
       },
       "required": [
         "updatesNeeded",
         "documents",
-        "reason",
-        "referenceDocuments"
+        "reason"
       ]
     }
   }
