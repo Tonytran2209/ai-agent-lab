@@ -88,7 +88,7 @@ test('same-commit sync adds optional canonical user guide without mutating pinne
   const s=f.service,r=approve(s,seed.projectId),packet=s.packet(r.id),old=s.currentLibrary(seed.projectId);
   const legacy={...old,ciInspectionVersion:1};
   const loaded=await readRepositoryLibrary(seed.repository,'main',undefined,legacy);
-  assert.equal(loaded.libraryFormatVersion,2);assert.equal(loaded.documents.length,12);assert.deepEqual(loaded.documents.at(-1),guide);
+  assert.equal(loaded.libraryFormatVersion,3);assert.equal(loaded.documents.length,12);assert.deepEqual(loaded.documents.at(-1),guide);
   assert.ok(!calls.some(p=>p.startsWith('contents/docs/')));
   const saved=s.addLibrary(loaded);assert.notEqual(saved.id,old.id);assert.deepEqual(s.packet(r.id),packet);assert.equal(s.library(old.id).documents.length,11);
   const knowledge=createKnowledge(f.db,s),found=knowledge.search(seed.projectId,'Quét dẫn chứng PNG JPEG WebP 15 MiB',{libraryId:saved.id,limit:12});
