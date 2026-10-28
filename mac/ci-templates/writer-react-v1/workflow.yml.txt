@@ -1,0 +1,60 @@
+name: Agent Lab CI
+on:
+  pull_request:
+  push:
+    branches: [__BRANCH__]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  writer-check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            backend/package-lock.json
+      - run: npm ci
+      - run: npm ci --prefix backend
+      - run: npm run check
+  browser-check:
+    runs-on: ubuntu-24.04
+    container:
+      image: mcr.microsoft.com/playwright:v1.64.1-noble
+      options: --ipc=host
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm install --no-save --package-lock=false --ignore-scripts @playwright/test@1.64.1
+      - name: Verify pinned Playwright environment
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git rev-parse HEAD
+          node -e "const v = require('@playwright/test/package.json').version; if (v !== '1.64.1') throw Error('Playwright image/package mismatch: ' + v)"
+          node -e "require('@playwright/test').chromium.launch().then(browser => browser.close())"
+      - name: Run browser tests
+        run: npx --no-install playwright test --config playwright.agent-lab.config.mjs --reporter=list,html,./tests/agent-lab/evidence-reporter.cjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: agent-lab-browser-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 14
