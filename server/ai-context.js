@@ -1,9 +1,10 @@
+import {designDocumentAuthority,designReferencePolicy} from './design-authority.js';
 // One policy version invalidates both persistent plans and prompt selection.
 export const AI_POLICY_VERSION = 'economy-v1';
 export function compactLibrary(library, layer = 'cross-layer') {
   const selected = (library.documents || []).filter(d => layer === 'cross-layer' || !/\/(backend|database|design)\//.test(d.path) || d.path.includes('/' + layer + '/'));
   return { projectId: library.projectId, sourceCommit: library.sourceCommit,
-    documents: selected.map(({path, content}) => ({path, content})), sourcePaths: library.sourcePaths };
+    designPolicy:designReferencePolicy, documents: selected.map(({path, content}) => ({path, content,...designDocumentAuthority(path)})), sourcePaths: library.sourcePaths };
 }
 export function feedbackLayer(request) {
   const text = [request.feedback, request.screen, request.expected].join(' ');
@@ -25,4 +26,4 @@ export function displayRecipe(request, library) {
     acceptanceCriteria: ["Bài viết Draft hiển thị ký tự '—' thành '-'.", 'Nội dung lưu và xuất giữ nguyên; các phần khác không thay đổi.'], assumptions: ['Chỉ chuẩn hóa phần hiển thị Draft.'], questions: [], risk: 'low', migrationNotes: '' };
 }
 
-export function planningLibrary(library){return {...library,documents:library.documents.map(d=>{const lines=d.content.split('\n');let size=0;const excerpt=[];for(const line of lines){if(size+line.length+1>3000)break;excerpt.push(line);size+=line.length+1;}return {path:d.path,content:excerpt.join('\n'),excerpt:excerpt.length<lines.length,startLine:1,endLine:excerpt.length,totalLines:lines.length,readFullFromCheckout:excerpt.length<lines.length};})};}
+export function planningLibrary(library){return {...library,documents:library.documents.map(d=>{const lines=d.content.split('\n');let size=0;const excerpt=[];for(const line of lines){if(size+line.length+1>3000)break;excerpt.push(line);size+=line.length+1;}return {path:d.path,...designDocumentAuthority(d.path),content:excerpt.join('\n'),excerpt:excerpt.length<lines.length,startLine:1,endLine:excerpt.length,totalLines:lines.length,readFullFromCheckout:excerpt.length<lines.length};})};}
