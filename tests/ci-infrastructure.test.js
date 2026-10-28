@@ -26,3 +26,9 @@ test('a failing aggregate after successful shards cannot be treated as infrastru
  const out=await ciInfrastructure(async()=>job,{check_runs:[{...run,conclusion:'success'},{...run,id:11,name:'browser-check'}]},sha);
  assert.equal(out.failureKind,'unknown');
 });
+
+test('actual browser timeout outranks an echoed image check that succeeded earlier in the same job',async()=>{
+ const log=`##[group]Run node -e "if(v!=='1.64.1') throw Error('Playwright image/package mismatch: '+v)"\nnode -e "if(v!=='1.64.1') throw Error('Playwright image/package mismatch: '+v)"\nLAB_TEST_V1 ${JSON.stringify({protocol:'lab-test-v1',commit:sha,project:'mobile',file:'tests/agent-lab/sidebar-scroll.spec.mjs',status:'timedOut'})}`;
+ const out=await ciInfrastructure(async(p,logs)=>logs?log:({...job,steps:[{name:'Verify CI configuration',status:'completed',conclusion:'success'},{name:'Verify pinned Playwright environment',status:'completed',conclusion:'success'},{name:'Run browser tests',status:'completed',conclusion:'failure'}]}),response,sha);
+ assert.equal(out.failureKind,'test');assert.equal(out.jobs[0].failedStep,'Run browser tests');assert.match(out.jobs[0].stage,/Kiểm thử giao diện/);
+});
