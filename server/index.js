@@ -1,3 +1,4 @@
+import {createDeployOnboarding,deploymentInput,deploymentProtocol} from './deploy-onboarding.js';
 import {inspectProject,inspectProjectInput,connectProjectInput} from './project-connect.js';
 import {inspectAdapters,adapterProtocol} from './ci-adapters.js';
 import {createOnboarding,onboardingInput,onboardingReport,onboardingGithub,pinOnboarding,verifyOnboarding} from './onboarding.js';
@@ -43,6 +44,7 @@ export function createApp(config, options = {}) {
   const service = createService(db, {...options,serializeProjects:options.serializeProjects??true,simplifiedWorkflow:options.simplifiedWorkflow??config.LAB_WORKFLOW_MODE!=='legacy',requireTraceability:config.MD_TRACEABILITY_ENABLED!=="false"});
   const onboarding=createOnboarding(db,service);
   const onboardingApi=options.onboardingApi||onboardingGithub(config.GITHUB_TOKEN);
+  const deploymentOnboarding=createDeployOnboarding(db,service,config,{github:onboardingApi,...options.deploymentOptions});
   const knowledge=createKnowledge(db,service);
   const ciPreflight=config.NODE_ENV==='test'&&!options.ciPreflightOptions?null:createCiPreflight(db,service,config,{onSync:id=>knowledge.index(id),...options.ciPreflightOptions});
   const agent=createOrchestrator(db,service,knowledge,config,options.agentOptions);
@@ -56,7 +58,8 @@ export function createApp(config, options = {}) {
   const pipeline={enqueue:(id,actor)=>agent.enabled(service.get(id).projectId)?agent.enqueue(id,actor):legacyPipeline.enqueue(id,actor),start(){ciPreflight?.start();legacyPipeline.start();agent.start();learning.start();maintenance.start();dataManagement.start();cloud.start();},async stop(){await ciPreflight?.stop();await cloud.stop();await learning.stop();await agent.stop();await maintenance.stop();await dataManagement.stop();await legacyPipeline.stop();},async tick(){await agent.tick();await legacyPipeline.tick();}};
   const repairs=createCiRepair(db,service);
   const delivery=createDelivery(service,config,{repairs});
-  const recovery=createRecovery(service,config,options.recoveryOptions);
+  const verifyBoundRecovery=async(...args)=>{const proof=await verifyRecoveredDeployment(...args);if(args[1].railwayBinding)await deploymentOnboarding.verifyPublished(args[1].id,proof.deployedCommit);return proof;};
+  const recovery=createRecovery(service,config,{verify:verifyBoundRecovery,...options.recoveryOptions});
   const lark=createLark(db,service,config);
   const app = express();
   // Railway edge proxy adds one trusted hop; app is designed for one replica.
@@ -174,7 +177,7 @@ export function createApp(config, options = {}) {
   app.post('/api/requests/:id/publication/reconcile',auth.admin,async(req,res)=>{
     const b=z.object({deployedCommit:z.string().regex(/^[a-f0-9]{40}$/),expectedRevision:z.string().min(1)}).strict().parse(req.body),r=service.get(req.params.id),p=service.project(r.projectId);
     if(r.updatedAt!==b.expectedRevision)fail('Request đã đổi; đọc lại trước khi đồng bộ.',409);
-    const proof=await verifyRecoveredDeployment(r,p,b.deployedCommit,config.GITHUB_TOKEN);
+    const proof=await verifyBoundRecovery(r,p,b.deployedCommit,config.GITHUB_TOKEN);
     service.reconcileDeployment(r.id,proof,req.user.name,b.expectedRevision);
     try{await syncLibrary(service,config.GITHUB_TOKEN,r.projectId);knowledge.index(r.projectId);service.releaseLibrarySync(r.id,true);}catch{service.releaseLibrarySync(r.id,false);}
     res.json(service.get(r.id));
@@ -209,6 +212,13 @@ export function createApp(config, options = {}) {
     if(service.projects().some(p=>p.id===lib.projectId))fail('Project ID đã được sử dụng.');
     service.addLibrary(lib);service.updateProject(lib.projectId,{runnerEnabled:false,releaseEnabled:false,autoCompleteAfterApproval:false});res.status(201).json({mode:'connected',project:service.project(lib.projectId)});
   });
+  app.get('/api/projects/:id/deploy/setup',auth.admin,(req,res)=>{service.project(req.params.id);res.json(deploymentOnboarding.get(req.params.id));});
+  app.post('/api/projects/:id/deploy/credentials',auth.admin,limiter(6,600000),(req,res)=>{const b=z.object({token:z.string().trim().min(20).max(500),confirm:z.literal(true)}).strict().parse(req.body);res.json(deploymentOnboarding.credentials(req.params.id,b.token));});
+  app.post('/api/projects/:id/deploy/setup',auth.admin,limiter(6,600000),(req,res)=>res.status(202).json(deploymentOnboarding.queue(req.params.id,deploymentInput.parse(req.body),req.user.name)));
+  app.post('/api/projects/:id/deploy/verify',auth.admin,limiter(12,600000),async(req,res)=>{const b=z.object({jobId:z.string().uuid()}).strict().parse(req.body);res.json(await deploymentOnboarding.run(req.params.id,false,b.jobId));});
+  app.post('/api/projects/:id/deploy/activate',auth.admin,limiter(6,600000),async(req,res)=>{const b=z.object({confirm:z.literal(true),jobId:z.string().uuid()}).strict().parse(req.body);res.json(await deploymentOnboarding.run(req.params.id,true,b.jobId));});
+  app.post('/api/projects/:id/deploy/cancel',auth.admin,(req,res)=>{const b=z.object({jobId:z.string().uuid()}).strict().parse(req.body);res.json(deploymentOnboarding.cancel(req.params.id,b.jobId));});
+  app.get('/runner/releases/:id/deploy-guard',auth.mcp,async(req,res)=>{const r=service.get(req.params.id);res.json(await deploymentOnboarding.guard(r.projectId));});
   app.get('/api/projects/:id/ci/adapters',auth.admin,(req,res)=>{const p=service.project(req.params.id);res.json({...inspectAdapters(service.currentLibrary(p.id).sourcePaths),protocol:adapterProtocol});});
   app.post("/api/projects", auth.admin, limiter(6,10*60000), async(req,res)=>{
     const input=z.object({repository:repositorySchema,branch:branchSchema.optional(),runnerEnabled:z.boolean().default(false),setupCi:z.boolean().default(false),autoMergeCi:z.boolean().default(false)}).strict().parse(req.body);
@@ -286,9 +296,11 @@ export function createApp(config, options = {}) {
     res.json(service.reportVerification(req.params.id,verificationToken,update));
   });
   app.get("/runner/releases", auth.mcp, limiter(60), (req, res) => res.json({ requests: service.releases() }));
-  app.post("/runner/releases/:id/claim", auth.mcp, limiter(60), (req, res) => res.json(service.claimRelease(req.params.id, "mac-publisher")));
+  app.post("/runner/releases/:id/claim", auth.mcp, limiter(60), async(req,res)=>{const r=service.get(req.params.id),p=service.project(r.projectId);if(p.railwayBinding){if(req.body.protocol!==deploymentProtocol)fail('Cần publisher hỗ trợ liên kết Railway mới.');if(['queued','ci'].includes(r.release?.phase))await deploymentOnboarding.guard(p.id);if(service.project(p.id).configurationRevision!==p.configurationRevision)fail('Cấu hình project đã đổi trước khi nhận phát hành.');}res.json(service.claimRelease(req.params.id,'mac-publisher',req.body.protocol));});
   app.post("/runner/releases/:id/report", auth.mcp, limiter(60), async (req, res) => {
     const { releaseToken, update } = z.object({ releaseToken: z.string().regex(/^[a-f0-9]{64}$/), update: z.record(z.unknown()) }).parse(req.body);
+    const request=service.get(req.params.id);
+    if(update.phase==='deployed'&&service.project(request.projectId).railwayBinding){const proof=await deploymentOnboarding.verifyPublished(request.projectId,request.release?.mergeCommit);update.deploymentUrl=proof.url+'&id='+proof.deploymentId;update.postDeployCheck={url:proof.healthUrl,status:proof.healthStatus,checkedAt:proof.verifiedAt};}
     const result = service.updateRelease(req.params.id, releaseToken, update);
     res.json(result);
     if (result.release.phase === "deployed") {
@@ -304,7 +316,7 @@ export function createApp(config, options = {}) {
   app.post('/runner/control/:id/result',auth.mcp,(req,res)=>{const b=z.object({workerId:z.string().uuid(),phase:z.enum(['completed','failed']),note:z.string().max(300)}).strict().parse(req.body);res.json(runnerControl.finish(req.params.id,b.workerId,b.phase,b.note));});
   app.get("/runner/status", auth.mcp, limiter(30), (req, res) => res.json(service.runnerStatus()));
   app.post("/runner/status", auth.mcp, limiter(30), (req, res) => {
-    const input = z.object({ phase: z.enum(["idle", "running", "polling", "error"]), contractProtocol:z.literal("md-trace-v1").optional(), governanceProtocol:z.literal("impact-v1").optional(),attachmentProtocol:z.literal("feedback-images-v1").optional(), requestId: z.string().regex(/^REQ-[A-F0-9]{8}$/).nullable().default(null), projects:z.array(z.object({projectId:z.string().max(64),repository:repositorySchema,repoReady:z.boolean(),note:z.string().max(300).optional()})).max(50).optional() }).parse(req.body);
+    const input = z.object({ phase: z.enum(["idle", "running", "polling", "error"]), contractProtocol:z.literal("md-trace-v1").optional(), governanceProtocol:z.literal("impact-v1").optional(),attachmentProtocol:z.literal("feedback-images-v1").optional(), deploymentProtocol:z.literal(deploymentProtocol).optional(),publisherEnabled:z.boolean().optional(), requestId: z.string().regex(/^REQ-[A-F0-9]{8}$/).nullable().default(null), projects:z.array(z.object({projectId:z.string().max(64),repository:repositorySchema,repoReady:z.boolean(),note:z.string().max(300).optional()})).max(50).optional() }).parse(req.body);
     if (input.phase === "running" && !input.requestId) fail("Running status requires a request.", 400);
     res.json(service.reportRunner(input));
   });
@@ -320,14 +332,14 @@ export function createApp(config, options = {}) {
       status >= 500 && e.status === undefined ? "Không xử lý được yêu cầu. Dữ liệu đã lưu vẫn được giữ." : e.message;
     res.status(status).json({ error,...(e instanceof ZodError&&req.path.startsWith('/runner/planning/')?{code:'PLAN_SCHEMA',details:e.issues.slice(0,12).map(i=>({path:i.path.join('.'),code:i.code,message:i.message.slice(0,300)}))}:{}),...(e.code==='SCOPE_POLICY'?{code:e.code,details:e.details}:{}) });
   });
-  return { app, db, service, onboarding, pipeline, delivery, lark, agent, knowledge, maintenance, dataManagement, cloud, repairs, recovery, learning };
+  return { app, db, service, deploymentOnboarding, onboarding, pipeline, delivery, lark, agent, knowledge, maintenance, dataManagement, cloud, repairs, recovery, learning };
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const { app, db, pipeline, delivery, recovery, lark } = createApp(process.env);
+  const { app, db, pipeline, delivery, recovery, lark, deploymentOnboarding } = createApp(process.env);
   const port = Number(process.env.PORT || 3000);
-  pipeline.start(); delivery.start(); recovery.start(); lark.start();
+  pipeline.start(); delivery.start(); recovery.start(); lark.start(); deploymentOnboarding.start();
   const server = app.listen(port, "0.0.0.0", () => { console.log("AI Agent Lab listening on port " + port); });
-  const stop = async () => { await pipeline.stop(); await delivery.stop();await recovery.stop(); await lark.stop(); server.close(() => db.close()); };
+  const stop = async () => { await pipeline.stop(); await delivery.stop();await recovery.stop(); await lark.stop();await deploymentOnboarding.stop(); server.close(() => db.close()); };
   process.once("SIGTERM", stop); process.once("SIGINT", stop);
 }
 

@@ -130,10 +130,11 @@ export async function pollReleases(config, token, run, signal, onPullRequest = a
     if (signal?.aborted) return;if(allowedRequestIds&&!allowedRequestIds.has(row.id))continue;
     if (!matchesProject(row,config)) continue;
     let claimed;
-    try { claimed = await request('/' + row.id + '/claim', {}); } catch { continue; }
+    try { claimed = await request('/' + row.id + '/claim', {protocol:'railway-onboarding-v1'}); } catch { continue; }
     let update;
     try {
       const env = { ...process.env }; delete env.AI_AGENT_LAB_MCP_TOKEN; delete env.MCP_TOKEN;
+      if(config.railwayBinding&&['queued','ci'].includes(claimed.request.release.phase))await request('/'+row.id+'/deploy-guard');
       update = await publishStep({ request: claimed.request, config, run, signal, api: githubClient(run, config.ghPath || '/opt/homebrew/bin/gh', env, signal) });
       if (update.prUrl) await onPullRequest(update.prUrl);
     } catch (e) { update = { phase: 'failed', note: String(e.message).slice(0, 2000) }; }

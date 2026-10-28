@@ -181,3 +181,7 @@ Với request đã cấp quyền tự phát hành nhưng lần deploy báo lỗi
 ### Onboarding project chưa có MD
 
 Admin → Cài đặt → Project & tự động → **Project đang thiết lập**: nhập repo, nhánh, project ID và tên; cho phép khảo sát Codex và tạo draft PR. Repo tạm chưa vào danh sách nhận feedback. Worker mới trên Mac khảo sát source chỉ đọc, kiểm tra quyền, thêm MD canonical còn thiếu vào draft PR. Admin review/merge trên GitHub rồi bấm **Xác minh PR đã merge và nhập library**. Project được nhập với worker/phát hành tắt. Hai project đang hoạt động không đổi quyền hay hàng đợi. Xem [giao thức và giới hạn phase 1](docs/project-onboarding.md), gồm cập nhật runtime Mac khi rảnh, dừng/khôi phục claim và retry có giới hạn. CI adapter/deploy onboarding thuộc đợt sau.
+
+### Liên kết Railway và hoàn tất vận hành
+
+Cài đặt → Project & tự động → **Liên kết deploy & hoàn tất**: lưu Project token Railway (mã hoá), service/environment URL và health URL; chọn chỉ xác minh, cho phép sửa, phát hành sau nghiệm thu hoặc tự hoàn tất theo quyền duyệt. Lab xác minh cấu hình qua API chỉ đọc, exact-head CI, Railway deployment và health trước khi áp dụng. Có thể chọn tự quan sát/áp dụng có giới hạn hoặc xác minh rồi áp dụng thủ công. Hai project đang dùng giữ nguyên quyền đến khi admin chủ động đổi. Mac publisher mới cần cập nhật khi rảnh để dùng liên kết mới. [Chi tiết, giới hạn và quản lý token](docs/deploy-onboarding.md).
