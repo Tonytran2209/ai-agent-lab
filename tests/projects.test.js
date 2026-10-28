@@ -2,6 +2,7 @@ import {test} from 'node:test'; import assert from 'node:assert/strict';
 import {mkdtempSync,rmSync,readFileSync} from 'node:fs'; import os from 'node:os'; import path from 'node:path';
 import {openDatabase} from '../server/db.js'; import {createService,hash} from '../server/service.js'; import {createApp} from '../server/index.js';
 import {parseProjectContract,readRepositoryLibrary,canonicalDocuments} from '../server/library.js';
+import {createKnowledge} from '../server/knowledge.js';
 import {projectConfig,matchesProject,connectProjects} from '../mac/projects.js'; import {safePacket,repositoryMatches} from '../mac/runner.js';
 import {pollVerifications} from '../mac/verify.js'; import {pollReleases} from '../mac/release.js';
 const seed=JSON.parse(readFileSync(new URL('../library/intercom-writer-studio.json',import.meta.url),'utf8'));
@@ -71,4 +72,29 @@ test('same-commit legacy library gets CI metadata once without changing its immu
  const f=fixture(),calls=[];
  t.mock.method(globalThis,'fetch',async url=>{calls.push(String(url));const tail=String(url).split('/'+seed.repository+'/')[1];if(tail.startsWith('commits/'))return{ok:true,json:async()=>({sha:seed.sourceCommit})};if(tail.startsWith('git/trees/'))return{ok:true,json:async()=>({truncated:false,tree:seed.sourcePaths.map(path=>({path,type:'blob'}))})};const doc=seed.documents.find(d=>tail.startsWith('contents/'+d.path+'?'));return{ok:true,json:async()=>({type:'file',encoding:'base64',size:doc.content.length,content:Buffer.from(doc.content).toString('base64')})};});
  try{const old=f.service.currentLibrary(seed.projectId),updated=await readRepositoryLibrary(seed.repository,'main',undefined,old);assert.equal(updated.ciInspectionVersion,1);assert.ok(calls.length>1);const saved=f.service.addLibrary(updated);assert.notEqual(saved.id,old.id);assert.equal(f.service.library(old.id).ciInspectionVersion,undefined);calls.length=0;assert.equal(await readRepositoryLibrary(seed.repository,'main',undefined,saved),saved);assert.equal(calls.length,1);}finally{f.close();}
+});
+
+test('same-commit sync adds optional canonical user guide without mutating pinned requests or importing arbitrary docs',async t=>{
+ const f=fixture(),calls=[],guide={path:'.agent-hub/design/user-guide.md',content:'# User guide\n\nQuét dẫn chứng từ ảnh: PNG JPEG WebP, tối đa 15 MiB. Bấm Dùng dẫn chứng trước khi chạy brief.'};
+ const docs=[...seed.documents,guide],paths=[...seed.sourcePaths,guide.path,'docs/private-notes.md'];
+ t.mock.method(globalThis,'fetch',async url=>{
+  const tail=String(url).split('/'+seed.repository+'/')[1];calls.push(tail);
+  if(tail.startsWith('commits/'))return{ok:true,json:async()=>({sha:seed.sourceCommit})};
+  if(tail.startsWith('git/trees/'))return{ok:true,json:async()=>({truncated:false,tree:paths.map(path=>({path,type:'blob'}))})};
+  const doc=docs.find(d=>tail==='contents/'+d.path+'?ref='+seed.sourceCommit);assert.ok(doc,'only pinned allowlisted documents may be read: '+tail);
+  return{ok:true,json:async()=>({type:'file',encoding:'base64',size:Buffer.byteLength(doc.content),content:Buffer.from(doc.content).toString('base64')})};
+ });
+ try{
+  const s=f.service,r=approve(s,seed.projectId),packet=s.packet(r.id),old=s.currentLibrary(seed.projectId);
+  const legacy={...old,ciInspectionVersion:1};
+  const loaded=await readRepositoryLibrary(seed.repository,'main',undefined,legacy);
+  assert.equal(loaded.libraryFormatVersion,2);assert.equal(loaded.documents.length,12);assert.deepEqual(loaded.documents.at(-1),guide);
+  assert.ok(!calls.some(p=>p.startsWith('contents/docs/')));
+  const saved=s.addLibrary(loaded);assert.notEqual(saved.id,old.id);assert.deepEqual(s.packet(r.id),packet);assert.equal(s.library(old.id).documents.length,11);
+  const knowledge=createKnowledge(f.db,s),found=knowledge.search(seed.projectId,'Quét dẫn chứng PNG JPEG WebP 15 MiB',{libraryId:saved.id,limit:12});
+  assert.ok(found.matches.some(m=>m.path===guide.path&&m.commit===seed.sourceCommit));
+  assert.ok(!knowledge.search('writer-studio','Quét dẫn chứng PNG JPEG WebP 15 MiB',{limit:12}).matches.some(m=>m.path===guide.path));
+  assert.ok(!knowledge.search(seed.projectId,'Quét dẫn chứng PNG JPEG WebP 15 MiB',{libraryId:old.id,limit:12}).matches.some(m=>m.path===guide.path));
+  calls.length=0;assert.equal(await readRepositoryLibrary(seed.repository,'main',undefined,saved),saved);assert.equal(calls.length,1);
+ }finally{f.close();}
 });

@@ -104,6 +104,7 @@ Claim có thời hạn **15 phút**; agent heartbeat ít nhất **mỗi 5 phút*
 ## Library và policy
 
 - Seed gồm 11 tài liệu canonical từ Writer Studio tại commit `07e9334093e9295e05548775c3cf5a4928c6104e`; metadata/hash nằm trong `library/writer-studio.json` và database.
+- Khi repo có `.agent-hub/design/user-guide.md`, đồng bộ nạp thêm hướng dẫn sử dụng vào cùng snapshot và chỉ mục kiến thức. 11 tài liệu nền vẫn bắt buộc; tài liệu tùy ý trong `docs/` không được nhập. File `docs/HUONG_DAN_SU_DUNG_CO_BAN.md` nên liên kết tới bản canonical để tránh hai bản lệch nhau.
 - **MD Library → Đồng bộ từ GitHub** lấy commit main mới và tài liệu tại đúng commit đó; không sửa Writer Studio repo.
 - Đồng bộ không đổi version của request cũ. Nút **Cập nhật base** xóa draft/approval và yêu cầu chuẩn bị lại.
 - GitHub token chỉ dùng server-side. Repo được allow-list cố định; không nhận URL fetch tùy ý.
