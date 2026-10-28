@@ -1,3 +1,4 @@
+import {pollOnboarding} from './onboarding.js';
 import os from 'node:os';
 import {codexFailureCategory} from './codex-events.js';
 import {sharedWorktree} from './shared-worktree.js';
@@ -275,7 +276,7 @@ export async function main(configPath) {
   let lastTelemetry={phase:"polling",requestId:null,contractProtocol:"md-trace-v1",governanceProtocol:"impact-v1",attachmentProtocol:"feedback-images-v1"};
   const reportStatus = async value => {
     lastTelemetry={...lastTelemetry,...value};
-    ipc({type:'runner-state',safeIdle:safeIdle&&!monitor.isBusy(),phase:lastTelemetry.phase,at:new Date().toISOString()});
+    ipc({type:'runner-state',safeIdle:safeIdle&&!monitor.isBusy()&&!onboardingMonitor.isBusy(),phase:lastTelemetry.phase,at:new Date().toISOString()});
     // Telemetry failure never grants/releases execution authority. Old backends may return 404.
     try {
       await fetch(new URL("/runner/status", config.mcpUrl), { method: "POST", signal: AbortSignal.timeout(10000),
@@ -284,6 +285,8 @@ export async function main(configPath) {
   };
   const presence=setInterval(()=>{void reportStatus({});},45000);
   let wasConnected = false,monitorConfigs=[],connectionFailures=0;
+  // A separate lane: onboarding never waits in front of feedback or CI/deploy monitoring.
+  const onboardingMonitor=startMonitor(()=>pollOnboarding(config,token,command,controller.signal,childEnvironment(process.env)),{intervalMs:30000,onError:()=>log('Onboarding chưa hoàn tất; giữ artifact/claim và kiểm tra tiến trình.'),onState:active=>ipc({type:'runner-state',safeIdle:safeIdle&&!active&&!monitor.isBusy(),at:new Date().toISOString()})});
   const monitor=startMonitor(async()=>{
     for(const c of monitorConfigs){
       if(controller.signal.aborted)return;
@@ -292,7 +295,7 @@ export async function main(configPath) {
         {name:c.projectId+' / release',run:()=>pollReleases(c,token,command,controller.signal)}
       ],controller.signal,name=>log('Monitor '+name+' chưa hoàn tất; sẽ kiểm tra lại.'));
     }
-  },{onError:()=>log('Monitor CI/deploy sẽ kiểm tra lại.'),onState:active=>ipc({type:'runner-state',safeIdle:safeIdle&&!active,at:new Date().toISOString()})});
+  },{onError:()=>log('Monitor CI/deploy sẽ kiểm tra lại.'),onState:active=>ipc({type:'runner-state',safeIdle:safeIdle&&!active&&!onboardingMonitor.isBusy(),at:new Date().toISOString()})});
   try {
     log("Mac runner started; local-planning-v1; polling approved requests.");
     while (!controller.signal.aborted) {
@@ -326,7 +329,7 @@ export async function main(configPath) {
         }
       } catch { connectionFailures++;wasConnected = false; await reportStatus({phase:"error",requestId:null}); log("Không kết nối được Lab. Sẽ thử lại; kiểm tra URL/token/network."); }
       finally { await connection?.client.close().catch(() => {}); }
-      safeIdle=true;ipc({type:'runner-state',safeIdle:safeIdle&&!monitor.isBusy(),at:new Date().toISOString()});
+      safeIdle=true;ipc({type:'runner-state',safeIdle:safeIdle&&!monitor.isBusy()&&!onboardingMonitor.isBusy(),at:new Date().toISOString()});
       if (!controller.signal.aborted) await new Promise(resolve => {
         const finish = () => { clearTimeout(timer);wake=null;controller.signal.removeEventListener("abort", finish); resolve(); };wake=finish;
         const timer = setTimeout(finish, Math.min(60000,Math.max(5000, Number(config.pollIntervalMs) || 15000)*2**Math.min(connectionFailures,3))+Math.floor(Math.random()*1000));
@@ -336,7 +339,7 @@ export async function main(configPath) {
   } finally {
     process.removeListener('message',onControl);
     clearInterval(presence);
-    controller.abort();await monitor.stop();
+    controller.abort();await Promise.all([monitor.stop(),onboardingMonitor.stop()]);
     await rm(lock, { recursive: true });
     process.removeListener("SIGTERM", stop); process.removeListener("SIGINT", stop);process.removeListener("disconnect",stop);
   }

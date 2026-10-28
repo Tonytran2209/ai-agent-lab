@@ -177,3 +177,7 @@ Admin có thể **Từ chối / dừng task**, **Xoá task** vào thùng rác v�
 
 ### Đồng bộ sau khi Railway được phục hồi
 Với request đã cấp quyền tự phát hành nhưng lần deploy báo lỗi, Lab tự đối chiếu lại bằng chứng GitHub/Railway với backoff 1–30 phút. Chỉ ghi nhận thành công khi main hiện tại chứa merge gốc, CI đạt đúng commit, đúng service/environment và phần thay đổi nối tiếp chỉ thuộc cấu hình deploy được hỗ trợ. Không chạy lại Codex, merge hay redeploy. Lỗi cũ và commit gốc vẫn trong Nhật ký; hàng đợi chỉ mở sau đồng bộ MD. Nếu quyền/cấu hình đổi, có worker giữ claim hoặc bằng chứng thiếu, request vẫn chờ kiểm tra. Admin vẫn có thể dùng ô “Commit main đã deploy phục hồi” để đối chiếu ngay.
+
+### Onboarding project chưa có MD
+
+Admin → Cài đặt → Project & tự động → **Project đang thiết lập**: nhập repo, nhánh, project ID và tên; cho phép khảo sát Codex và tạo draft PR. Repo tạm chưa vào danh sách nhận feedback. Worker mới trên Mac khảo sát source chỉ đọc, kiểm tra quyền, thêm MD canonical còn thiếu vào draft PR. Admin review/merge trên GitHub rồi bấm **Xác minh PR đã merge và nhập library**. Project được nhập với worker/phát hành tắt. Hai project đang hoạt động không đổi quyền hay hàng đợi. Xem [giao thức và giới hạn phase 1](docs/project-onboarding.md), gồm cập nhật runtime Mac khi rảnh, dừng/khôi phục claim và retry có giới hạn. CI adapter/deploy onboarding thuộc đợt sau.

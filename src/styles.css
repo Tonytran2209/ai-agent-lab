@@ -220,3 +220,16 @@
 /* Task names share one responsive, two-line ellipsis rule across every surface. */
 .task-title{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;overflow:hidden;text-overflow:ellipsis;white-space:normal;overflow-wrap:anywhere;min-width:0;max-width:100%}
 .toast-content{min-width:0}.toast-content>small{display:block;color:var(--muted);font-size:11px}
+
+/* Project onboarding is isolated from existing project cards and feedback controls. */
+.onboarding-form{display:grid;gap:14px;margin:20px 0;max-width:760px}
+.onboarding-form>label{display:grid;gap:6px;font-size:13px}
+.onboarding-form>.onboarding-consent,.onboarding-settings .onboarding-consent{display:flex;flex-direction:row;align-items:flex-start;gap:9px;line-height:1.6}
+.onboarding-consent input{width:16px;min-width:16px;height:16px;margin:3px 0 0}
+.onboarding-form>.button{justify-self:start}
+.onboarding-settings article{padding:18px 0;border-top:1px solid var(--border)}
+.onboarding-settings article>.button{margin:6px 8px 6px 0}
+.onboarding-settings ol,.onboarding-settings ul{padding-left:22px;line-height:1.8;overflow-wrap:anywhere}
+.onboarding-settings code{overflow-wrap:anywhere}
+
+.onboarding-settings .button{max-width:100%;white-space:normal;text-align:left}

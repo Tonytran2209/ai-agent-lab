@@ -1,3 +1,4 @@
+import {createOnboarding,onboardingInput,onboardingReport,onboardingGithub,pinOnboarding,verifyOnboarding} from './onboarding.js';
 import {verifyRecoveredDeployment} from './deploy-reconciliation.js';
 import {createCiPreflight} from './ci-preflight.js';
 import {createRunnerControl,controlActions} from './runner-control.js';
@@ -38,6 +39,8 @@ export function createApp(config, options = {}) {
   const auth = createAuth(config);
   const db = options.db ?? openDatabase(config.DATA_DIR || path.join(root, "data"));
   const service = createService(db, {...options,serializeProjects:options.serializeProjects??true,simplifiedWorkflow:options.simplifiedWorkflow??config.LAB_WORKFLOW_MODE!=='legacy',requireTraceability:config.MD_TRACEABILITY_ENABLED!=="false"});
+  const onboarding=createOnboarding(db,service);
+  const onboardingApi=options.onboardingApi||onboardingGithub(config.GITHUB_TOKEN);
   const knowledge=createKnowledge(db,service);
   const ciPreflight=config.NODE_ENV==='test'&&!options.ciPreflightOptions?null:createCiPreflight(db,service,config,{onSync:id=>knowledge.index(id),...options.ciPreflightOptions});
   const agent=createOrchestrator(db,service,knowledge,config,options.agentOptions);
@@ -72,7 +75,7 @@ export function createApp(config, options = {}) {
     next();
   });
   app.get("/health", (req, res) => {
-    try { db.prepare("SELECT 1").get(); res.json({ ok: true, workflowProtocol:config.LAB_WORKFLOW_MODE==='legacy'?'legacy':'direct-v1', policyVersion: "risk-v2", projectQueueProtocol:"project-fifo-v1", riskRubricVersion:"risk-brief-v2", runnerProtocol: "execution-failure-v1", releaseProtocol: "release-v1", browserProtocol: "github-browser-v1", aiPolicyVersion: "economy-v1", projectProtocol:"multi-project-v1", ciSetupProtocol:"ci-setup-v1",planningProtocol:"local-planning-v1",memoryProtocol:"verified-memory-v1",deliveryProtocol:"single-approval-v1",recheckProtocol:"artifact-recheck-v1",contractProtocol:"md-trace-v1",governanceProtocol:"impact-v1",notificationProtocol:"lark-card-v1",orchestratorProtocol:"lab-orchestrator-v1",feedbackRoutingProtocol:"feedback-routing-v1",attachmentProtocol:"feedback-images-v1",knowledgeProtocol:"hybrid-concepts-v1",dataProtocol:"lab-project-export-v1" }); } catch { res.status(503).json({ ok: false }); }
+    try { db.prepare("SELECT 1").get(); res.json({ ok: true, workflowProtocol:config.LAB_WORKFLOW_MODE==='legacy'?'legacy':'direct-v1', policyVersion: "risk-v2", projectQueueProtocol:"project-fifo-v1", riskRubricVersion:"risk-brief-v2", runnerProtocol: "execution-failure-v1", releaseProtocol: "release-v1", browserProtocol: "github-browser-v1", aiPolicyVersion: "economy-v1", projectProtocol:"multi-project-v1",onboardingProtocol:"project-md-onboarding-v1", ciSetupProtocol:"ci-setup-v1",planningProtocol:"local-planning-v1",memoryProtocol:"verified-memory-v1",deliveryProtocol:"single-approval-v1",recheckProtocol:"artifact-recheck-v1",contractProtocol:"md-trace-v1",governanceProtocol:"impact-v1",notificationProtocol:"lark-card-v1",orchestratorProtocol:"lab-orchestrator-v1",feedbackRoutingProtocol:"feedback-routing-v1",attachmentProtocol:"feedback-images-v1",knowledgeProtocol:"hybrid-concepts-v1",dataProtocol:"lab-project-export-v1" }); } catch { res.status(503).json({ ok: false }); }
   });
   const limiter = (limit, windowMs = 60000) => rateLimit({ limit, windowMs, standardHeaders: "draft-8", legacyHeaders: false,
     message: { error: "Quá nhiều yêu cầu. Vui lòng thử lại sau." } });
@@ -179,6 +182,15 @@ export function createApp(config, options = {}) {
   app.post('/api/requests/:id/checks/release',auth.admin,(req,res)=>res.json(service.rechecks.release(req.params.id,req.user.name,req.body?.workerStopped===true)));
   app.post("/api/requests/:id/rebase", auth.admin, (req, res) => res.json(service.rebase(req.params.id, req.user.name)));
   app.get("/api/projects", (req,res)=>res.json({projects:service.projects()}));
+  app.get('/api/onboarding',auth.admin,(req,res)=>res.json({jobs:onboarding.list(),worker:onboarding.worker()}));
+  app.post('/api/onboarding',auth.admin,limiter(6,600000),async(req,res)=>{const input=onboardingInput.parse(req.body),pin=await pinOnboarding(input,onboardingApi);res.status(201).json(onboarding.create(input,pin,req.user.name));});
+  app.post('/api/onboarding/:id/stop',auth.admin,(req,res)=>res.json(onboarding.stop(req.params.id)));
+  app.post('/api/onboarding/:id/retry',auth.admin,(req,res)=>{const b=z.object({confirmStopped:z.boolean().default(false),resurvey:z.boolean().default(false)}).strict().parse(req.body);res.json(onboarding.retry(req.params.id,b.confirmStopped,b.resurvey));});
+  app.post('/api/onboarding/:id/complete',auth.admin,async(req,res)=>{const j=onboarding.get(req.params.id);if(j.phase!=='awaiting-review'||j.lease||j.stopped)fail('Onboarding chưa chờ nhập library.');await verifyOnboarding(j,j,onboardingApi,{merged:true});const lib=await (options.onboardingReadLibrary||readRepositoryLibrary)(j.repository,j.branch,config.GITHUB_TOKEN);res.json(onboarding.complete(j.id,j.revision,lib));});
+  app.get('/runner/onboarding',auth.mcp,(req,res)=>{onboarding.presence();res.json({jobs:onboarding.list().filter(j=>j.phase==='queued'&&!j.lease&&!j.stopped)});});
+  app.post('/runner/onboarding/:id/claim',auth.mcp,(req,res)=>res.json(onboarding.claim(req.params.id)));
+  app.post('/runner/onboarding/:id/heartbeat',auth.mcp,(req,res)=>{const b=z.object({token:z.string().regex(/^[a-f0-9]{64}$/)}).strict().parse(req.body);res.json(onboarding.heartbeat(req.params.id,b.token));});
+  app.post('/runner/onboarding/:id/report',auth.mcp,async(req,res)=>{const b=z.object({token:z.string().regex(/^[a-f0-9]{64}$/),update:onboardingReport}).strict().parse(req.body),j=onboarding.get(req.params.id);onboarding.verify(j.id,b.token);const proof=b.update.phase==='awaiting-review'?await verifyOnboarding(j,b.update,onboardingApi):null;res.json(onboarding.report(j.id,b.token,b.update,proof));});
   app.post("/api/projects", auth.admin, limiter(6,10*60000), async(req,res)=>{
     const input=z.object({repository:repositorySchema,branch:branchSchema.optional(),runnerEnabled:z.boolean().default(false),setupCi:z.boolean().default(false),autoMergeCi:z.boolean().default(false)}).strict().parse(req.body);
     if(input.setupCi&&!input.runnerEnabled)fail("Cần bật Mac để tự thiết lập CI.",400);
@@ -289,7 +301,7 @@ export function createApp(config, options = {}) {
       status >= 500 && e.status === undefined ? "Không xử lý được yêu cầu. Dữ liệu đã lưu vẫn được giữ." : e.message;
     res.status(status).json({ error,...(e instanceof ZodError&&req.path.startsWith('/runner/planning/')?{code:'PLAN_SCHEMA',details:e.issues.slice(0,12).map(i=>({path:i.path.join('.'),code:i.code,message:i.message.slice(0,300)}))}:{}),...(e.code==='SCOPE_POLICY'?{code:e.code,details:e.details}:{}) });
   });
-  return { app, db, service, pipeline, delivery, lark, agent, knowledge, maintenance, dataManagement, cloud, repairs, recovery, learning };
+  return { app, db, service, onboarding, pipeline, delivery, lark, agent, knowledge, maintenance, dataManagement, cloud, repairs, recovery, learning };
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const { app, db, pipeline, delivery, recovery, lark } = createApp(process.env);
