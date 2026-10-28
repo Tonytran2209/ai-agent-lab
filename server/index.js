@@ -1,3 +1,5 @@
+import {inspectProject,inspectProjectInput,connectProjectInput} from './project-connect.js';
+import {inspectAdapters,adapterProtocol} from './ci-adapters.js';
 import {createOnboarding,onboardingInput,onboardingReport,onboardingGithub,pinOnboarding,verifyOnboarding} from './onboarding.js';
 import {verifyRecoveredDeployment} from './deploy-reconciliation.js';
 import {createCiPreflight} from './ci-preflight.js';
@@ -191,6 +193,23 @@ export function createApp(config, options = {}) {
   app.post('/runner/onboarding/:id/claim',auth.mcp,(req,res)=>res.json(onboarding.claim(req.params.id)));
   app.post('/runner/onboarding/:id/heartbeat',auth.mcp,(req,res)=>{const b=z.object({token:z.string().regex(/^[a-f0-9]{64}$/)}).strict().parse(req.body);res.json(onboarding.heartbeat(req.params.id,b.token));});
   app.post('/runner/onboarding/:id/report',auth.mcp,async(req,res)=>{const b=z.object({token:z.string().regex(/^[a-f0-9]{64}$/),update:onboardingReport}).strict().parse(req.body),j=onboarding.get(req.params.id);onboarding.verify(j.id,b.token);const proof=b.update.phase==='awaiting-review'?await verifyOnboarding(j,b.update,onboardingApi):null;res.json(onboarding.report(j.id,b.token,b.update,proof));});
+  app.post('/api/projects/inspect',auth.admin,limiter(12,600000),async(req,res)=>res.json(await inspectProject(inspectProjectInput.parse(req.body),onboardingApi)));
+  app.post('/api/projects/connect',auth.admin,limiter(6,600000),async(req,res)=>{
+    const b=connectProjectInput.parse(req.body),inspection=await inspectProject({repository:b.repository,...(b.branch?{branch:b.branch}:{})},onboardingApi);
+    if(inspection.commit!==b.expectedCommit)fail('Repository đã đổi sau khi kiểm tra; kiểm tra lại trước khi kết nối.');
+    if(service.projects().some(p=>p.repository.toLowerCase()===inspection.repository.toLowerCase()))fail('Repository đã kết nối.');
+    if(inspection.mode==='onboarding'){
+      if(!b.surveyConsent)fail('Cần cho phép khảo sát Codex và tạo draft PR MD.');
+      const identity=inspection.identity||{projectId:b.projectId,name:b.name};
+      const job=onboarding.create({repository:inspection.repository,branch:inspection.branch,...identity},{branch:inspection.branch,commit:inspection.commit},req.user.name);return res.status(201).json({mode:'onboarding',job});
+    }
+    if(onboarding.list().some(j=>j.repository.toLowerCase()===inspection.repository.toLowerCase()&&!['ready','stopped'].includes(j.phase)))fail('Project đang có tiến trình MD; hoàn tất hoặc dừng tiến trình đó trước khi kết nối trực tiếp.');
+    const lib=await (options.onboardingReadLibrary||readRepositoryLibrary)(inspection.repository,inspection.branch,config.GITHUB_TOKEN);
+    if(lib.sourceCommit!==inspection.commit||lib.repository!==inspection.repository||lib.branch!==inspection.branch||lib.projectId!==inspection.identity?.projectId)fail('Library đã thay đổi; cần kiểm tra lại.');
+    if(service.projects().some(p=>p.id===lib.projectId))fail('Project ID đã được sử dụng.');
+    service.addLibrary(lib);service.updateProject(lib.projectId,{runnerEnabled:false,releaseEnabled:false,autoCompleteAfterApproval:false});res.status(201).json({mode:'connected',project:service.project(lib.projectId)});
+  });
+  app.get('/api/projects/:id/ci/adapters',auth.admin,(req,res)=>{const p=service.project(req.params.id);res.json({...inspectAdapters(service.currentLibrary(p.id).sourcePaths),protocol:adapterProtocol});});
   app.post("/api/projects", auth.admin, limiter(6,10*60000), async(req,res)=>{
     const input=z.object({repository:repositorySchema,branch:branchSchema.optional(),runnerEnabled:z.boolean().default(false),setupCi:z.boolean().default(false),autoMergeCi:z.boolean().default(false)}).strict().parse(req.body);
     if(input.setupCi&&!input.runnerEnabled)fail("Cần bật Mac để tự thiết lập CI.",400);
@@ -225,7 +244,7 @@ export function createApp(config, options = {}) {
   // Publishing authority is issued by admin acceptance, never by an MCP approval/merge tool.
   app.get('/runner/ci-setups',auth.mcp,limiter(60),(req,res)=>res.json({jobs:service.ciSetup.queue()}));
   const ciClaim=z.object({jobId:z.string().uuid(),setupToken:z.string().regex(/^[a-f0-9]{64}$/)});
-  app.post('/runner/ci-setups/:id/claim',auth.mcp,(req,res)=>res.json(service.ciSetup.claim(req.params.id,z.object({jobId:z.string().uuid()}).parse(req.body).jobId)));
+  app.post('/runner/ci-setups/:id/claim',auth.mcp,(req,res)=>res.json(service.ciSetup.claim(req.params.id,z.object({jobId:z.string().uuid()}).parse(req.body).jobId,req.body.protocol)));
   app.post('/runner/ci-setups/:id/heartbeat',auth.mcp,(req,res)=>{const b=ciClaim.parse(req.body);const result=service.ciSetup.heartbeat(req.params.id,b.jobId,b.setupToken);service.reportRunner({phase:"idle",requestId:null});res.json(result);});
   app.post('/runner/ci-setups/:id/report',auth.mcp,async(req,res)=>{
     const b=ciClaim.extend({update:ciSetupUpdate}).parse(req.body),project=service.project(req.params.id),job=service.ciSetup.verify(req.params.id,b.jobId,b.setupToken);
