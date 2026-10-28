@@ -4,7 +4,7 @@ const legacyRepository='Tonytran2209/RebuildWriterStudioTool';
 export function projectConfig(config, project) {
   if(!/^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$/.test(project.id)||! /^[A-Za-z0-9_-][A-Za-z0-9_.-]*\/[A-Za-z0-9_-][A-Za-z0-9_.-]*$/.test(project.repository)||project.repository.includes('..'))throw new Error('Project identity không hợp lệ.');
   const legacy=project.repository===legacyRepository;
-  return {...config,repository:project.repository,projectId:project.id,branch:project.branch||'main',ciReady:project.ciReady,repoPath:legacy?config.repoPath:path.join(config.stateDir,'projects',project.id,'repository'),
+  return {...config,repository:project.repository,projectId:project.id,branch:project.branch||'main',ciReady:project.ciReady,railwayBinding:project.railwayBinding||null,repoPath:legacy?config.repoPath:path.join(config.stateDir,'projects',project.id,'repository'),
     stateDir:legacy?config.stateDir:path.join(config.stateDir,'projects',project.id,'state'),releaseEnabled:config.releaseEnabled===true&&project.releaseEnabled===true,postDeployUrl:project.postDeployUrl||'',releaseEnvironment:project.releaseEnvironment||(legacy?config.releaseEnvironment:'')};
 }
 export async function connectProjects(config,token,run,signal) {

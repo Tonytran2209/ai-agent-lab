@@ -273,7 +273,7 @@ export async function main(configPath) {
   let safeIdle=false,wake;
   const ipc=message=>{try{process.send?.(message);}catch{}};
   const onControl=message=>{if(message?.type==='reconnect')wake?.();};process.on('message',onControl);
-  let lastTelemetry={phase:"polling",requestId:null,contractProtocol:"md-trace-v1",governanceProtocol:"impact-v1",attachmentProtocol:"feedback-images-v1"};
+  let lastTelemetry={deploymentProtocol:'railway-onboarding-v1',publisherEnabled:config.releaseEnabled===true,phase:"polling",requestId:null,contractProtocol:"md-trace-v1",governanceProtocol:"impact-v1",attachmentProtocol:"feedback-images-v1"};
   const reportStatus = async value => {
     lastTelemetry={...lastTelemetry,...value};
     ipc({type:'runner-state',safeIdle:safeIdle&&!monitor.isBusy()&&!onboardingMonitor.isBusy(),phase:lastTelemetry.phase,at:new Date().toISOString()});
