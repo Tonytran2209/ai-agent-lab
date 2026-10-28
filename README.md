@@ -174,3 +174,6 @@ UI request từ Mac runner được kiểm tra trên draft PR bằng GitHub `bro
 ## Quản lý task không còn cần thực hiện
 
 Admin có thể **Từ chối / dừng task**, **Xoá task** vào thùng rác và khôi phục hiển thị. Task đang có claim giữ khoá đến khi xác minh worker đã dừng; không xoá worktree, artifact hoặc lịch sử. Xem [quy tắc dừng và thùng rác](docs/request-controls.md).
+
+### Đồng bộ sau khi Railway được phục hồi
+Với request đã cấp quyền tự phát hành nhưng lần deploy báo lỗi, Lab tự đối chiếu lại bằng chứng GitHub/Railway với backoff 1–30 phút. Chỉ ghi nhận thành công khi main hiện tại chứa merge gốc, CI đạt đúng commit, đúng service/environment và phần thay đổi nối tiếp chỉ thuộc cấu hình deploy được hỗ trợ. Không chạy lại Codex, merge hay redeploy. Lỗi cũ và commit gốc vẫn trong Nhật ký; hàng đợi chỉ mở sau đồng bộ MD. Nếu quyền/cấu hình đổi, có worker giữ claim hoặc bằng chứng thiếu, request vẫn chờ kiểm tra. Admin vẫn có thể dùng ô “Commit main đã deploy phục hồi” để đối chiếu ngay.

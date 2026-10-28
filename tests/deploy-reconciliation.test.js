@@ -49,3 +49,38 @@ test('HTTP reconciliation requires an admin session, CSRF and a fresh revision; 
   assert.equal((await send({Authorization:'Bearer '+config.MCP_TOKEN,'Content-Type':'application/json'})).status,401);assert.equal((await send(member)).status,403);assert.equal((await send({...admin,'X-CSRF-Token':''})).status,403);assert.equal((await send(admin,'stale')).status,409);assert.equal((await send(admin)).status,409);assert.equal(service.get(r.id).status,'feedback');
  }finally{await new Promise(r=>server.close(r));db.close();rmSync(dir,{recursive:true,force:true});}
 });
+
+test('background discovery uses the same bounded verifier, never an arbitrary or stale commit',async()=>{
+ const f=fixture();const proof=await verifyRecoveredDeployment(f.request,f.project,null,'',{fetcher:f.fetcher,discoverHead:true});assert.equal(proof.deployedCommit,head);
+ await assert.rejects(verifyRecoveredDeployment(f.request,f.project,null,'',{fetcher:f.fetcher}));
+ const bad=fixture();bad.rows['compare/'+old+'...'+head].files.push({filename:'src/App.tsx'});
+ await assert.rejects(verifyRecoveredDeployment(bad.request,bad.project,null,'',{fetcher:bad.fetcher,discoverHead:true}),/source/);
+});
+
+function automaticFixture(){
+ const dir=mkdtempSync(path.join(os.tmpdir(),'lab-deploy-observer-')),db=openDatabase(dir),s=createService(db);
+ let p=s.project('writer-studio');db.prepare('UPDATE projects SET data=? WHERE id=?').run(JSON.stringify({...p,ciReady:true}),p.id);
+ s.updateProject(p.id,{releaseEnvironment:env,autoCompleteAfterApproval:true});
+ const r=s.create({feedback:'Adjust draft preview spacing while retaining all stored text.'},'Member');
+ s.edit(r.id,{title:'Preview spacing',problem:'Preview spacing needs adjustment.',layer:'design',module:'Draft',allowedPaths:['src/components/workspace/Step4Draft.tsx'],acceptanceCriteria:['Preview readable'],risk:'low',questions:[]},'Admin');s.approve(r.id,'Admin');
+ const raw=s.rawForAnalysis(r.id);Object.assign(raw,{status:'completed',result:{commit:result,summary:'Saved result',changedPaths:raw.draft.allowedPaths,checks:[]},release:{phase:'failed',mergeCommit:old,prNumber:35,note:'Railway deploy lỗi. Code đã merge main; cần kiểm tra deployment, không merge lại.'}});db.prepare('UPDATE requests SET data=? WHERE id=?').run(JSON.stringify(raw),r.id);
+ return{db,s,id:r.id,patch(fn){const raw=s.rawForAnalysis(r.id);fn(raw);db.prepare('UPDATE requests SET data=? WHERE id=?').run(JSON.stringify(raw),r.id);},close(){db.close();rmSync(dir,{recursive:true,force:true});}};
+}
+
+test('automatic deploy observation preserves terminal errors, survives restart/backoff, then syncs proven recovery without publishing',async()=>{
+ const {createRecovery}=await import('../server/recovery.js');const f=automaticFixture();let now=1000,calls=0,syncs=0,ready=false;
+ const options={clock:()=>now,verify:async(r,p,commit,token,options)=>{calls++;assert.equal(commit,null);assert.equal(options.discoverHead,true);if(!ready)throw Error('Railway not recovered');return fixture().verify();},sync:async()=>{syncs++;}};
+ try{
+  const before=f.s.get(f.id);await createRecovery(f.s,{GITHUB_TOKEN:'test'},options).tick();assert.equal(calls,1);assert.equal(f.s.get(f.id).release.phase,'failed');assert.equal(f.s.get(f.id).release.note,before.release.note);
+  const restarted=createService(f.db);await createRecovery(restarted,{GITHUB_TOKEN:'test'},options).tick();assert.equal(calls,1);
+  now=61001;ready=true;await createRecovery(restarted,{GITHUB_TOKEN:'test'},options).tick();const done=restarted.get(f.id);assert.equal(calls,2);assert.equal(syncs,1);assert.equal(done.release.phase,'deployed');assert.equal(done.release.librarySync,'synced');assert.equal(done.release.mergeCommit,old);assert.deepEqual(done.approval,before.approval);assert.deepEqual(done.result,before.result);assert.equal(done.release.deploymentRecovery.previous.note,before.release.note);
+  await createRecovery(restarted,{GITHUB_TOKEN:'test'},options).tick();assert.equal(calls,2);assert.equal(syncs,1);
+ }finally{f.close();}
+});
+
+test('automatic observation rejects revoked consent, workers, stopped/archived requests and stale revisions',async()=>{
+ for(const change of [f=>f.s.updateProject('writer-studio',{autoCompleteAfterApproval:false}),f=>f.patch(r=>r.lease={expiresAt:new Date(0).toISOString()}),f=>f.patch(r=>r.release.lease={expiresAt:new Date(0).toISOString()}),f=>f.patch(r=>r.stopControl={pending:true}),f=>f.patch(r=>r.archivedAt=new Date().toISOString()),f=>f.patch(r=>r.delivery.approvalHash='changed')]){
+  const f=automaticFixture();try{change(f);const r=f.s.get(f.id);let allowed=false;try{allowed=f.s.beginDeploymentObservation(f.id,r.updatedAt,1000);}catch{}assert.equal(allowed,false);}finally{f.close();}
+ }
+ const f=automaticFixture();try{assert.equal(f.s.beginDeploymentObservation(f.id,'stale',1000),false);const r=f.s.get(f.id);assert.equal(f.s.beginDeploymentObservation(f.id,r.updatedAt,1000),true);const proof=await fixture().verify();f.s.updateProject('writer-studio',{releaseEnvironment:'different / production'});assert.throws(()=>f.s.reconcileDeployment(f.id,proof,'observer',r.updatedAt,{automatic:true}));assert.equal(f.s.get(f.id).release.phase,'failed');}finally{f.close();}
+});
