@@ -1,3 +1,4 @@
+export const stalePreparation=r=>Boolean(r.projectQueue?.staleBase&&r.draft&&!r.result&&!r.release&&['feedback','needs-triage','draft','awaiting-approval','approved'].includes(r.status));
 export const workflowLabels = {
   feedback: "Feedback mới — chờ chuẩn bị request",
   "needs-triage": "Cần bổ sung thông tin",
@@ -77,7 +78,7 @@ export function requiresAttention(r) {
   if(r.projectQueue?.blocked)return false;
   if(['queued','running'].includes(r.ciRepair?.phase)&&(!r.ciRepair.lease||Date.parse(r.ciRepair.lease.expiresAt)>Date.now()))return false;
   if(r.ciRepair?.lease&&Date.parse(r.ciRepair.lease.expiresAt)<=Date.now())return true;
-  if(r.projectQueue?.staleBase&&r.draft)return true;
+  if(stalePreparation(r))return true;
   if([r.lease,r.planning?.lease,r.verification?.lease,r.recheck?.lease,r.release?.lease].some(l=>l&&Date.parse(l.expiresAt)<=Date.now()))return true;
   if(r.preparation?.status==='queued'||preparationRunning(r))return false;
   if(r.status==='approved'&&r.executionReadiness?.ready===false)return true;
@@ -88,9 +89,9 @@ export function requiresAttention(r) {
 // Stage progress, never a fabricated elapsed-time percentage or proof of deployment.
 export function taskProgress(r,runner){
  if(r.archivedAt||r.stopControl||r.status==='rejected')return {steps:['Tiếp nhận','Phân loại','Codex','Kiểm tra','Phát hành'],current:r.result?3:r.draft?2:0,done:false,failed:false,waiting:Boolean(r.stopControl?.pending),title:r.archivedAt?'Trong thùng rác':r.stopControl?.pending?'Chờ xác nhận worker dừng':'Đã dừng',message:workflowMessage(r,runner)};
- if(['queued','running'].includes(r.ciRepair?.phase))return {steps:['Tiếp nhận','Phân loại','Codex','Kiểm tra','Phát hành'],current:3,done:false,failed:false,waiting:r.ciRepair.phase==='queued',title:'Tự sửa CI · lượt '+(r.ciRepair.attempts||1)+'/2',message:'Codex kiểm tra lỗi trên cùng PR trong scope đã duyệt; chờ CI xác minh lại trước merge.'};
+ if(!r.release&&['queued','running'].includes(r.ciRepair?.phase))return {steps:['Tiếp nhận','Phân loại','Codex','Kiểm tra','Phát hành'],current:3,done:false,failed:false,waiting:r.ciRepair.phase==='queued',title:'Tự sửa CI · lượt '+(r.ciRepair.attempts||1)+'/2',message:'Codex kiểm tra lỗi trên cùng PR trong scope đã duyệt; chờ CI xác minh lại trước merge.'};
  if(r.projectQueue?.blocked)return {steps:['Tiếp nhận','Phân loại','Codex','Kiểm tra','Phát hành'],current:0,done:false,failed:false,waiting:true,title:'Chờ lượt · vị trí '+r.projectQueue.position,message:'Project đang xử lý '+r.projectQueue.blockedBy+'. Chỉ bắt đầu sau khi request trước hoàn tất deploy và đồng bộ MD; không ghi đè lên bản đang chạy.'};
- if(r.projectQueue?.staleBase&&r.draft&&!r.lease)return {steps:['Tiếp nhận','Phân loại','Codex','Kiểm tra','Phát hành'],current:2,done:false,failed:false,waiting:true,title:'Cần cập nhật base',message:'Main đã thay đổi. Chuẩn bị lại kế hoạch trên base mới trước khi thực thi; quyền cũ không được dùng cho nội dung mới.'};
+ if(stalePreparation(r)&&!r.lease)return {steps:['Tiếp nhận','Phân loại','Codex','Kiểm tra','Phát hành'],current:2,done:false,failed:false,waiting:true,title:'Cần cập nhật base',message:'Main đã thay đổi. Chuẩn bị lại kế hoạch trên base mới trước khi thực thi; quyền cũ không được dùng cho nội dung mới.'};
  const progress=r.planning?.progress;
  const modelIdle=preparationRunning(r)&&progress&&progress.stage!=='completed'&&progress.stage!=='failed'&&progress.elapsedSeconds>=180&&(!progress.lastEventAt||Date.now()-Date.parse(progress.lastEventAt)>=180000);
  if(r.preparation?.engine==='codex-local'&&(r.preparation.status==='queued'||preparationRunning(r)))return {steps:['Tiếp nhận','Phân loại','Codex','Kiểm tra','Phát hành'],current:2,done:false,failed:false,waiting:r.preparation.status==='queued',title:r.preparation.status==='queued'?'Chờ Codex khảo sát':modelIdle?'Đang chờ phản hồi từ Codex':r.preparation.stage==='investigating'?'Codex đang điều tra':'Codex đang khảo sát',message:modelIdle?'Runner vẫn kết nối, nhưng Codex chưa có hoạt động mới trong ít nhất 3 phút. Hệ thống đang chờ trong giới hạn thời gian; chưa sửa code.':'Đang cập nhật phương án từ feedback, code và MD. Không cần duyệt kế hoạch cũ; low/medium đủ điều kiện sẽ tự tiếp tục.'};

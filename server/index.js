@@ -1,3 +1,4 @@
+import {verifyRecoveredDeployment} from './deploy-reconciliation.js';
 import {createCiPreflight} from './ci-preflight.js';
 import {createRunnerControl,controlActions} from './runner-control.js';
 import {createLearning} from './learning.js';
@@ -165,6 +166,14 @@ export function createApp(config, options = {}) {
   app.post('/api/requests/:id/verification/release',auth.admin,(req,res)=>{const {workerStopped}=z.object({workerStopped:z.literal(true)}).strict().parse(req.body);res.json(service.releaseVerification(req.params.id,req.user.name,workerStopped));});
   app.post("/api/requests/:id/verification/retry",auth.admin,(req,res)=>res.json(service.queueVerification(req.params.id,req.user.name)));
   app.post("/api/requests/:id/accept", auth.admin, (req, res) => res.json(service.accept(req.params.id, req.user.name, { confirmHighRisk: req.body?.confirmHighRisk === true })));
+  app.post('/api/requests/:id/publication/reconcile',auth.admin,async(req,res)=>{
+    const b=z.object({deployedCommit:z.string().regex(/^[a-f0-9]{40}$/),expectedRevision:z.string().min(1)}).strict().parse(req.body),r=service.get(req.params.id),p=service.project(r.projectId);
+    if(r.updatedAt!==b.expectedRevision)fail('Request đã đổi; đọc lại trước khi đồng bộ.',409);
+    const proof=await verifyRecoveredDeployment(r,p,b.deployedCommit,config.GITHUB_TOKEN);
+    service.reconcileDeployment(r.id,proof,req.user.name,b.expectedRevision);
+    try{await syncLibrary(service,config.GITHUB_TOKEN,r.projectId);knowledge.index(r.projectId);service.releaseLibrarySync(r.id,true);}catch{service.releaseLibrarySync(r.id,false);}
+    res.json(service.get(r.id));
+  });
   app.post("/api/requests/:id/publish", auth.admin, (req, res) => res.json(service.publish(req.params.id, req.user.name, { confirmHighRisk: req.body?.confirmHighRisk === true })));
   app.post('/api/requests/:id/checks/retry',auth.admin,(req,res)=>{const b=z.object({expectedResultRevision:z.string().regex(/^[a-f0-9]{64}$/)}).strict().parse(req.body);res.json(service.rechecks.queue(req.params.id,req.user.name,b.expectedResultRevision));});
   app.post('/api/requests/:id/checks/release',auth.admin,(req,res)=>res.json(service.rechecks.release(req.params.id,req.user.name,req.body?.workerStopped===true)));

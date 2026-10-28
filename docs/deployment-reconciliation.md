@@ -1,0 +1,7 @@
+# Đồng bộ deployment đã phục hồi
+
+Sau khi PR đã merge, Railway có thể lỗi cài môi trường. Một commit cấu hình tiếp theo trên main phục hồi deployment, trong khi request vẫn giữ lỗi của merge gốc. Admin chọn **Đồng bộ deploy đã phục hồi** và nhập SHA main đang chạy.
+
+Server chỉ đọc GitHub/Railway evidence và HTTP smoke (nếu đã cấu hình), không gọi AI, sửa source, tạo PR, merge hoặc deploy lại. Điều kiện: không còn claim (kể cả hết hạn); request đã nghiệm thu/merge; đúng repo/branch/PR; main hiện tại nối tiếp merge gốc qua tối đa tám commit một parent; chỉ sửa cấu hình cài/deploy, CI và tài liệu được cho phép. Manifest không được thay dependency hoặc script sản phẩm ngoài start backend chuẩn. CI writer/browser phải đạt đúng commit. Railway bot phải xác nhận thành công đúng environment, và status URL phải khớp service/environment của merge gốc. Quan sát stale hoặc HTTP lỗi không cập nhật request.
+
+Endpoint admin + CSRF: `POST /api/requests/:id/publication/reconcile` với `{deployedCommit,expectedRevision}`. Xác minh bên ngoài transaction; kiểm tra lại revision/claims trước khi lưu nguyên tử. Giữ nguyên approval, base, library, artifact và merge commit gốc. `release.deploymentRecovery` lưu commit thực tế, CI/deployment IDs, người đồng bộ và lỗi trước; nhật ký có `release_deployment_reconciled`. Đồng bộ MD chỉ cập nhật library cho request tiếp theo. Khoá FIFO chỉ mở khi MD đã đồng bộ; bản ghi kiến thức giữ cả merge gốc và deployedCommit.
