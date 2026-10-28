@@ -6,3 +6,13 @@ test('missing helper, path traversal, mismatched browser version and missing pin
 test('legacy projects remain explicitly unmanaged and do not fetch arbitrary paths',async()=>{assert.equal(await readCiProfile([],()=>{throw Error('must not read');},commit),undefined);});
 
 test('GitHub transport failures remain unavailable instead of configuration diagnoses',async()=>{const f=fixture();await assert.rejects(readCiProfile(f.tree,async()=>{throw Error('403');},commit),/unavailable/);});
+
+test('pinned target CI validates singleton resolver and requires its bounded baseline helpers',async()=>{
+ const f=fixture();f.files['.agent-hub/ci-contract.json']=JSON.stringify({...manifest,toolsMode:'pinned-target'});
+ for(const path of ['tests/agent-lab/sync-baseline-specs.mjs','tests/agent-lab/sync-baseline-specs.test.mjs'])f.tree.push({path,type:'blob',sha:'c'.repeat(40)});
+ f.files[manifest.workflow]=f.files[manifest.workflow].replace('github.event.pull_request.base.sha || github.sha',"needs.ci-tools.outputs.sha\ngithub.rest.git.getRef\ncore.setOutput('sha', sha)");
+ assert.equal((await readCiProfile(f.tree,f.api,commit)).status,'ready');
+ f.tree.pop();assert.equal((await readCiProfile(f.tree,f.api,commit)).status,'configuration');
+ f.tree.push({path:'tests/agent-lab/sync-baseline-specs.test.mjs',type:'blob',sha:'c'.repeat(40)});
+ f.files[manifest.workflow]=f.files[manifest.workflow].replace('github.rest.git.getRef','floating main ref');assert.equal((await readCiProfile(f.tree,f.api,commit)).status,'configuration');
+});
