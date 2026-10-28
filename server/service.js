@@ -3,6 +3,7 @@ import {isTestFollowupPath} from './criterion-ci.js';
 import {executionReadiness} from './execution-readiness.js';
 import {projectQueueState} from './project-queue.js';
 import {normalizeImages,createFeedbackImages} from './feedback-images.js';
+import {canReconcileDeployment} from './deploy-reconciliation.js';
 import {rejectedScopePaths} from './scope.js';
 import {impactRisk,decideAutomation} from './impact.js';
 import {validateContract,assessContract,contractSatisfied,documentationImpact} from './contracts.js';
@@ -649,8 +650,15 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
         return publicRequest(r);
       });
     },
-    reconcileDeployment(id,proof,actor,expectedRevision){return transaction(db,()=>{
-      const r=get(id),rel=r.release,p=projects.get(r.projectId);assertOpen(r);
+    beginDeploymentObservation(id,expectedRevision,at=Date.now()){return transaction(db,()=>{
+      const r=get(id);if(r.updatedAt!==expectedRevision||!canReconcileDeployment(r)||service.localPlanning.get(id)?.lease||queueState(r)?.blocked||!/^(?:Railway deploy lỗi|Chưa có xác nhận Railway)/.test(r.release.note||'')||(r.release.observationNextAt||0)>at)return false;
+      deliveryAuthority(r);
+      r.release.observationAttempts=(r.release.observationAttempts||0)+1;
+      r.release.observationNextAt=at+Math.min(1800000,60000*2**Math.min(r.release.observationAttempts-1,5));
+      save(r);return true;
+    });},
+    reconcileDeployment(id,proof,actor,expectedRevision,{automatic=false}={}){return transaction(db,()=>{
+      const r=get(id),rel=r.release,p=projects.get(r.projectId);assertOpen(r);if(automatic)deliveryAuthority(r);
       if(p.repository!==r.repository||p.branch!==r.branch||proof.environment!==(r.delivery?.environment||p.releaseEnvironment))fail('Project/environment đã đổi trong lúc đối chiếu.',409);
       if(r.updatedAt!==expectedRevision||r.status!=='completed'||rel?.phase!=='failed'||r.lease||rel.lease||r.ciRepair?.lease||r.verification?.lease||r.recheck?.lease||service.localPlanning.get(id)?.lease||proof.protocol!=='deployment-reconciliation-v1'||proof.originalMergeCommit!==rel.mergeCommit)fail('Request hoặc worker đã đổi trong lúc đối chiếu; đọc lại trạng thái.',409);
       const previous={phase:rel.phase,note:rel.note,deploymentUrl:rel.deploymentUrl,at:rel.updatedAt};

@@ -5,11 +5,11 @@ const maintenance=p=>['package.json','pnpm-lock.yaml','.mise.toml','nixpacks.tom
 const canonical=v=>JSON.stringify(v&&typeof v==='object'?Array.isArray(v)?v.map(x=>JSON.parse(canonical(x))):Object.fromEntries(Object.keys(v).sort().map(k=>[k,JSON.parse(canonical(v[k]))])):v);
 function serviceUrl(value){try{const u=new URL(value);if(u.protocol!=='https:'||!['railway.com','railway.app'].includes(u.hostname)||u.username||u.password||u.port)return null;const m=/^\/project\/([a-f0-9-]+)\/service\/([a-f0-9-]+)$/.exec(u.pathname);const env=u.searchParams.get('environmentId'),id=u.searchParams.get('id');return m&&env&&id?{project:m[1],service:m[2],environment:env,deployment:id,url:u.href}:null;}catch{return null;}}
 export function canReconcileDeployment(r){return Boolean(r.status==='completed'&&!r.archivedAt&&!r.stopControl&&r.result&&r.release?.phase==='failed'&&sha(r.release.mergeCommit)&&r.release.prNumber&&!r.lease&&!r.release.lease&&!r.verification?.lease&&!r.ciRepair?.lease&&!r.recheck?.lease&&!r.planning?.lease);}
-export async function verifyRecoveredDeployment(r,p,deployedCommit,token,{fetcher=fetch}={}){
- if(!canReconcileDeployment(r)||!sha(deployedCommit)||r.repository!==p.repository||r.branch!==p.branch)fail('Chỉ đồng bộ phát hành đã merge, bị lỗi và không còn worker giữ claim.',409);
+export async function verifyRecoveredDeployment(r,p,deployedCommit,token,{fetcher=fetch,discoverHead=false}={}){
+ if(!canReconcileDeployment(r)||!(sha(deployedCommit)||discoverHead&&deployedCommit===null)||r.repository!==p.repository||r.branch!==p.branch)fail('Chỉ đồng bộ phát hành đã merge, bị lỗi và không còn worker giữ claim.',409);
  const original=r.release.mergeCommit;
  const api=async suffix=>{const response=await fetcher('https://api.github.com/repos/'+r.repository+'/'+suffix,{redirect:'error',signal:AbortSignal.timeout(20000),headers:{Accept:'application/vnd.github+json','User-Agent':'ai-agent-lab',...(token?{Authorization:'Bearer '+token}:{})}});if(!response.ok)fail('Chưa đọc được bằng chứng deploy trên GitHub: '+response.status,502);return response.json();};
- const head=await api('commits/'+encodeURIComponent(r.branch));if(head.sha!==deployedCommit)fail('Commit phục hồi phải là main hiện tại của đúng project.',409);
+ const head=await api('commits/'+encodeURIComponent(r.branch));if(discoverHead&&deployedCommit===null)deployedCommit=head.sha;if(!sha(deployedCommit)||head.sha!==deployedCommit)fail('Commit phục hồi phải là main hiện tại của đúng project.',409);
  const pr=await api('pulls/'+r.release.prNumber);if(!pr.merged||pr.merge_commit_sha!==original||pr.base?.repo?.full_name!==r.repository||pr.base?.ref!==r.branch||pr.head?.repo?.full_name!==r.repository||pr.head?.sha!==r.result.commit)fail('PR hoặc merge gốc không khớp request đã nghiệm thu.',409);
  let paths=[];
  if(deployedCommit!==original){
