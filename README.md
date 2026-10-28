@@ -170,3 +170,7 @@ Với Mac publisher đã bật, admin chọn **Nghiệm thu & phát hành** đ�
 ### Kiểm tra browser trước nghiệm thu
 
 UI request từ Mac runner được kiểm tra trên draft PR bằng GitHub `browser-check`, thay vì khởi chạy Chrome từ LaunchAgent. CI đạt mới chuyển sang chờ nghiệm thu. Screenshot/report/trace nằm trong workflow artifact. Admin có thể ghi nhận kiểm tra bổ sung cho lỗi browser cũ mà vẫn giữ nguyên lịch sử lỗi và chưa phát hành. Chi tiết trong `docs/mac-runner.md`.
+
+## Quản lý task không còn cần thực hiện
+
+Admin có thể **Từ chối / dừng task**, **Xoá task** vào thùng rác và khôi phục hiển thị. Task đang có claim giữ khoá đến khi xác minh worker đã dừng; không xoá worktree, artifact hoặc lịch sử. Xem [quy tắc dừng và thùng rác](docs/request-controls.md).

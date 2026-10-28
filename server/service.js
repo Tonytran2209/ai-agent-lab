@@ -86,7 +86,8 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
   const queueTicket=(r,renew=false)=>{if(!serialized)return;if(renew)db.prepare('DELETE FROM project_queue_order WHERE request_id=?').run(r.id);db.prepare('INSERT OR IGNORE INTO project_queue_order(request_id,draining) VALUES (?,0)').run(r.id);};
   const queueRows=rows=>{if(!serialized)return rows;const order=new Map(db.prepare('SELECT request_id,ticket,draining,historical_deployed FROM project_queue_order').all().map(x=>[x.request_id,x]));const leases=new Map(db.prepare("SELECT request_id,json_extract(data,'$.lease.expiresAt') AS expiresAt FROM local_planning WHERE json_extract(data,'$.lease') IS NOT NULL").all().map(j=>[j.request_id,j.expiresAt]));return rows.map(r=>({...r,historicalDeployment:Boolean(order.get(r.id)?.historical_deployed),queueTicket:order.get(r.id)?.ticket||0,queuePriority:order.get(r.id)?.draining||0,planningLease:leases.get(r.id)||null}));};
   const queueState=(r,rows)=>serialized?projectQueueState(r,Array.isArray(rows)?rows:queueRows(list().reverse()),projects.get(r.projectId),currentLibrary(r.projectId).sourceCommit):null;
-  const assertTurn=r=>{if(queueState(r)?.blocked)fail('Project đang xử lý '+queueState(r).blockedBy+'; chờ deploy và đồng bộ MD trước khi nhận việc tiếp.',409);};
+  const assertOpen=r=>{if(r.archivedAt||r.stopControl)fail('Request đã dừng hoặc nằm trong thùng rác; tạo feedback mới để thực hiện tiếp.',409);};
+  const assertTurn=r=>{assertOpen(r);if(queueState(r)?.blocked)fail('Project đang xử lý '+queueState(r).blockedBy+'; chờ deploy và đồng bộ MD trước khi nhận việc tiếp.',409);};
   const publicRequest = (r,queueRows) => {
     const { lease, ciCollection, ...rest } = r;
     const release = rest.release ? { ...rest.release, lease: rest.release.lease ? { owner: rest.release.lease.owner, expiresAt: rest.release.lease.expiresAt } : null } : undefined;
@@ -96,6 +97,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
   };
   function changed(r, type, actor, detail) { r.updatedAt = now(); save(r); event(r.id, type, actor, detail); return publicRequest(r); }
   function mutable(r) {
+    assertOpen(r);
     if (!["feedback", "needs-triage", "draft", "awaiting-approval"].includes(r.status))
       fail("Không thể sửa request đã duyệt hoặc đang thực thi. Tạo scope revision trước.");
   }
@@ -121,6 +123,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
     r.delivery={mode:"single-approval-v1",environment:p.releaseEnvironment,configurationRevision:p.configurationRevision,phase:"authorized",attempts:0,approvalHash:r.approval.requestHash,authorizedBy:r.approval.actor,authorizedAt:now(),highRiskConfirmed:r.draft.risk==="high"&&options.confirmHighRisk===true};
   }
   function deliveryAuthority(r) {
+    assertOpen(r);
     const p=projects.get(r.projectId),d=r.delivery;
     if(!d?.approvalHash || d.approvalHash!==r.approval?.requestHash || d.approvalHash!==hash(JSON.stringify({draft:r.draft,baseCommit:r.baseCommit,libraryVersionId:r.libraryVersionId})) || !p.enabled || !p.runnerEnabled || !p.releaseEnabled || !p.autoCompleteAfterApproval || !p.ciReady || d.configurationRevision!==p.configurationRevision || d.environment!==p.releaseEnvironment || r.draft.risk==="high"&&!d.highRiskConfirmed) fail("Quyền tự phát hành không còn khớp kế hoạch/cấu hình. Cần admin kiểm tra.");
   }
@@ -248,6 +251,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
     finishPreparation(id, jobId, success, options = {}) {
       return transaction(db, () => {
         const r = get(id);
+        if(r.stopControl||r.archivedAt||r.status==='rejected')return publicRequest(r);
         if (r.preparation?.jobId !== jobId || r.preparation.status !== "running") return publicRequest(r);
         const retry = !success && options.retryable !== false && r.preparation.attempts < 3 && ["feedback", "needs-triage", "draft", "awaiting-approval"].includes(r.status);
         r.preparation = { ...r.preparation, status: success ? "completed" : retry ? "queued" : "failed", finishedAt: now(), error: success ? null : (options.message || "Chưa chuẩn bị được request."),
@@ -308,6 +312,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
         });
     },
     rawForAnalysis: id => get(id),
+    assertRequestOpen: id => assertOpen(get(id)),
     assertRepairAuthority:id=>deliveryAuthority(get(id)),
     projectQueue:id=>queueState(get(id)),
     assertProjectTurn:id=>assertTurn(get(id)),
@@ -365,21 +370,52 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
         authorizeDelivery(r, options); r.status = "approved"; return changed(r, "request_approved", actor);
       });
     },
-    reject(id, note, actor) {
-      return transaction(db, () => {
-        const r = get(id); if (["claimed", "running", "rechecking"].includes(r.status)||r.ciRepair?.lease||r.recheck?.lease||r.verification?.lease) fail("Agent đang giữ claim; cần xác nhận agent dừng trước.");
-        if (r.release && !["deployed", "failed"].includes(r.release.phase)) fail("Đang phát hành; không thể thu hồi quyền bằng thao tác từ chối coding request.");
-        cancelPreparation(r);
-        r.status = "rejected"; r.approval = null; return changed(r, "request_rejected", actor, note);
+    requestControls(id) {
+      const r=get(id),planning=service.localPlanning?.get(id);
+      const leases=[r.lease,planning?.lease,r.ciRepair?.lease,r.recheck?.lease,r.verification?.lease,r.release?.lease].filter(Boolean);
+      const publisherBusy=Boolean(r.release?.lease||r.verification?.lease);
+      const published=Boolean(r.release?.mergeCommit||r.release?.phase==='deployed');
+      return {pending:Boolean(r.stopControl?.pending),canStop:!r.stopControl&&!r.archivedAt&&r.status!=='rejected'&&!publisherBusy&&!published&&!(r.status==='completed'&&!r.release),
+        stopReason:publisherBusy?'Worker đang thao tác GitHub/phát hành. Chờ bước này kết thúc rồi dừng để giữ đúng trạng thái PR/deploy.':published?'Đã merge hoặc deploy; dừng task không thể thu hồi thay đổi đã phát hành.':null,
+        canConfirmStopped:Boolean(r.stopControl?.pending)&&leases.every(l=>Date.parse(l.expiresAt)<=Date.now()),
+        canArchive:!r.archivedAt&&['rejected','completed'].includes(r.status)&&!leases.length&&!r.stopControl?.pending&&r.preparation?.status!=='running'&&(!r.release||['failed','deployed'].includes(r.release.phase)),
+        canRestore:Boolean(r.archivedAt)};
+    },
+    stopRequest(id,note,actor,expectedRevision) {
+      return transaction(db,()=>{
+        const r=get(id);if(expectedRevision&&expectedRevision!==r.updatedAt)fail('Request đã thay đổi; đọc lại trước khi dừng.',409);
+        if(r.status==='rejected')return publicRequest(r);
+        const control=service.requestControls(id);if(!control.canStop)fail(control.stopReason||'Không thể dừng task đã hoàn tất hoặc trong thùng rác.',409);
+        const pending=Boolean(r.lease||service.localPlanning?.get(id)?.lease||r.ciRepair?.lease||r.recheck?.lease);
+        r.stopControl={pending,actor,note,requestedAt:now(),previousStatus:r.status};
+        cancelPreparation(r);r.status='rejected';r.approval=null;
+        // Keep every live/expired claim until the old worker is explicitly confirmed stopped.
+        if(r.release&&!['deployed','failed'].includes(r.release.phase)){r.release={...r.release,phase:'failed',note:'Admin đã dừng trước bước phát hành.'};}
+        return changed(r,'request_rejected',actor,note);
       });
     },
+    reject(id,note,actor){
+      return transaction(db,()=>{const r=get(id);assertOpen(r);if(r.status==='completed'||r.release?.mergeCommit||r.release?.phase==='deployed')fail('Task đã hoàn tất/merge; dùng thùng rác để ẩn lịch sử.');if(['claimed','running','rechecking'].includes(r.status)||r.ciRepair?.lease||r.recheck?.lease||r.verification?.lease)fail('Agent đang giữ claim; dùng yêu cầu dừng và xác nhận worker đã dừng trước.');if(r.release&&!['deployed','failed'].includes(r.release.phase))fail('Đang phát hành; chờ bước phát hành kết thúc.');cancelPreparation(r);r.status='rejected';r.approval=null;return changed(r,'request_rejected',actor,note);});
+    },
+    confirmRequestStopped(id,actor,expectedRevision,workerStopped){
+      return transaction(db,()=>{
+        const r=get(id);if(workerStopped!==true||r.updatedAt!==expectedRevision||!service.requestControls(id).canConfirmStopped)fail('Chờ claim hết hạn và xác minh tiến trình worker cũ đã dừng trước khi mở khoá.',409);
+        r.lease=null;for(const key of ['ciRepair','recheck'])if(r[key]?.lease)r[key]={...r[key],lease:null,phase:'failed'};
+        const row=db.prepare('SELECT data FROM local_planning WHERE request_id=?').get(id);
+        if(row){const job=JSON.parse(row.data);job.lease=null;job.phase='cancelled';db.prepare('UPDATE local_planning SET data=? WHERE request_id=?').run(JSON.stringify(job),id);}
+        r.status='rejected';cancelPreparation(r);r.stopControl={...r.stopControl,pending:false,confirmedBy:actor,confirmedAt:now()};
+        return changed(r,'request_stop_confirmed',actor,'Đã xác nhận worker dừng; giữ nguyên worktree, artifact và lịch sử.');
+      });
+    },
+    archiveRequest(id,actor,expectedRevision){return transaction(db,()=>{const r=get(id);if(r.updatedAt!==expectedRevision||!service.requestControls(id).canArchive)fail('Chỉ xoá task đã dừng/hoàn tất và không còn claim. Đọc lại trạng thái mới nhất.',409);r.archivedAt=now();r.archivedBy=actor;return changed(r,'request_archived',actor,'Đã chuyển vào thùng rác; không xoá source, PR, ảnh hoặc bằng chứng.');});},
+    restoreRequest(id,actor,expectedRevision){return transaction(db,()=>{const r=get(id);if(r.updatedAt!==expectedRevision||!r.archivedAt)fail('Task không còn trong thùng rác hoặc đã thay đổi.',409);delete r.archivedAt;delete r.archivedBy;return changed(r,'request_restored',actor,'Đã khôi phục hiển thị; không chạy lại task.');});},
     simplifyWorkflow(){if(!options.simplifiedWorkflow)return {count:0};return transaction(db,()=>{let count=0;for(const r of list()){
       if(r.workflowProtocol==='direct-v1'||r.status==='rejected'||r.release||r.lease||r.verification?.lease||r.ciRepair?.lease||r.recheck?.lease||service.localPlanning?.get(r.id)?.lease||r.preparation?.status==='running')continue;
       r.workflowProtocol='direct-v1';delete r.criterionCiStatus;delete r.criterionCiNextAt;
       if(['verifying','failed'].includes(r.status)&&verificationPassed(r)&&localChecksPassed(r))r.status='review';
       changed(r,'workflow_simplified','Workflow migration','Dùng kiểm tra code và CI đúng commit; liên kết từng tiêu chí là tham khảo.');count++;
     }return {count};});},
-    ready: () => list().filter(r => r.status === "approved" && executionReadiness(r).ready && service.ciCompatibility?.(r)?.ready!==false && !queueState(r)?.blocked && !queueState(r)?.staleBase && projects.get(r.projectId).enabled).map(publicRequest),
+    ready: () => list().filter(r => !r.stopControl&&!r.archivedAt&&r.status === "approved" && executionReadiness(r).ready && service.ciCompatibility?.(r)?.ready!==false && !queueState(r)?.blocked && !queueState(r)?.staleBase && projects.get(r.projectId).enabled).map(publicRequest),
     claim(id, owner, observedBaseCommit, contractProtocol, attachmentProtocol) {
       return transaction(db, () => {
         const r = get(id); assertTurn(r);assertExecutionReady(r);if(service.ciCompatibility?.(r)?.ready===false)fail(service.ciCompatibility(r).message,409);if(serialized&&r.baseCommit!==currentLibrary(r.projectId).sourceCommit)fail("Base đã thay đổi; cần khảo sát lại trước thực thi.",409); if(r.attachments?.length&&attachmentProtocol!=="feedback-images-v1")fail("Runner cần hỗ trợ ảnh feedback trước khi thực thi."); if(r.contractProtocol&&contractProtocol!==r.contractProtocol)fail("Agent cần khai báo contractProtocol md-trace-v1 trước khi thực thi."); if(!projects.get(r.projectId).enabled)fail("Project đang tạm dừng."); if (r.status !== "approved") fail("Request chưa được duyệt hoặc đã được claim.");
@@ -388,7 +424,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
         const fingerprint = hash(JSON.stringify({ draft: r.draft, baseCommit: r.baseCommit, libraryVersionId: r.libraryVersionId }));
         if (!r.approval || fingerprint !== r.approval.requestHash) fail("Approval không khớp nội dung request.");
         const conflict = list().find(other => other.id !== id && other.repository === r.repository &&
-          ["claimed", "running"].includes(other.status) && (other.draft.allowedPaths.some(p => r.draft.allowedPaths.includes(p)) ||
+          (other.lease||["claimed", "running"].includes(other.status)) && (other.draft.allowedPaths.some(p => r.draft.allowedPaths.includes(p)) ||
           other.draft.layer === "database" || r.draft.layer === "database" ||
           other.draft.allowedPaths.concat(r.draft.allowedPaths).some(p => /^(supabase\/migrations\/|backend\/supabase\.ts$)/.test(p))));
         if (conflict) fail("Phạm vi đang được request " + conflict.id + " sử dụng.");
@@ -416,7 +452,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
     },
     retryExecution(id, actor) {
       return transaction(db, () => {
-        const r = get(id);
+        const r = get(id); assertOpen(r);
         if (r.status !== "failed" || !r.executionFailure || r.lease) fail("Chỉ thử lại lỗi thực thi đã dừng.");
         assertExecutionReady(r);
         if(r.delivery?.approvalHash)deliveryAuthority(r);
@@ -477,7 +513,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
     },
     supplementVerification(id, input, actor) {
       return transaction(db, () => {
-        const r = get(id);
+        const r = get(id); assertOpen(r);
         if (!["failed", "verifying"].includes(r.status) || !contractSatisfied(r) || !localChecksPassed(r) || r.lease || r.verification?.lease) fail("Không thể bổ sung khi đang chạy hoặc có lỗi ngoài trình duyệt.");
         if (input.expectedCommit !== r.result.commit || input.expectedResultRevision !== resultRevision(r)) fail("Kết quả đã đổi; cần kiểm tra lại đúng commit.");
         if (typeof input.note !== "string" || input.note.trim().length < 30 || input.note.length > 4000) fail("Cần mô tả kiểm tra thực tế và bằng chứng.",400);
@@ -487,12 +523,12 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
     },
     queueVerification(id, actor) {
       return transaction(db, () => {
-        const r=get(id);if(r.status!=="failed" || !localChecksPassed(r) || r.verification?.lease) fail("Chỉ thử lại kiểm tra trình duyệt sau khi worker dừng.");
+        const r=get(id);assertOpen(r);if(r.status!=="failed" || !localChecksPassed(r) || r.verification?.lease) fail("Chỉ thử lại kiểm tra trình duyệt sau khi worker dừng.");
         const old=r.verification;r.verification={...newVerification(r,actor),...(old?.prNumber?{phase:"ci",prNumber:old.prNumber,prUrl:old.prUrl}: {})};r.status="verifying";
         return changed(r,"browser_verification_queued",actor,r.verification.note);
       });
     },
-    verifications: () => list().filter(r=>!queueState(r)?.blocked&&r.status==="verifying"&&(!r.ciCollection||Date.parse(r.ciCollection.expiresAt)<=Date.now())&&r.verification&&["queued","ci"].includes(r.verification.phase)).map(publicRequest),
+    verifications: () => list().filter(r=>!r.stopControl&&!r.archivedAt&&!queueState(r)?.blocked&&r.status==="verifying"&&(!r.ciCollection||Date.parse(r.ciCollection.expiresAt)<=Date.now())&&r.verification&&["queued","ci"].includes(r.verification.phase)).map(publicRequest),
     claimVerification(id,owner) {
       return transaction(db,()=>{
         const r=get(id),v=r.verification; assertTurn(r);
@@ -519,7 +555,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
         return previous!==v.phase?changed(r,"browser_verification_"+v.phase,owner,v.note):publicRequest(r);
       });
     },
-    criterionCiCandidates:()=>list().filter(r=>['failed','verifying','review'].includes(r.status)&&(r.workflowProtocol==='direct-v1'?['failed','verifying'].includes(r.status)&&r.verification?.phase!=='passed':r.contractProtocol&&!contractSatisfied(r))&&localChecksPassed(r)&&(!r.ciCollection||Date.parse(r.ciCollection.expiresAt)<=Date.now())&&!r.lease&&!r.ciRepair?.lease&&!r.verification?.lease&&r.delivery?.approvalHash&&(!r.criterionCiNextAt||Date.parse(r.criterionCiNextAt)<=Date.now())).map(publicRequest),
+    criterionCiCandidates:()=>list().filter(r=>!r.stopControl&&!r.archivedAt&&['failed','verifying','review'].includes(r.status)&&(r.workflowProtocol==='direct-v1'?['failed','verifying'].includes(r.status)&&r.verification?.phase!=='passed':r.contractProtocol&&!contractSatisfied(r))&&localChecksPassed(r)&&(!r.ciCollection||Date.parse(r.ciCollection.expiresAt)<=Date.now())&&!r.lease&&!r.ciRepair?.lease&&!r.verification?.lease&&r.delivery?.approvalHash&&(!r.criterionCiNextAt||Date.parse(r.criterionCiNextAt)<=Date.now())).map(publicRequest),
     beginCriterionCi(id,expectedRevision){return transaction(db,()=>{
       const r=get(id);if(resultRevision(r)!==expectedRevision||r.lease||r.ciRepair?.lease||r.verification?.lease||r.ciCollection&&Date.parse(r.ciCollection.expiresAt)>Date.now()||!['failed','verifying','review'].includes(r.status)||!localChecksPassed(r)||!r.delivery?.approvalHash)return null;
       const collectionId=crypto.randomUUID();r.ciCollection={id:collectionId,resultRevision:expectedRevision,expiresAt:new Date(Date.now()+5*60000).toISOString()};save(r);return collectionId;
@@ -555,7 +591,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
       r.result={...old,...(r.ciRepair?.commit===proof.commit&&r.ciRepair.documentationReview?{documentationReview:r.ciRepair.documentationReview}:{}),commit:proof.commit,changedPaths:proof.changedPaths,summary:old.summary,checks:[...old.checks.filter(c=>!r.draft.traceability.some(t=>t.verification.command===c.command)),...proof.criteria.filter(c=>c.method!=='inspection').map(c=>({command:c.command,passed:true,output:c.source==='agent-reported'?'Codex-reported; giữ nguyên bằng chứng cục bộ đúng commit':'GitHub CI độc lập: '+proof.evidenceUrl}))],criterionEvidence:proof.criteria.map(c=>({criterionIndex:c.criterionIndex,outcome:'passed',method:c.method||'test',command:c.command,files:c.files,detail:c.method==='inspection'||c.source==='agent-reported'?c.detail:'GitHub CI đã chạy thành công desktop/mobile: '+c.names.join('; ').slice(0,1700)}))};
       r.criterionCi={...proof,criteria:proof.criteria.filter(c=>c.source!=='agent-reported'),at:now()};delete r.ciObservation;delete r.criterionCiStatus;delete r.criterionCiNextAt;if(!contractSatisfied(r))fail('Bằng chứng CI chưa đủ hợp đồng tiêu chí/tài liệu.');
       r.verification={...newVerification(r,'GitHub CI'),phase:'passed',source:'github-actions',prNumber:proof.prNumber,prUrl:proof.prUrl,evidenceUrl:proof.evidenceUrl,at:now(),note:'Đã xác minh browser CI desktop/mobile; kiểm tra cục bộ giữ nguồn báo cáo riêng. Đang xác minh quyền tự phát hành.'};r.status='review';r.delivery={...r.delivery,phase:'authorized',attempts:0,nextAttemptAt:null};return changed(r,'criterion_ci_verified','AI Agent Lab','Đã đối chiếu browser CI và giữ bằng chứng cục bộ đúng commit, không đổi nguồn xác minh.');});},
-    deliveryCandidates: () => list().filter(r=>r.status==="review"&&r.delivery?.approvalHash&&!["failed","released"].includes(r.delivery.phase)&&(!r.delivery.nextAttemptAt||Date.parse(r.delivery.nextAttemptAt)<=Date.now())).map(publicRequest),
+    deliveryCandidates: () => list().filter(r=>!r.stopControl&&!r.archivedAt&&r.status==="review"&&r.delivery?.approvalHash&&!["failed","released"].includes(r.delivery.phase)&&(!r.delivery.nextAttemptAt||Date.parse(r.delivery.nextAttemptAt)<=Date.now())).map(publicRequest),
     beginDelivery(id) {
       return transaction(db,()=>{const r=get(id);deliveryAuthority(r);if(r.status!=="review"||!r.delivery?.approvalHash||["failed","released"].includes(r.delivery.phase)||(r.delivery.attempts||0)>=3)fail("Không có tiến trình tự phát hành.");r.delivery.attempts=(r.delivery.attempts||0)+1;r.delivery.phase="checking";r.delivery.nextAttemptAt=new Date(Date.now()+180000).toISOString();save(r);return publicRequest(r);});
     },
@@ -567,14 +603,14 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
     },
     accept(id, actor, options = {}) {
       return transaction(db, () => {
-        const r = get(id); if (r.status !== "review" || !checksSatisfied(r) || r.result?.browserVerification === "ci" && !verificationPassed(r)) fail("Request chưa có đủ kết quả kiểm tra chờ nghiệm thu.");
+        const r = get(id); assertOpen(r); if (r.status !== "review" || !checksSatisfied(r) || r.result?.browserVerification === "ci" && !verificationPassed(r)) fail("Request chưa có đủ kết quả kiểm tra chờ nghiệm thu.");
         r.status = "completed"; r.acceptance={mode:"manual",by:actor,at:now()}; if (r.result.localArtifact && projects.get(r.projectId).enabled && projects.get(r.projectId).releaseEnabled) queueRelease(r, actor, options); return changed(r, "result_accepted", actor, r.release ? "Đã nghiệm thu và cho phép phát hành qua PR/CI." : "Đã nghiệm thu; phát hành tự động đang tắt hoặc artifact được quản lý bên ngoài.");
       });
     },
     publish(id, actor, options = {}) {
-      return transaction(db, () => { const r = get(id); if(!projects.get(r.projectId).enabled||!projects.get(r.projectId).releaseEnabled)fail("Project chưa bật phát hành sau nghiệm thu."); if(serialized&&queueState(r)?.position===0)queueTicket(r,true); queueRelease(r, actor, options); return changed(r, "release_queued", actor); });
+      return transaction(db, () => { const r = get(id); assertOpen(r); if(!projects.get(r.projectId).enabled||!projects.get(r.projectId).releaseEnabled)fail("Project chưa bật phát hành sau nghiệm thu."); if(serialized&&queueState(r)?.position===0)queueTicket(r,true); queueRelease(r, actor, options); return changed(r, "release_queued", actor); });
     },
-    releases: () => list().filter(r => r.status === "completed" && !queueState(r)?.blocked && r.release && !["deployed", "failed"].includes(r.release.phase)).map(publicRequest),
+    releases: () => list().filter(r => !r.stopControl&&!r.archivedAt&&r.status === "completed" && !queueState(r)?.blocked && r.release && !["deployed", "failed"].includes(r.release.phase)).map(publicRequest),
     claimRelease(id, owner) {
       return transaction(db, () => {
         const r = get(id), release = r.release; assertTurn(r);
@@ -613,7 +649,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
         return publicRequest(r);
       });
     },
-    recoverPublication(id){return transaction(db,()=>{const r=get(id),rel=r.release;if(r.status!=='completed'||rel?.phase!=='failed'||rel.lease||(rel.recoveryAttempts||0)>=3||!r.delivery?.approvalHash)return false;deliveryAuthority(r);if(!/GitHub API thất bại|Hết thời gian chờ CI|Chưa có xác nhận Railway|timeout|kết nối/i.test(rel.note||''))return false;if((rel.recoveryNextAt||0)>Date.now())return false;const attempts=(rel.recoveryAttempts||0)+1;queueRelease(r,rel.authorizedBy,{confirmHighRisk:r.delivery.highRiskConfirmed});r.release.recoveryAttempts=attempts;r.release.recoveryNextAt=Date.now()+60000*2**attempts;changed(r,'release_recovery_queued','Recovery','Theo dõi lại PR/deploy theo quyền đã duyệt; không tạo bản sửa mới.');return true;});},
+    recoverPublication(id){return transaction(db,()=>{const r=get(id),rel=r.release;if(r.stopControl||r.archivedAt)return false;if(r.status!=='completed'||rel?.phase!=='failed'||rel.lease||(rel.recoveryAttempts||0)>=3||!r.delivery?.approvalHash)return false;deliveryAuthority(r);if(!/GitHub API thất bại|Hết thời gian chờ CI|Chưa có xác nhận Railway|timeout|kết nối/i.test(rel.note||''))return false;if((rel.recoveryNextAt||0)>Date.now())return false;const attempts=(rel.recoveryAttempts||0)+1;queueRelease(r,rel.authorizedBy,{confirmHighRisk:r.delivery.highRiskConfirmed});r.release.recoveryAttempts=attempts;r.release.recoveryNextAt=Date.now()+60000*2**attempts;changed(r,'release_recovery_queued','Recovery','Theo dõi lại PR/deploy theo quyền đã duyệt; không tạo bản sửa mới.');return true;});},
     releaseLibrarySync(id, succeeded) {
       return transaction(db, () => {
         const r = get(id); if (r.release?.phase !== "deployed") fail("Chưa xác nhận deploy.");
@@ -626,7 +662,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
     },
     rebase(id, actor) {
       return transaction(db, () => {
-        const r = get(id);
+        const r = get(id); assertOpen(r);
         if (["claimed", "running", "completed", "review", "verifying", "rechecking"].includes(r.status)||service.localPlanning?.get(r.id)?.lease||r.ciRepair?.lease||r.recheck?.lease||r.verification?.lease||r.release?.lease) fail("Không thể cập nhật base của request đang chạy/đã có kết quả.");
         if(r.status==='rejected')queueTicket(r,true);if(serialized){r.queueProtocol='project-fifo-v1';db.prepare('UPDATE project_queue_order SET historical_deployed=0 WHERE request_id=?').run(r.id);}
         cancelPreparation(r);

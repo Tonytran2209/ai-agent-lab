@@ -214,3 +214,5 @@
 .runner-controls{padding:16px 20px;border-top:1px solid var(--border)}
 .runner-control-actions{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
 .runner-controls .settings-hint{margin:10px 0;line-height:1.6}
+
+.request-controls{display:flex;flex-wrap:wrap;gap:8px;flex-basis:100%}.request-controls:empty{display:none}.request-controls>p{font-size:12px;line-height:1.6}.request-controls small{display:block;margin-top:8px;color:#aaa;line-height:1.6}.request-stop-form{width:100%;max-width:560px;border:1px solid #393939;border-radius:12px;padding:14px}.request-stop-form label{display:block;margin-bottom:8px;font-size:12px}.request-stop-form textarea{width:100%;min-height:76px;resize:vertical}.request-stop-form p{font-size:12px;color:#aaa;line-height:1.6;margin:10px 0}.request-stop-form>div{display:flex;flex-wrap:wrap;gap:8px}

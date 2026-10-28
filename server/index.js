@@ -110,7 +110,7 @@ export function createApp(config, options = {}) {
   app.get('/api/projects/:id/export',auth.admin,(req,res)=>res.attachment(req.params.id+'-lab.json').json(dataManagement.export(req.params.id)));
   app.post('/api/data/restore-preview',auth.admin,(req,res)=>res.json(dataManagement.preview(req.body)));
   app.get("/api/ai/usage", auth.admin, (req, res) => res.json(service.aiLedger.summary(config)));
-  app.get("/api/requests", (req, res) => res.json({ requests: service.list() }));
+  app.get("/api/requests", (req, res) => res.json({ requests: service.list().filter(r=>!r.archivedAt||req.user.role==='admin'&&req.query.includeArchived==='true') }));
   app.post("/api/requests", limiter(20), (req, res) => {
     const created = service.create(req.body, req.user.name, {deduplicate:true});
     if (created.duplicate) return res.status(200).json(created);
@@ -119,7 +119,7 @@ export function createApp(config, options = {}) {
   const sendFeedbackImage=(req,res)=>{const {metadata,bytes}=service.image(req.params.id,req.params.imageId);res.set({'Content-Type':metadata.mime,'Content-Length':String(bytes.length),'Cache-Control':'private, no-store','Content-Disposition':'inline; filename="'+metadata.id+'.'+({'image/png':'png','image/jpeg':'jpg','image/webp':'webp'})[metadata.mime]+'"'}).send(bytes);};
   app.get('/api/requests/:id/images/:imageId',sendFeedbackImage);
   app.get('/runner/requests/:id/images/:imageId',auth.mcp,sendFeedbackImage);
-  app.get("/api/requests/:id", (req, res) => res.json({ request: service.get(req.params.id), events: service.events(req.params.id) }));
+  app.get("/api/requests/:id", (req, res) => res.json({ request: {...service.get(req.params.id),controls:service.requestControls(req.params.id)}, events: service.events(req.params.id) }));
   const editable = (req, res, next) => {
     // Members can submit feedback; contract preparation and execution authority remain admin-only.
     if (req.user.role !== "admin") return res.status(403).json({ error: "Chỉ admin được chuẩn bị và duyệt coding request." });
@@ -148,6 +148,11 @@ export function createApp(config, options = {}) {
     const options = z.object({ confirmHighRisk: z.boolean().default(false), authorizeRelease:z.boolean().default(false), expectedRevision: z.string().optional() }).parse(req.body ?? {});
     res.json(service.approve(req.params.id, req.user.name, options));
   });
+  const requestRevision=z.object({expectedRevision:z.string().min(1)}).strict();
+  app.post('/api/requests/:id/stop',auth.admin,(req,res)=>{const b=requestRevision.extend({note:z.string().trim().min(5).max(1000)}).parse(req.body);res.json(service.stopRequest(req.params.id,b.note,req.user.name,b.expectedRevision));});
+  app.post('/api/requests/:id/stop/confirm',auth.admin,(req,res)=>{const b=requestRevision.extend({workerStopped:z.literal(true)}).parse(req.body);res.json(service.confirmRequestStopped(req.params.id,req.user.name,b.expectedRevision,b.workerStopped));});
+  app.delete('/api/requests/:id',auth.admin,(req,res)=>{const b=requestRevision.parse(req.body);res.json(service.archiveRequest(req.params.id,req.user.name,b.expectedRevision));});
+  app.post('/api/requests/:id/restore',auth.admin,(req,res)=>{const b=requestRevision.parse(req.body);res.json(service.restoreRequest(req.params.id,req.user.name,b.expectedRevision));});
   app.post("/api/requests/:id/reject", auth.admin, (req, res) => {
     const { note } = z.object({ note: z.string().min(5).max(1000) }).parse(req.body); res.json(service.reject(req.params.id, note, req.user.name));
   });

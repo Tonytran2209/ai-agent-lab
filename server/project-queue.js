@@ -1,6 +1,7 @@
 // Repository/branch lanes serialize the whole lifecycle, including CI, deploy and MD sync.
 // Decisions and leases remain in SQLite; no process-local lock can grant authority.
 export function queueSettled(r,project,currentCommit){
+ if(r.stopControl?.pending)return false;
  if(r.planningLease||r.lease||r.ciRepair?.lease||r.verification?.lease||r.recheck?.lease||r.release?.lease||r.preparation?.status==='running')return false;
  if(r.status==='rejected')return true;
  if(r.release?.phase==='deployed'&&r.historicalDeployment)return true;

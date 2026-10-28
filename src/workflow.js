@@ -13,13 +13,17 @@ export const workflowLabels = {
 };
 export const preparationFailed=r=>r.preparation?.status==='failed'&&['feedback','needs-triage','draft','awaiting-approval'].includes(r.status)&&!r.approval&&!r.result&&!r.lease;
 export function preparationRunning(request) {
+  if(request.stopControl||request.archivedAt||request.status==='rejected')return false;
   if(request.preparation?.engine==="codex-local")return request.preparation.status==="running"&&Boolean(request.planning?.lease)&&Date.parse(request.planning.lease.expiresAt)>Date.now();
   return request.preparation?.status === "running" && Date.now() - Date.parse(request.preparation.startedAt) < 90000;
 }
 export function requestSignal(request) {
-  return request.status + (request.delivery ? ":delivery:"+request.delivery.phase : "") + (request.verification ? ":browser:" + request.verification.phase : "") + (request.release ? ":release:" + request.release.phase : "") + (request.preparation ? ":" + request.preparation.status : "");
+  return request.status + (request.archivedAt?":archived":"") + (request.stopControl?.pending?":stopping":"") + (request.delivery ? ":delivery:"+request.delivery.phase : "") + (request.verification ? ":browser:" + request.verification.phase : "") + (request.release ? ":release:" + request.release.phase : "") + (request.preparation ? ":" + request.preparation.status : "");
 }
 export function workflowMessage(request, runner, aiConfigured = true) {
+  if(request.archivedAt)return 'Task nằm trong thùng rác. Khôi phục chỉ đưa task về danh sách, không chạy lại.';
+  if(request.stopControl?.pending)return 'Đã chặn công việc tiếp theo. Worker sẽ dừng khi heartbeat bị từ chối; vẫn giữ khoá cho đến khi admin xác minh worker đã dừng. Không tự xoá worktree hoặc rollback.';
+  if(request.status==='rejected')return 'Task đã dừng. Kế hoạch, artifact và lịch sử được giữ; tạo feedback mới nếu muốn thực hiện tiếp.';
   if(request.ciRepair?.phase==='running'||request.ciRepair?.phase==='queued')return 'Codex đang tự sửa CI trên cùng PR; giữ phạm vi đã duyệt. Chưa merge.';
   if(request.projectQueue?.blocked)return 'Chờ '+request.projectQueue.blockedBy+' hoàn tất deploy và đồng bộ MD; sau đó cập nhật base mới trước khi xử lý.';
   if(request.preparation?.engine==='lab-agent'&&['queued','running'].includes(request.preparation.status))return 'Lab Agent đang phân loại feedback để chuyển Codex; chưa đọc source hoặc lập kế hoạch.';
@@ -67,6 +71,9 @@ export function requestChanges(previous, current) {
 }
 
 export function requiresAttention(r) {
+  if(r.archivedAt)return false;
+  if(r.stopControl)return Boolean(r.stopControl.pending);
+  if(r.status==='rejected')return false;
   if(r.projectQueue?.blocked)return false;
   if(['queued','running'].includes(r.ciRepair?.phase)&&(!r.ciRepair.lease||Date.parse(r.ciRepair.lease.expiresAt)>Date.now()))return false;
   if(r.ciRepair?.lease&&Date.parse(r.ciRepair.lease.expiresAt)<=Date.now())return true;
@@ -80,6 +87,7 @@ export function requiresAttention(r) {
 
 // Stage progress, never a fabricated elapsed-time percentage or proof of deployment.
 export function taskProgress(r,runner){
+ if(r.archivedAt||r.stopControl||r.status==='rejected')return {steps:['Tiếp nhận','Phân loại','Codex','Kiểm tra','Phát hành'],current:r.result?3:r.draft?2:0,done:false,failed:false,waiting:Boolean(r.stopControl?.pending),title:r.archivedAt?'Trong thùng rác':r.stopControl?.pending?'Chờ xác nhận worker dừng':'Đã dừng',message:workflowMessage(r,runner)};
  if(['queued','running'].includes(r.ciRepair?.phase))return {steps:['Tiếp nhận','Phân loại','Codex','Kiểm tra','Phát hành'],current:3,done:false,failed:false,waiting:r.ciRepair.phase==='queued',title:'Tự sửa CI · lượt '+(r.ciRepair.attempts||1)+'/2',message:'Codex kiểm tra lỗi trên cùng PR trong scope đã duyệt; chờ CI xác minh lại trước merge.'};
  if(r.projectQueue?.blocked)return {steps:['Tiếp nhận','Phân loại','Codex','Kiểm tra','Phát hành'],current:0,done:false,failed:false,waiting:true,title:'Chờ lượt · vị trí '+r.projectQueue.position,message:'Project đang xử lý '+r.projectQueue.blockedBy+'. Chỉ bắt đầu sau khi request trước hoàn tất deploy và đồng bộ MD; không ghi đè lên bản đang chạy.'};
  if(r.projectQueue?.staleBase&&r.draft&&!r.lease)return {steps:['Tiếp nhận','Phân loại','Codex','Kiểm tra','Phát hành'],current:2,done:false,failed:false,waiting:true,title:'Cần cập nhật base',message:'Main đã thay đổi. Chuẩn bị lại kế hoạch trên base mới trước khi thực thi; quyền cũ không được dùng cho nội dung mới.'};
