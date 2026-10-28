@@ -146,10 +146,10 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
   const service = {
     aiLedger: createAiLedger(db),
     ciSetup,
-    projects:()=>projects.list().map(p=>({...p,ciSetup:ciSetup.get(p.id)})), project:id=>({...projects.get(id),ciSetup:ciSetup.get(id)}), updateProject:projects.update,
+    projects:()=>projects.list().map(p=>({...p,ciSetup:ciSetup.get(p.id)})), project:id=>({...projects.get(id),ciSetup:ciSetup.get(id)}), updateProject:projects.update, bindDeployment:projects.bindDeployment, updateDeploymentOptions:(id,opts)=>projects.update(id,opts,{deploymentVerified:true}),
     currentLibrary, library, list: () => {const rows=list(),ordered=queueRows([...rows].reverse());return rows.map(r=>publicRequest(r,ordered));},
     reportRunner(input) {
-      const value = { ...input, projects:input.projects ?? this.runnerStatus().projects ?? [], contractProtocol:input.contractProtocol??this.runnerStatus().contractProtocol, governanceProtocol:input.governanceProtocol??this.runnerStatus().governanceProtocol, attachmentProtocol:input.attachmentProtocol??this.runnerStatus().attachmentProtocol, lastSeenAt: now() };
+      const value = { ...input, projects:input.projects ?? this.runnerStatus().projects ?? [], contractProtocol:input.contractProtocol??this.runnerStatus().contractProtocol, governanceProtocol:input.governanceProtocol??this.runnerStatus().governanceProtocol, attachmentProtocol:input.attachmentProtocol??this.runnerStatus().attachmentProtocol, deploymentProtocol:input.deploymentProtocol??this.runnerStatus().deploymentProtocol,publisherEnabled:input.publisherEnabled??this.runnerStatus().publisherEnabled,lastSeenAt: now() };
       db.prepare("INSERT OR REPLACE INTO settings(key,value) VALUES ('mac_runner',?)").run(JSON.stringify(value));
       return { ok: true };
     },
@@ -612,9 +612,10 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
       return transaction(db, () => { const r = get(id); assertOpen(r); if(!projects.get(r.projectId).enabled||!projects.get(r.projectId).releaseEnabled)fail("Project chưa bật phát hành sau nghiệm thu."); if(serialized&&queueState(r)?.position===0)queueTicket(r,true); queueRelease(r, actor, options); return changed(r, "release_queued", actor); });
     },
     releases: () => list().filter(r => !r.stopControl&&!r.archivedAt&&r.status === "completed" && !queueState(r)?.blocked && r.release && !["deployed", "failed"].includes(r.release.phase)).map(publicRequest),
-    claimRelease(id, owner) {
+    claimRelease(id, owner, protocol) {
       return transaction(db, () => {
         const r = get(id), release = r.release; assertTurn(r);
+        if(projects.get(r.projectId).railwayBinding&&protocol!=='railway-onboarding-v1')fail('Cần publisher hỗ trợ liên kết Railway mới.');
         if(r.acceptance?.mode==="automated-ci")deliveryAuthority(r);
         if(!projects.get(r.projectId).enabled||!projects.get(r.projectId).releaseEnabled)fail("Project đã tắt phát hành.");
         if (r.status !== "completed" || !release || ["deployed", "failed"].includes(release.phase) || release.requestHash !== releaseFingerprint(r)) fail("Không có quyền phát hành nội dung này.");

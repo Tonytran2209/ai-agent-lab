@@ -184,3 +184,6 @@ Admin → Cài đặt → Project & tự động → **Project đang thiết l�
 
 ### Primary design rules and supplemental guides
 `.agent-hub/design/design.md` is the primary project design contract. The optional `.agent-hub/design/CHATGPT-DESKTOP-UI-GUIDE.md` is pinned and searchable as a supplemental reference, never a replacement for that contract. Classification snippets, project-map facts and Codex context label the two roles explicitly. A reference refresh alone grants no code changes or authority; adopted shared design rules must be recorded in `design.md` through the authorized project request. Reader format v3 refreshes same-commit snapshots once; existing request packets remain immutable.
+### Liên kết Railway và hoàn tất vận hành
+
+Cài đặt → Project & tự động → **Liên kết deploy & hoàn tất**: lưu Project token Railway (mã hoá), service/environment URL và health URL; chọn chỉ xác minh, cho phép sửa, phát hành sau nghiệm thu hoặc tự hoàn tất theo quyền duyệt. Lab xác minh cấu hình qua API chỉ đọc, exact-head CI, Railway deployment và health trước khi áp dụng. Có thể chọn tự quan sát/áp dụng có giới hạn hoặc xác minh rồi áp dụng thủ công. Hai project đang dùng giữ nguyên quyền đến khi admin chủ động đổi. Mac publisher mới cần cập nhật khi rảnh để dùng liên kết mới. [Chi tiết, giới hạn và quản lý token](docs/deploy-onboarding.md).
