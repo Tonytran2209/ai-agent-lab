@@ -1,8 +1,9 @@
+import {useNoticedState} from './NoticeContext.jsx';
 import LearningSettings from './LearningSettings.jsx';
 import React,{useEffect,useState} from 'react';
 import {SettingsHeader,SettingsRow,SettingsSwitch} from './SettingsUI.jsx';
 export default function KnowledgeSettings({projects,api,onUpdate,busy}){
- const [id,setId]=useState(projects[0]?.id||''),[data,setData]=useState(null),[metrics,setMetrics]=useState(null),[working,setWorking]=useState(false),[message,setMessage]=useState(''),[reason,setReason]=useState('');
+ const [id,setId]=useState(projects[0]?.id||''),[data,setData]=useState(null),[metrics,setMetrics]=useState(null),[working,setWorking]=useState(false),[message,setMessage]=useNoticedState('','info'),[reason,setReason]=useState('');
  const p=projects.find(p=>p.id===id);
  async function load(){const [d,m]=await Promise.all([api('/projects/'+id+'/agent'),api('/projects/'+id+'/intelligence')]);setData(d);setMetrics(m);}
  useEffect(()=>{let live=true;setData(null);setMetrics(null);setReason('');if(id)Promise.all([api('/projects/'+id+'/agent'),api('/projects/'+id+'/intelligence')]).then(([d,m])=>{if(live){setData(d);setMetrics(m);}}).catch(e=>{if(live)setMessage(e.message);});return()=>{live=false;};},[id,p?.memoryEnabled,p?.classifierContextEnabled,p?.libraryVersionId]);

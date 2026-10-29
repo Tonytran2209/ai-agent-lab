@@ -1,7 +1,8 @@
+import {useNoticedState} from './NoticeContext.jsx';
 import React,{useEffect,useState} from 'react';
 import {SettingsRow,SettingsSwitch} from './SettingsUI.jsx';
 export default function LearningSettings({projectId:id,api}){
- const [data,setData]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[budget,setBudget]=useState(20000),[note,setNote]=useState('');
+ const [data,setData]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useNoticedState('','error'),[budget,setBudget]=useState(20000),[note,setNote]=useState('');
  const load=()=>api('/projects/'+id+'/learning').then(d=>{setData(d);setBudget(d.settings.dailyTokens);});
  useEffect(()=>{let live=true,first=true;setData(null);setError('');const refresh=()=>api('/projects/'+id+'/learning').then(d=>{if(live){setData(d);if(first){setBudget(d.settings.dailyTokens);first=false;}}}).catch(e=>{if(live)setError(e.message);});void refresh();const t=setInterval(refresh,10000);return()=>{live=false;clearInterval(t);};},[id]);
  async function act(fn){setBusy(true);setError('');try{await fn();await load();}catch(e){setError(e.message);}finally{setBusy(false);}}

@@ -1,3 +1,4 @@
+import {createNotificationCenter} from './notifications.js';
 import {createDeployOnboarding,deploymentInput,deploymentProtocol} from './deploy-onboarding.js';
 import {inspectProject,inspectProjectInput,connectProjectInput} from './project-connect.js';
 import {inspectAdapters,adapterProtocol} from './ci-adapters.js';
@@ -55,12 +56,14 @@ export function createApp(config, options = {}) {
   const cloud=createCloudDispatch(db,service,config,options.cloudOptions);
   const legacyPipeline=createPipeline(service,config,{analyze:options.analyze});
   if(options.simplifiedWorkflow??config.LAB_WORKFLOW_MODE!=='legacy')service.simplifyWorkflow();
-  const pipeline={enqueue:(id,actor)=>agent.enabled(service.get(id).projectId)?agent.enqueue(id,actor):legacyPipeline.enqueue(id,actor),start(){ciPreflight?.start();legacyPipeline.start();agent.start();learning.start();maintenance.start();dataManagement.start();cloud.start();},async stop(){await ciPreflight?.stop();await cloud.stop();await learning.stop();await agent.stop();await maintenance.stop();await dataManagement.stop();await legacyPipeline.stop();},async tick(){await agent.tick();await legacyPipeline.tick();}};
+  const pipeline={enqueue:(id,actor)=>agent.enabled(service.get(id).projectId)?agent.enqueue(id,actor):legacyPipeline.enqueue(id,actor),start(){notificationCenter.start();ciPreflight?.start();legacyPipeline.start();agent.start();learning.start();maintenance.start();dataManagement.start();cloud.start();},async stop(){notificationCenter.stop();await ciPreflight?.stop();await cloud.stop();await learning.stop();await agent.stop();await maintenance.stop();await dataManagement.stop();await legacyPipeline.stop();},async tick(){await agent.tick();await legacyPipeline.tick();}};
   const repairs=createCiRepair(db,service);
   const delivery=createDelivery(service,config,{repairs});
   const verifyBoundRecovery=async(...args)=>{const proof=await verifyRecoveredDeployment(...args);if(args[1].railwayBinding)await deploymentOnboarding.verifyPublished(args[1].id,proof.deployedCommit);return proof;};
   const recovery=createRecovery(service,config,{verify:verifyBoundRecovery,...options.recoveryOptions});
   const lark=createLark(db,service,config);
+  const runnerControl=createRunnerControl(db,service);
+  const notificationCenter=createNotificationCenter(db);
   const app = express();
   // Railway edge proxy adds one trusted hop; app is designed for one replica.
   app.set("trust proxy", 1);
@@ -92,6 +95,9 @@ export function createApp(config, options = {}) {
   app.post('/hooks/github',limiter(10), (req,res)=>{const supplied=req.headers['x-hub-signature-256'];if(!config.GITHUB_WEBHOOK_SECRET||typeof supplied!=='string'||!/^sha256=[a-f0-9]{64}$/.test(supplied))return res.sendStatus(401);const expected='sha256='+crypto.createHmac('sha256',config.GITHUB_WEBHOOK_SECRET).update(req.rawBody||Buffer.alloc(0)).digest('hex');if(!crypto.timingSafeEqual(Buffer.from(expected),Buffer.from(supplied)))return res.sendStatus(401);if(req.headers['x-github-event']==='push'){const p=service.projects().find(p=>p.enabled&&p.repository===req.body?.repository?.full_name&&req.body?.ref==='refs/heads/'+p.branch);if(p)maintenance.schedule(p.id);}res.status(202).json({queued:true});});
   app.use("/api", auth.require, limiter(180));
   app.post("/api/auth/logout", (req, res) => { auth.logout(res); res.json({ ok: true }); });
+  app.get('/api/notifications',(req,res)=>{const q=z.object({before:z.coerce.number().int().positive().safe().optional(),limit:z.coerce.number().int().min(1).max(100).default(50)}).strict().parse(req.query);res.json(notificationCenter.list(req.user,q));});
+  app.post('/api/notifications',limiter(60), (req,res)=>res.status(201).json(notificationCenter.record(req.user,req.body)));
+  app.post('/api/notifications/read',(req,res)=>{const b=z.object({through:z.number().int().nonnegative().safe()}).strict().parse(req.body);res.json(notificationCenter.markRead(req.user,b.through));});
   app.get("/api/config", (req, res) => res.json({ aiConfigured: agent.enabled()?agent.settings().keyConfigured:config.LAB_PLANNING_MODE!=="server"||Boolean(config.OPENAI_API_KEY), planningMode:agent.enabled()?"lab-agent":config.LAB_PLANNING_MODE==="server"?"server":"codex-local", model: agent.enabled()?agent.settings().model:config.LAB_PLANNING_MODE==="server"?(config.OPENAI_MODEL||"gpt-4.1-mini"):"Codex trên Mac",
     workflow:{mode:(options.simplifiedWorkflow??config.LAB_WORKFLOW_MODE!=='legacy')?'direct-v1':'legacy',serializedProjects:options.serializeProjects??true}, classifier:{enabled:agent.enabled(),configured:agent.settings().keyConfigured,model:agent.settings().model,strategy:agent.settings().strategy},
     aiUsage: req.user.role === "admin" ? {...service.aiLedger.summary(config),coordinatorUsage:service.projects().map(p=>({projectId:p.id,...agent.usage(p.id)}))} : undefined, policyVersion: "risk-v2", runner: service.runnerStatus(), mcpUrl: (config.APP_URL || "http://localhost:3000").replace(/\/$/, "") + "/mcp", project: service.project("writer-studio") }));
@@ -307,7 +313,6 @@ export function createApp(config, options = {}) {
       void recovery.tick().catch(()=>{});
     }
   });
-  const runnerControl=createRunnerControl(db,service);
   app.get('/api/settings/runner-control',auth.admin,(req,res)=>res.json({supervisor:runnerControl.status(),commands:runnerControl.list()}));
   app.post('/api/settings/runner-control',auth.admin,(req,res)=>{const b=z.object({action:z.enum(controlActions)}).strict().parse(req.body);res.json(runnerControl.queue(b.action,req.user.name));});
   app.post('/runner/control/heartbeat',auth.mcp,limiter(60),(req,res)=>{const b=z.object({workerId:z.string().uuid(),controlProtocol:z.literal('runner-control-v1'),version:z.string().max(80),bootAt:z.string().datetime(),childBootAt:z.string().datetime().nullable().optional(),state:z.enum(['starting','idle','busy','restarting','stalled','backoff']),childSeenAt:z.string().datetime().nullable(),codex:z.object({state:z.enum(['unknown','ready','login-required','unavailable']),checkedAt:z.string().datetime().nullable()}).strict()}).strict().parse(req.body);res.json(runnerControl.heartbeat(b));});
@@ -332,7 +337,7 @@ export function createApp(config, options = {}) {
       status >= 500 && e.status === undefined ? "Không xử lý được yêu cầu. Dữ liệu đã lưu vẫn được giữ." : e.message;
     res.status(status).json({ error,...(e instanceof ZodError&&req.path.startsWith('/runner/planning/')?{code:'PLAN_SCHEMA',details:e.issues.slice(0,12).map(i=>({path:i.path.join('.'),code:i.code,message:i.message.slice(0,300)}))}:{}),...(e.code==='SCOPE_POLICY'?{code:e.code,details:e.details}:{}) });
   });
-  return { app, db, service, deploymentOnboarding, onboarding, pipeline, delivery, lark, agent, knowledge, maintenance, dataManagement, cloud, repairs, recovery, learning };
+  return { app, db, service, notificationCenter, deploymentOnboarding, onboarding, pipeline, delivery, lark, agent, knowledge, maintenance, dataManagement, cloud, repairs, recovery, learning };
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const { app, db, pipeline, delivery, recovery, lark, deploymentOnboarding } = createApp(process.env);
