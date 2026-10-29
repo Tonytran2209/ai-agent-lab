@@ -1,3 +1,4 @@
+import {runCodexWithRecovery,codexFailureMessage} from './codex-recovery.js';
 import {sourceGuide,validateSourceEvidence} from './source-evidence.js';
 import {directSurveyPrompt} from './direct-survey.js';
 import {codexEvents} from './codex-events.js';
@@ -53,12 +54,12 @@ export async function surveyFeedback({job,config,api,run,signal,environment,imag
   if(job.mode!=='report-only'){
    failureReason="codex";
    const imageArgs=await feedbackImageArgs(claim.request,config,imageToken);
-   const invoke=async(input,timeout)=>{activity=codexEvents();return run(config.codexPath,['exec','--json',...imageArgs,...codexModelArgs(config,'planning',claim.ai),'--ignore-user-config','--sandbox','read-only','-C',worktree,'--output-schema',fileURLToPath(new URL(claim.request.workflowProtocol==='direct-v1'?'./direct-plan-schema.json':'./plan-schema.json',import.meta.url)),'--output-last-message',outputPath,'-'],{cwd:worktree,env:environment,input,signal:controller.signal,timeout,onStdout:d=>activity.push(d)});};
+   const invoke=async(input,timeout)=>{activity=codexEvents();return runCodexWithRecovery(run,config.codexPath,['exec','--json',...imageArgs,...codexModelArgs(config,'planning',claim.ai),'--ignore-user-config','--sandbox','read-only','-C',worktree,'--output-schema',fileURLToPath(new URL(claim.request.workflowProtocol==='direct-v1'?'./direct-plan-schema.json':'./plan-schema.json',import.meta.url)),'--output-last-message',outputPath,'-'],{cwd:worktree,env:environment,input,signal:controller.signal,timeout,onStdout:d=>activity.push(d)},{beforeRetry:async()=>{if(await git(['rev-parse','HEAD'],worktree)!==head||await git(['status','--porcelain','--untracked-files=all'],worktree))throw Error('Checkout khảo sát đã thay đổi; không tự thử lại.');}});};
    const guide=await sourceGuide(worktree,claim.library.sourcePaths,claim.request.feedback);
    claim.sourceGuide=guide;
    const started=Date.now();
    const result=await invoke(planningPrompt(claim),15*60000);
-   if(result.code||controller.signal.aborted)throw Object.assign(new Error('Codex khảo sát đã dừng.'),{diagnostics:result.diagnostics});
+   if(result.code||controller.signal.aborted)throw Object.assign(new Error(codexFailureMessage(result)),{diagnostics:result.diagnostics});
    const first=JSON.parse(await readFile(outputPath,'utf8'));
    const checkpoints=first.draft?.impact?.checkpoints||[];
    const technical=checkpoints.some(c=>c.kind==='investigation')||checkpoints.some(c=>c.kind==='external-evidence'&&!c.attempted?.length);

@@ -1,3 +1,4 @@
+import {ciStatusSnapshot} from './ci-status.js';
 import {DeploymentSetup} from './DeploymentSetup.jsx';
 import {OnboardingSettings} from './OnboardingSettings.jsx';
 import {recoverableArtifact} from '../server/recheck-policy.js';
@@ -290,7 +291,7 @@ function CheckpointReply({busy,onSend}){
 }
 
 function CiStatus({request:r}){
- const observed=r.ciObservation;if(!observed)return null;
+ const observed=ciStatusSnapshot(r);if(!observed)return null;
  const labels={in_progress:'Đang chạy',queued:'Đang xếp hàng',missing:'Chưa có job',completed:'Hoàn tất'};
- return <section className="ci-status" aria-label="Trạng thái GitHub CI"><small>GitHub · commit {observed.commit.slice(0,12)} · cập nhật {date(observed.observedAt)}</small>{observed.jobs.map(job=><div className="ci-status-row" key={job.name}><strong>{job.name}</strong><span>{job.status==='completed'?job.conclusion:labels[job.status]||job.status}</span>{job.attempt&&<small>Lượt CI: {job.attempt}</small>}{(job.failedStep||job.step)&&<small>Bước: {job.failedStep||job.step}</small>}{job.stage&&<small>{job.stage}</small>}{job.startedAt&&<small>Bắt đầu {date(job.startedAt)}</small>}{job.url&&<a href={job.url} target="_blank" rel="noreferrer">Xem job ↗</a>}</div>)}<p className="subtle">PR giữ bản sửa trước khi phát hành. CI đạt trên đúng commit thì hệ thống tự tiếp tục; lỗi kiểm tra được lưu trong Nhật ký.</p></section>;
+ return <section className="ci-status" aria-label="Trạng thái GitHub CI"><small>GitHub · commit {observed.commit?.slice(0,12)} · cập nhật {date(observed.observedAt)}{observed.historical&&' · snapshot trước khi kiểm tra dừng'}</small>{observed.jobs.map(job=><div className="ci-status-row" key={job.name}><strong>{job.name}</strong><span>{observed.historical&&job.status!=='completed'?'Snapshot cũ':job.status==='completed'?({success:'Đạt',failure:'Không đạt',cancelled:'Đã hủy',timed_out:'Hết thời gian',skipped:'Bỏ qua'}[job.conclusion]||job.conclusion):labels[job.status]||job.status}</span>{job.attempt&&<small>Lượt CI: {job.attempt}</small>}{(job.failedStep||job.step)&&<small>Bước: {job.failedStep||job.step}</small>}{!observed.historical&&job.stage&&<small>{job.stage}</small>}{job.startedAt&&<small>Bắt đầu {date(job.startedAt)}</small>}{job.url&&<a href={job.url} target="_blank" rel="noreferrer">Xem job ↗</a>}</div>)}<p className="subtle">PR giữ bản sửa trước khi phát hành. CI đạt trên đúng commit thì hệ thống tự tiếp tục; lỗi kiểm tra được lưu trong Nhật ký.</p></section>;
 }
