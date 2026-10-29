@@ -70,3 +70,38 @@ pre{overflow:auto;max-width:100%;background:var(--surface-soft);line-height:1.6}
 @media(max-width:600px){.topbar-actions .button:not(.primary)>span:not(.counter){display:none}.streamlined .topbar-actions .button{white-space:nowrap}.breadcrumb strong{white-space:nowrap}.topbar-actions .button.primary{padding-inline:10px}}
 .task-progress ol li small{font-size:12px;line-height:1.5}.task-progress-message p{font-size:14px}.task-logbook .criterion-detail>summary strong,.task-logbook .criterion-content p{font-size:14px}.task-logbook .criterion-status{font-size:12px}.task-logbook pre,.journal-command{font-size:13px}
 @media(max-width:600px){.task-progress ol{gap:6px}.task-progress ol li small{font-size:11px}.composer-image button{width:32px;height:32px}}
+
+/* Operational signals: dedicated foreground, fill, border and solid indicator. */
+:root{
+  --signal-success-text:#166534;--signal-success-fill:#dcfce7;--signal-success-border:#86c99a;--signal-success-dot:#16803c;
+  --signal-info-text:#1d4ed8;--signal-info-fill:#eff6ff;--signal-info-border:#93b4ed;
+  --signal-warning-text:#92400e;--signal-warning-fill:#fff3d4;--signal-warning-border:#d6a74a;
+  --signal-error-text:#b91c1c;--signal-error-fill:#fef2f2;--signal-error-border:#e6a0a0;
+}
+[data-theme=dark]{
+  --signal-success-text:#86efac;--signal-success-fill:#143622;--signal-success-border:#34754b;--signal-success-dot:#4ade80;
+  --signal-info-text:#93c5fd;--signal-info-fill:#152e4d;--signal-info-border:#355d8a;
+  --signal-warning-text:#fcd34d;--signal-warning-fill:#3c2d12;--signal-warning-border:#8b6926;
+  --signal-error-text:#fca5a5;--signal-error-fill:#421f25;--signal-error-border:#a8525d;
+}
+:where(.badge,.risk,.inbox-state,.connection-state){--signal-text:var(--secondary);--signal-fill:var(--surface-soft);--signal-border:var(--control-border)}
+:is(.status-approved,.status-completed,.risk-low,[data-tone=success],[data-tone=deployed]){--signal-text:var(--signal-success-text);--signal-fill:var(--signal-success-fill);--signal-border:var(--signal-success-border)}
+:is(.status-running,.status-claimed,.status-verifying,.status-rechecking,[data-tone=processing]){--signal-text:var(--signal-info-text);--signal-fill:var(--signal-info-fill);--signal-border:var(--signal-info-border)}
+:is(.status-needs-triage,.status-awaiting-approval,.status-review,.risk-medium,[data-tone=warning],[data-tone=waiting]){--signal-text:var(--signal-warning-text);--signal-fill:var(--signal-warning-fill);--signal-border:var(--signal-warning-border)}
+:is(.status-failed,.status-rejected,.risk-high,[data-tone=error]){--signal-text:var(--signal-error-text);--signal-fill:var(--signal-error-fill);--signal-border:var(--signal-error-border)}
+.badge,.risk,.focused-workspace .risk,.inbox-state,.settings-page .connection-state{
+  display:inline-flex;align-items:center;gap:6px;padding:4px 9px;border:1px solid var(--signal-border);border-radius:7px;
+  background:var(--signal-fill);color:var(--signal-text);font-size:12px;font-weight:600;line-height:1.5;
+}
+.inbox-state{max-width:100%;white-space:normal;text-align:left}.inbox-state>span{overflow-wrap:anywhere}
+.inbox-state.is-deployed,.inbox-state.is-deployed .inbox-state-icon,.inbox-state.is-waiting .inbox-state-icon{color:var(--signal-text)}
+.inbox-state-icon{width:14px;height:14px}.focused-workspace .compact-row .row-bottom{align-items:center;flex-wrap:wrap;gap:8px}.risk{flex-shrink:0;letter-spacing:.02em}
+.connection-dot{width:10px;height:10px;min-width:10px;flex-shrink:0;margin-top:5px;background:var(--signal-success-dot);box-shadow:0 0 0 3px var(--signal-success-fill)}
+.connection-dot.offline{background:var(--muted);box-shadow:none;border:2px solid var(--sidebar)}
+.pull-mode[data-connected=true] strong{color:var(--signal-success-text);font-weight:600}
+.settings-page .connection-state{font-size:12px;max-width:100%;text-align:left;white-space:normal}
+.connection-state:before{content:'';width:7px;height:7px;flex:0 0 7px;border-radius:50%;background:currentColor}
+.status-dot{width:8px;height:8px;background:var(--signal-success-dot)}.needs-action .status-dot{background:var(--signal-warning-text)}
+.task-progress li.current{color:var(--signal-info-text)}.task-progress li.current>span{background:var(--signal-info-fill);color:var(--signal-info-text);border-color:var(--signal-info-border);font-weight:600}
+.task-progress li.done{color:var(--signal-success-text)}.task-progress li.done>span{background:var(--signal-success-fill);color:var(--signal-success-text);border-color:var(--signal-success-border)}
+.task-progress.has-error .task-progress-message strong{color:var(--signal-error-text)}.task-progress.is-waiting .task-progress-message strong{color:var(--signal-warning-text)}
