@@ -1,12 +1,12 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';
 import {mkdtemp,mkdir,readFile,rm} from 'node:fs/promises';
 import {labMaintenance,completeReviewPages,checkoutPinned,reviewEvidence,eligibleFinding,repairPath,ciReady,reviewedHead,atomicJson,reviewBot,labRepository} from '../mac/lab-maintenance.js';
-const sha='a'.repeat(40),bot={login:reviewBot,type:'Bot'},finding={id:123,commit_id:sha,user:bot,body:'[P1] unsafe startup retry',pull_request_url:'https://api.github.com/repos/'+labRepository+'/pulls/104',created_at:'2026-10-29T00:00:00Z'};
+const sha='a'.repeat(40),bot={login:reviewBot,type:'Bot'},finding={id:123,commit_id:sha,user:bot,path:'src/App.jsx',body:'[P1] unsafe startup retry',pull_request_url:'https://api.github.com/repos/'+labRepository+'/pulls/104',created_at:'2026-10-29T00:00:00Z'};
 test('only authenticated fixed-repository bot findings are eligible, and protected update/auth/policy paths cannot self-modify',()=>{
  assert.equal(eligibleFinding(finding),true);
  for(const v of [{...finding,user:{login:reviewBot,type:'User'}},{...finding,user:{login:'other[bot]',type:'Bot'}},{...finding,commit_id:'bad'},{...finding,pull_request_url:'https://api.github.com/repos/attacker/repo/pulls/104'},{...finding,body:'P2 cosmetic'}])assert.equal(eligibleFinding(v),false);
- for(const p of ['mac/runner.js','mac/codex-recovery.js','tests/recovery.test.js','docs/runner.md','server/service.js'])assert.equal(repairPath(p),true,p);
- for(const p of ['mac/supervisor.js','mac/runtime-activation.js','mac/lab-maintenance.js','mac/install.js','mac/config.local.json','.github/workflows/check.yml','package.json','AGENTS.md','library/policies/automation.md','server/auth.js','src/../secret.js'])assert.equal(repairPath(p),false,p);
+ for(const p of ['mac/codex-events.js','tests/recovery.test.js','docs/runner.md','server/ci-infrastructure.js'])assert.equal(repairPath(p),true,p);
+ for(const p of ['mac/codex.js','mac/ci-template.js','mac/control-wake.js','mac/monitor.js','server/scope.js','server/risk-rubric.js','server/recheck-policy.js','server/service.js','server/schemas.js','server/release.js','mac/runner.js','mac/planning.js','mac/codex-recovery.js','mac/release.js','mac/supervisor.js','mac/runtime-activation.js','mac/lab-maintenance.js','mac/install.js','mac/config.local.json','.github/workflows/check.yml','package.json','AGENTS.md','library/policies/automation.md','server/auth.js','src/../secret.js'])assert.equal(repairPath(p),false,p);
 });
 test('required CI and clean review must be exact-head; unrelated success or unresolved findings never grant merge',()=>{
  const check={id:1,name:'check',head_sha:sha,app:{slug:'github-actions'},status:'completed',conclusion:'success'};
