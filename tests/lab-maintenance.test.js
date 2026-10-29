@@ -37,6 +37,7 @@ test('exact-head reviewed repair completes once and stale base never merges',asy
   const run=async(exe,args,options)=>{assert.equal(args[0],'api');const endpoint=args[3];let data;
    if(endpoint.includes('/pulls/comments?'))data=[];
    else if(endpoint.endsWith('/pulls/105/merge')){merges++;assert.equal(JSON.parse(options.input).sha,fixed);data={merged:true,sha:current};}
+   else if(endpoint.includes('/issues/105/comments?')||endpoint.includes('/pulls/105/comments?'))data=[];
    else if(endpoint.endsWith('/pulls/105/reviews?per_page=100'))data=[{user:bot,commit_id:fixed}];
    else if(endpoint.includes('/check-runs?'))data={total_count:1,check_runs:[{id:2,name:'check',head_sha:fixed,app:{slug:'github-actions'},status:'completed',conclusion:'success'}]};
    else if(endpoint.endsWith('/pulls/105'))data={number:105,state:'open',draft:false,head:{sha:fixed},base:{sha:base}};
@@ -55,7 +56,7 @@ test('runtime update never installs unreviewed main even with green CI',async()=
  if(endpoint.endsWith('/commits/main'))data={sha:commit};
  else if(endpoint.includes('/check-runs?'))data={total_count:1,check_runs:[{id:1,name:'check',head_sha:commit,app:{slug:'github-actions'},status:'completed',conclusion:'success'}]};
  else if(endpoint.endsWith('/commits/'+commit+'/pulls'))data=[{number:104,merged_at:'2026-10-29T00:00:00Z',merge_commit_sha:commit,base:{ref:'main'},head:{sha:commit,repo:{full_name:labRepository}}}];
- else if(endpoint.includes('/comments?'))data=[finding];else if(endpoint.includes('/reviews?'))data=[{user:bot,commit_id:commit}];else throw Error('unexpected');return {code:0,stdout:JSON.stringify(data)};};
+ else if(endpoint.includes('/issues/'))data=[];else if(endpoint.includes('/comments?'))data=[finding];else if(endpoint.includes('/reviews?'))data=[{user:bot,commit_id:commit}];else throw Error('unexpected');return {code:0,stdout:JSON.stringify(data)};};
  assert.equal(await labMaintenance({stateDir:root,labReviewAutomation:true,mcpUrl:'https://lab.example/mcp'},run,{},async()=>({ok:true,json:async()=>({ok:true,deployedCommit:commit})})).runtime(null),null);assert.equal(executableCalls,0);
  }finally{await rm(root,{recursive:true,force:true});}
 });
@@ -66,4 +67,13 @@ test('green main never updates Mac before Railway health confirms that exact com
  const run=async(exe,args)=>{assert.equal(args[0],'api');const endpoint=args[3];if(endpoint.endsWith('/commits/main'))return {code:0,stdout:JSON.stringify({sha:commit})};if(endpoint.includes('/check-runs?'))return {code:0,stdout:JSON.stringify({total_count:1,check_runs:[{id:1,name:'check',head_sha:commit,app:{slug:'github-actions'},status:'completed',conclusion:'success'}]})};writes++;throw Error('must not install');};
  for(const deployed of [null,'b'.repeat(40)]){const m=labMaintenance({stateDir:root,labReviewAutomation:true,mcpUrl:'https://lab.example/mcp'},run,{},async(url,options)=>{assert.equal(url.href,'https://lab.example/health');assert.equal(options.redirect,'error');return {ok:true,json:async()=>({ok:true,deployedCommit:deployed})};});assert.equal(await m.runtime(null),null);}assert.equal(writes,0);
  }finally{await rm(root,{recursive:true,force:true});}
+});
+
+test('only authenticated exact-commit completed clean bot summary counts, never a reaction or running/stale/malformed summary',()=>{
+ const state={code_review:{commit_sha:sha,status:'completed',has_any_findings:false,has_unresolved_findings:false}};
+ const summary=v=>({user:bot,body:'<!-- codex-review-state:v1 '+JSON.stringify(v)+' -->'});
+ assert.equal(reviewedHead([],[],sha,[summary(state)]),true);
+ for(const v of [{...state,code_review:{...state.code_review,status:'running'}},{...state,code_review:{...state.code_review,commit_sha:'b'.repeat(40)}},{...state,code_review:{...state.code_review,has_any_findings:true}},{...state,security_review:{commit_sha:sha,status:'running'}}])assert.equal(reviewedHead([],[],sha,[summary(v)]),false);
+ assert.equal(reviewedHead([],[],sha,[{...summary(state),user:{login:'attacker',type:'Bot'}}]),false);
+ assert.equal(reviewedHead([],[finding],sha,[summary(state)]),false);
 });
