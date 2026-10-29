@@ -1,8 +1,9 @@
+import {useNoticedState} from './NoticeContext.jsx';
 import React,{useEffect,useState} from 'react';
 const labels={queued:'Chờ Mac',surveying:'Đang khảo sát và chuẩn bị MD', 'awaiting-review':'Chờ review/merge PR MD',failed:'Cần xử lý',stopped:'Đã dừng',ready:'Đã nhập library'};
 export function OnboardingSettings({api,onConnected}){
- const [worker,setWorker]=useState(null),[inspection,setInspection]=useState(null),[message,setMessage]=useState('');
- const [jobs,setJobs]=useState([]),[repository,setRepository]=useState(''),[branch,setBranch]=useState(''),[projectId,setId]=useState(''),[name,setName]=useState(''),[consent,setConsent]=useState(false),[busy,setBusy]=useState(''),[error,setError]=useState('');
+ const [worker,setWorker]=useState(null),[inspection,setInspection]=useState(null),[message,setMessage]=useNoticedState('','info');
+ const [jobs,setJobs]=useState([]),[repository,setRepository]=useState(''),[branch,setBranch]=useState(''),[projectId,setId]=useState(''),[name,setName]=useState(''),[consent,setConsent]=useState(false),[busy,setBusy]=useState(''),[error,setError]=useNoticedState('','error');
  const load=async()=>{const v=await api('/onboarding');setJobs(v.jobs);setWorker(v.worker);};
  useEffect(()=>{let alive=true;const refresh=()=>api('/onboarding').then(v=>{if(alive){setJobs(v.jobs);setWorker(v.worker);}}).catch(()=>{});refresh();const timer=setInterval(refresh,10000);return()=>{alive=false;clearInterval(timer);};},[]);
  const act=async(key,fn)=>{setBusy(key);setError('');try{await fn();await load();}catch(e){setError(e.message);}finally{setBusy('');}};

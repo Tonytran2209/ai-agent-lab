@@ -1,3 +1,4 @@
+import {useNoticedState} from './NoticeContext.jsx';
 import {mainModelSavePayload} from './settings-state.js';
 import React,{useEffect,useState} from 'react';
 import {SettingsRow,SettingsSwitch} from './SettingsUI.jsx';
@@ -5,7 +6,7 @@ const payload=s=>Object.fromEntries(['mode','model','mainModel','dailyCalls','da
 const body=s=>JSON.stringify({...payload(s),strategy:'classify'});
 
 export function WorkerSettings({api,runner}){
- const [cloud,setCloud]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[control,setControl]=useState(null);
+ const [cloud,setCloud]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useNoticedState('','error'),[control,setControl]=useState(null);
  useEffect(()=>{let live=true;const load=()=>api('/settings/runner-control').then(v=>{if(live)setControl(v);}).catch(()=>{});load();const timer=setInterval(load,5000);return()=>{live=false;clearInterval(timer);};},[]);
  async function command(action){setBusy(true);setError('');try{await api('/settings/runner-control',{method:'POST',body:JSON.stringify({action})});setControl(await api('/settings/runner-control'));}catch(e){setError(e.message);}finally{setBusy(false);}}
  const supervisor=control?.supervisor,pending=control?.commands?.find(c=>['queued','running'].includes(c.phase)),latest=control?.commands?.[0];
@@ -26,7 +27,7 @@ export function WorkerSettings({api,runner}){
 }
 
 export default function LabAgent({projects,api}){
- const [settings,setSettings]=useState(null),[saved,setSaved]=useState(null),[candidate,setCandidate]=useState(''),[id,setId]=useState(projects[0]?.id||''),[data,setData]=useState(null),[busy,setBusy]=useState(false),[message,setMessage]=useState(''),[cloud,setCloud]=useState(null),[query,setQuery]=useState(''),[search,setSearch]=useState(null);
+ const [settings,setSettings]=useState(null),[saved,setSaved]=useState(null),[candidate,setCandidate]=useState(''),[id,setId]=useState(projects[0]?.id||''),[data,setData]=useState(null),[busy,setBusy]=useState(false),[message,setMessage]=useNoticedState('','info'),[cloud,setCloud]=useState(null),[query,setQuery]=useState(''),[search,setSearch]=useState(null);
  useEffect(()=>{let live=true;api('/settings/agent').then(v=>{if(live){setSettings(v);setSaved(v);setCandidate(v.model);}}).catch(e=>{if(live)setMessage(e.message);});api('/settings/cloud').then(v=>{if(live)setCloud(v);}).catch(()=>{});return()=>{live=false;};},[]);
  useEffect(()=>{let live=true;setData(null);setSearch(null);if(id)api('/projects/'+id+'/agent').then(v=>{if(live)setData(v);}).catch(e=>{if(live)setMessage(e.message);});return()=>{live=false;};},[id]);
  async function load(){if(id)setData(await api('/projects/'+id+'/agent'));}

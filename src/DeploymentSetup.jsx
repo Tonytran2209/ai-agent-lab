@@ -1,8 +1,9 @@
+import {useNoticedState} from './NoticeContext.jsx';
 import React,{useEffect,useState} from 'react';
 const modes={observe:'Chỉ liên kết và xác minh · giữ quyền hiện tại',requests:'Cho phép worker sửa request · chưa phát hành',publish:'Sửa request và phát hành sau nghiệm thu',auto:'Tự hoàn tất sau phê duyệt và các kiểm tra bắt buộc'};
 const phases={waiting:'Chờ đủ điều kiện',verified:'Đã xác minh · chờ áp dụng',active:'Đã hoàn tất',failed:'Cần xử lý',cancelled:'Đã dừng'};
 export function DeploymentSetup({project:p,api,onApplied}){
- const [state,setState]=useState(null),[url,setUrl]=useState(p.railwayBinding?.url||''),[health,setHealth]=useState(p.postDeployUrl||''),[mode,setMode]=useState('observe'),[auto,setAuto]=useState(false),[consent,setConsent]=useState(false),[token,setToken]=useState(''),[tokenConsent,setTokenConsent]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState('');
+ const [state,setState]=useState(null),[url,setUrl]=useState(p.railwayBinding?.url||''),[health,setHealth]=useState(p.postDeployUrl||''),[mode,setMode]=useState('observe'),[auto,setAuto]=useState(false),[consent,setConsent]=useState(false),[token,setToken]=useState(''),[tokenConsent,setTokenConsent]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useNoticedState('','error');
  const refresh=async()=>setState(await api('/projects/'+p.id+'/deploy/setup'));
  useEffect(()=>{let alive=true;const load=()=>api('/projects/'+p.id+'/deploy/setup').then(v=>{if(alive)setState(v);}).catch(()=>{});load();const timer=setInterval(load,15000);return()=>{alive=false;clearInterval(timer);};},[p.id]);
  useEffect(()=>{if(state?.job?.input){setUrl(state.job.input.railwayUrl);setHealth(state.job.input.healthUrl);setMode(state.job.input.mode);setAuto(state.job.input.autoActivate);setConsent(false);}},[state?.job?.id]);
