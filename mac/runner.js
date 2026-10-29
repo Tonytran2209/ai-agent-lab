@@ -191,7 +191,7 @@ export async function executeRequest({ packet, call, config, signal, run = comma
     const env = await executionEnvironment(process.env,r.id);
     await prepareDependencies(worktree, run, { env, signal: controller.signal });
     const imageArgs=await feedbackImageArgs(claimed.request,config,imageToken);
-    const executed = await runCodexWithRecovery(run,config.codexPath, ["exec", ...imageArgs, ...codexModelArgs(config,"execution",packet.ai), "--ignore-user-config", "--sandbox", "workspace-write", "-C", worktree, "--output-schema", schemaPath, "--output-last-message", outputPath, "-"],
+    const executed = await runCodexWithRecovery(run,config.codexPath, ["exec", "--json", ...imageArgs, ...codexModelArgs(config,"execution",packet.ai), "--ignore-user-config", "--sandbox", "workspace-write", "-C", worktree, "--output-schema", schemaPath, "--output-last-message", outputPath, "-"],
       { cwd: worktree, env, input: prompt, signal: controller.signal },{beforeRetry:async()=>{if(await git(worktree,["rev-parse","HEAD"])!==r.baseCommit||(await changedFiles(worktree,r.baseCommit)).length)throw Error("Không tự thử lại Codex khi checkout đã thay đổi; giữ dữ liệu để phục hồi.");},onRetry:()=>call("report_progress",{requestId:r.id,claimToken:token,note:"Codex lỗi khởi tạo kết nối. Đăng nhập còn hiệu lực; đang tự tạo lại phiên CLI một lần, giữ nguyên request và quyền đã duyệt."})});
     // Do not persist child stdout/stderr: it can contain private source or inherited credentials.
     if (executed.code) throw new Error(codexFailureMessage(executed));
@@ -271,9 +271,9 @@ export async function main(configPath) {
   const stop = () => controller.abort();
   process.once("SIGTERM", stop); process.once("SIGINT", stop);process.once("disconnect",stop);
   const log = text => console.log(new Date().toISOString(), text);
-  let safeIdle=false,wake;
+  let safeIdle=false,wake,maintenanceDrain=false;
   const ipc=message=>{try{process.send?.(message);}catch{}};
-  const onControl=message=>{if(message?.type==='reconnect')wake?.();};process.on('message',onControl);
+  const onControl=message=>{if(message?.type==='reconnect')wake?.();if(message?.type==='drain-maintenance'){maintenanceDrain=true;wake?.();}};process.on('message',onControl);
   let lastTelemetry={deploymentProtocol:'railway-onboarding-v1',publisherEnabled:config.releaseEnabled===true,phase:"polling",requestId:null,contractProtocol:"md-trace-v1",governanceProtocol:"impact-v1",attachmentProtocol:"feedback-images-v1"};
   const reportStatus = async value => {
     lastTelemetry={...lastTelemetry,...value};
@@ -300,6 +300,7 @@ export async function main(configPath) {
   try {
     log("Mac runner started; local-planning-v1; polling approved requests.");
     while (!controller.signal.aborted) {
+      if(maintenanceDrain)break;
       safeIdle=false;ipc({type:'runner-state',safeIdle,at:new Date().toISOString()});
       let connection;
       try {
@@ -340,7 +341,7 @@ export async function main(configPath) {
   } finally {
     process.removeListener('message',onControl);
     clearInterval(presence);
-    controller.abort();await Promise.all([monitor.stop(),onboardingMonitor.stop()]);
+    await Promise.all([monitor.stop(),onboardingMonitor.stop()]);controller.abort();
     await rm(lock, { recursive: true });
     process.removeListener("SIGTERM", stop); process.removeListener("SIGINT", stop);process.removeListener("disconnect",stop);
   }
