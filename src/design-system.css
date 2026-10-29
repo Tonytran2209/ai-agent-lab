@@ -105,3 +105,51 @@ pre{overflow:auto;max-width:100%;background:var(--surface-soft);line-height:1.6}
 .task-progress li.current{color:var(--signal-info-text)}.task-progress li.current>span{background:var(--signal-info-fill);color:var(--signal-info-text);border-color:var(--signal-info-border);font-weight:600}
 .task-progress li.done{color:var(--signal-success-text)}.task-progress li.done>span{background:var(--signal-success-fill);color:var(--signal-success-text);border-color:var(--signal-success-border)}
 .task-progress.has-error .task-progress-message strong{color:var(--signal-error-text)}.task-progress.is-waiting .task-progress-message strong{color:var(--signal-warning-text)}
+
+/* The rail shows real workflow stages, never a time-based completion estimate. */
+.task-progress.progress-card{padding:0;margin:24px 0 0;display:grid;gap:12px;min-width:0}
+.progress-card .progress-overview{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:20px}
+.progress-header{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:22px}
+.progress-eyebrow{display:block;color:var(--muted);font-size:12px;margin-bottom:6px}
+.progress-header strong{display:flex;align-items:center;gap:8px;font-size:16px;line-height:1.5;font-weight:600;color:var(--text)}
+.progress-header strong>svg{flex-shrink:0;color:var(--signal-text)}
+.progress-stage{flex-shrink:0;font-size:12px;line-height:1.5;padding:3px 9px;border-radius:6px;color:var(--signal-text);background:var(--signal-fill);border:1px solid var(--signal-border)}
+.progress-card{--signal-text:var(--secondary);--signal-fill:var(--surface-soft);--signal-border:var(--border)}
+.progress-card[data-tone=success]{--signal-text:var(--signal-success-text);--signal-fill:var(--signal-success-fill);--signal-border:var(--signal-success-border)}
+.progress-card[data-tone=processing]{--signal-text:var(--signal-info-text);--signal-fill:var(--signal-info-fill);--signal-border:var(--signal-info-border)}
+.progress-card[data-tone=warning]{--signal-text:var(--signal-warning-text);--signal-fill:var(--signal-warning-fill);--signal-border:var(--signal-warning-border)}
+.progress-card[data-tone=error]{--signal-text:var(--signal-error-text);--signal-fill:var(--signal-error-fill);--signal-border:var(--signal-error-border)}
+.progress-card ol{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;margin:0;padding:0;list-style:none}
+.progress-card li{display:block;min-width:0;color:var(--muted)}
+.progress-card li:not(:last-child):after{content:none}
+.progress-segment{height:6px;background:var(--border);border-radius:99px;overflow:hidden;position:relative;margin-bottom:12px}
+.progress-segment>span{display:block;height:100%;width:100%;background:transparent;border-radius:inherit;transition:background 180ms}
+.progress-card li.done .progress-segment>span{background:var(--signal-success-dot)}
+.progress-card li.current .progress-segment>span{background:var(--signal-text)}
+.progress-card.is-active li.current .progress-segment:after{content:'';position:absolute;inset:0;transform:translateX(-100%);background:linear-gradient(90deg,transparent,rgb(255 255 255 / 55%),transparent);animation:progress-flow 1.8s ease-in-out infinite}
+.progress-step-label{display:flex;align-items:flex-start;gap:6px;min-width:0}
+.progress-step-icon{display:inline-flex;align-items:center;justify-content:center;flex:0 0 18px;min-height:18px;font-size:11px;line-height:18px;border-radius:50%;color:var(--muted);background:var(--surface-soft)}
+.progress-card li.done .progress-step-icon{color:var(--signal-success-text);background:var(--signal-success-fill)}
+.progress-card li.current .progress-step-icon{color:var(--signal-text);background:var(--signal-fill)}
+.progress-card li small{font-size:12px;line-height:18px;white-space:normal;overflow-wrap:anywhere}
+.progress-card li.current small{color:var(--signal-text);font-weight:600}.progress-card li.done small{color:var(--signal-success-text)}
+.progress-card .progress-activity{display:flex;align-items:flex-start;gap:12px;padding:16px 18px;background:var(--surface-soft);border:1px solid var(--border);border-radius:10px;min-width:0}
+.progress-activity>svg{color:var(--signal-text);flex:0 0 17px;margin-top:2px}.progress-activity>div{min-width:0}
+.progress-activity-label{display:block;font-size:12px;font-weight:600;color:var(--text);margin-bottom:4px}
+.progress-card .task-progress-message p{font-size:14px;line-height:1.65;margin:0;color:var(--secondary);white-space:pre-wrap;overflow-wrap:anywhere}
+.focused-workspace .quick-actions.task-action-toolbar{display:grid;gap:12px;margin-top:16px}
+.task-primary-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.task-primary-actions:empty{display:none}.task-primary-actions>div{flex-basis:100%;max-width:560px}
+.task-action-toolbar .button{min-height:34px;padding:7px 11px;font-size:13px!important;line-height:1.5}
+.task-action-toolbar .request-controls{display:grid;gap:12px;min-width:0;flex-basis:auto}
+.task-primary-actions:not(:empty)+.request-controls{padding-top:12px;border-top:1px solid var(--border)}
+.request-control-buttons{display:flex;justify-content:flex-end;align-items:center;gap:8px;flex-wrap:wrap}.request-control-buttons:empty{display:none}
+.task-action-toolbar .task-secondary-action{background:transparent;border-color:var(--border);color:var(--secondary)}
+.task-action-toolbar .task-secondary-action:hover:not(:disabled){background:var(--surface-hover);color:var(--text)}
+.task-action-toolbar .request-control-note{display:flex;align-items:flex-start;gap:8px;margin:0;padding:10px 12px;background:var(--surface-soft);border-radius:8px;color:var(--muted);font-size:12px;line-height:1.65}
+.request-control-note>svg{flex-shrink:0;margin-top:2px}.request-control-note>span{min-width:0}
+.task-action-toolbar .request-stop-form{max-width:none;width:100%;padding:16px;background:var(--card);border-color:var(--border)}
+.request-pending-stop{padding:16px;border:1px solid var(--signal-warning-border);border-radius:10px;display:grid;gap:10px}.request-pending-stop .button{justify-self:start}
+@keyframes progress-flow{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}
+@media(max-width:600px){.progress-card .progress-overview{padding:16px}.progress-header{gap:10px;flex-wrap:wrap;margin-bottom:18px}.progress-header strong{font-size:15px}.progress-stage{font-size:12px}.progress-card ol{gap:6px}.progress-step-label{display:grid;justify-items:start;gap:6px}.progress-card li small{font-size:12px;line-height:1.5}.progress-card .progress-activity{padding:14px}.task-primary-actions .button{flex:1 1 auto}.task-action-toolbar .button{min-height:44px}.request-control-buttons{justify-content:flex-start}.task-action-toolbar .request-control-note{font-size:12px}}
+@media(prefers-reduced-motion:reduce){.progress-card.is-active li.current .progress-segment:after{animation:none;background:none;content:none}.progress-card .spin{animation:none}}
