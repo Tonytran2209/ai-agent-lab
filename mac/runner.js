@@ -1,3 +1,4 @@
+import {runCodexWithRecovery,codexFailureMessage} from './codex-recovery.js';
 import {pollOnboarding} from './onboarding.js';
 import os from 'node:os';
 import {codexFailureCategory} from './codex-events.js';
@@ -190,10 +191,10 @@ export async function executeRequest({ packet, call, config, signal, run = comma
     const env = await executionEnvironment(process.env,r.id);
     await prepareDependencies(worktree, run, { env, signal: controller.signal });
     const imageArgs=await feedbackImageArgs(claimed.request,config,imageToken);
-    const executed = await run(config.codexPath, ["exec", ...imageArgs, ...codexModelArgs(config,"execution",packet.ai), "--ignore-user-config", "--sandbox", "workspace-write", "-C", worktree, "--output-schema", schemaPath, "--output-last-message", outputPath, "-"],
-      { cwd: worktree, env, input: prompt, signal: controller.signal });
+    const executed = await runCodexWithRecovery(run,config.codexPath, ["exec", ...imageArgs, ...codexModelArgs(config,"execution",packet.ai), "--ignore-user-config", "--sandbox", "workspace-write", "-C", worktree, "--output-schema", schemaPath, "--output-last-message", outputPath, "-"],
+      { cwd: worktree, env, input: prompt, signal: controller.signal },{beforeRetry:async()=>{if(await git(worktree,["rev-parse","HEAD"])!==r.baseCommit||(await changedFiles(worktree,r.baseCommit)).length)throw Error("Không tự thử lại Codex khi checkout đã thay đổi; giữ dữ liệu để phục hồi.");},onRetry:()=>call("report_progress",{requestId:r.id,claimToken:token,note:"Codex lỗi khởi tạo kết nối. Đăng nhập còn hiệu lực; đang tự tạo lại phiên CLI một lần, giữ nguyên request và quyền đã duyệt."})});
     // Do not persist child stdout/stderr: it can contain private source or inherited credentials.
-    if (executed.code) throw new Error("Codex thoát với mã " + executed.code + ". Kiểm tra đăng nhập/quyền sandbox.");
+    if (executed.code) throw new Error(codexFailureMessage(executed));
     if (controller.signal.aborted) throw new Error("Mất heartbeat hoặc runner đang dừng.");
     const result = JSON.parse(await readFile(outputPath, "utf8"));
     if(r.contractProtocol&&result.documentationReview?.updatesNeeded&&result.documentationReview.documents.some(p=>!r.draft.allowedPaths.includes(p)))throw new ScopeError("Diff cần cập nhật MD ngoài scope đã duyệt; cần lập lại kế hoạch với tài liệu liên quan.");
