@@ -20,8 +20,10 @@ export function codexFailureMessage(result) {
  return 'Codex thoát với mã '+result.code+'. '+(hints[category]||'Chưa xác định được lỗi Codex; đã giữ dữ liệu. Không mặc định đây là lỗi đăng nhập.');
 }
 export async function runCodexWithRecovery(run,executable,args,options,{beforeRetry=async()=>{},onRetry=async()=>{},wait=delay}={}) {
- const first=await run(executable,args,options);
- if(!startupFailure(first)||options.signal?.aborted)return first;
+ let activity=false,buffer='';
+ const tracked={...options,onStdout:chunk=>{options.onStdout?.(chunk);buffer+=String(chunk);let end;while((end=buffer.indexOf('\n'))>=0){const line=buffer.slice(0,end);buffer=buffer.slice(end+1);try{if(!['thread.started','error','turn.failed'].includes(JSON.parse(line).type))activity=true;}catch{if(line.trim())activity=true;}}if(buffer.length>100000){activity=true;buffer='';}}};
+ const first=await run(executable,args,tracked);
+ if(!args.includes('--json')||activity||buffer.trim()||!startupFailure(first)||options.signal?.aborted)return first;
  // Check authentication without changing credentials or invoking a model.
  const auth=await run(executable,['login','status'],{cwd:options.cwd,env:options.env,signal:options.signal,timeout:15000});
  if(auth.code!==0)return first;
