@@ -1,6 +1,6 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';
 import {mkdtemp,mkdir,readFile,rm} from 'node:fs/promises';
-import {labMaintenance,eligibleFinding,repairPath,ciReady,reviewedHead,atomicJson,reviewBot,labRepository} from '../mac/lab-maintenance.js';
+import {labMaintenance,checkoutPinned,reviewEvidence,eligibleFinding,repairPath,ciReady,reviewedHead,atomicJson,reviewBot,labRepository} from '../mac/lab-maintenance.js';
 const sha='a'.repeat(40),bot={login:reviewBot,type:'Bot'},finding={id:123,commit_id:sha,user:bot,body:'[P1] unsafe startup retry',pull_request_url:'https://api.github.com/repos/'+labRepository+'/pulls/104',created_at:'2026-10-29T00:00:00Z'};
 test('only authenticated fixed-repository bot findings are eligible, and protected update/auth/policy paths cannot self-modify',()=>{
  assert.equal(eligibleFinding(finding),true);
@@ -13,7 +13,7 @@ test('required CI and clean review must be exact-head; unrelated success or unre
  assert.equal(ciReady({total_count:1,check_runs:[check]},sha),true);
  for(const change of [{head_sha:'b'.repeat(40)},{status:'in_progress'},{conclusion:'skipped'},{app:{slug:'other'}}])assert.equal(ciReady({total_count:1,check_runs:[{...check,...change}]},sha),false);
  assert.equal(ciReady({total_count:101,check_runs:[check]},sha),false);
- const review={user:bot,commit_id:sha};assert.equal(reviewedHead([review],[],sha),true);assert.equal(reviewedHead([review],[finding],sha),false);assert.equal(reviewedHead([{...review,commit_id:'b'.repeat(40)}],[],sha),false);
+ const review={user:bot,commit_id:sha,state:'APPROVED'};assert.equal(reviewedHead([review],[],sha),true);assert.equal(reviewedHead([review],[finding],sha),false);assert.equal(reviewedHead([{...review,commit_id:'b'.repeat(40)}],[],sha),false);
 });
 test('maintenance is opt-in and persists rejected/interrupted work without an automatic paid replay',async()=>{
  const root=await mkdtemp('/tmp/lab-maintenance-test-');try{
@@ -38,7 +38,7 @@ test('exact-head reviewed repair completes once and stale base never merges',asy
    if(endpoint.includes('/pulls/comments?'))data=[];
    else if(endpoint.endsWith('/pulls/105/merge')){merges++;assert.equal(JSON.parse(options.input).sha,fixed);data={merged:true,sha:current};}
    else if(endpoint.includes('/issues/105/comments?')||endpoint.includes('/pulls/105/comments?'))data=[];
-   else if(endpoint.endsWith('/pulls/105/reviews?per_page=100'))data=[{user:bot,commit_id:fixed}];
+   else if(endpoint.endsWith('/pulls/105/reviews?per_page=100'))data=[{user:bot,commit_id:fixed,state:'APPROVED'}];
    else if(endpoint.includes('/check-runs?'))data={total_count:1,check_runs:[{id:2,name:'check',head_sha:fixed,app:{slug:'github-actions'},status:'completed',conclusion:'success'}]};
    else if(endpoint.endsWith('/pulls/105'))data={number:105,state:'open',draft:false,head:{sha:fixed},base:{sha:base}};
    else throw Error('Unexpected endpoint '+endpoint);
@@ -76,4 +76,21 @@ test('only authenticated exact-commit completed clean bot summary counts, never 
  for(const v of [{...state,code_review:{...state.code_review,status:'running'}},{...state,code_review:{...state.code_review,commit_sha:'b'.repeat(40)}},{...state,code_review:{...state.code_review,has_any_findings:true}},{...state,security_review:{commit_sha:sha,status:'running'}}])assert.equal(reviewedHead([],[],sha,[summary(v)]),false);
  assert.equal(reviewedHead([],[],sha,[{...summary(state),user:{login:'attacker',type:'Bot'}}]),false);
  assert.equal(reviewedHead([],[finding],sha,[summary(state)]),false);
+});
+
+test('negative top-level or security summary cannot be overridden by an otherwise valid review',()=>{
+ const summary={user:bot,body:'<!-- codex-review-state:v1 '+JSON.stringify({code_review:{commit_sha:sha,status:'completed',has_any_findings:false,has_unresolved_findings:false},security_review:{commit_sha:sha,status:'completed',has_any_findings:true,has_unresolved_findings:true}})+' -->'};
+ const approved={user:bot,commit_id:sha,state:'APPROVED'};assert.equal(reviewEvidence([approved],[],sha,[summary]).blocked,true);assert.equal(reviewedHead([approved],[],sha,[summary]),false);
+ for(const r of [{...approved,state:'CHANGES_REQUESTED',body:'P1 unsafe retry'},{...approved,state:'COMMENTED',body:'P1 unsafe retry'}])assert.equal(reviewedHead([r],[],sha),false);
+ assert.equal(reviewedHead([{...approved,state:'COMMENTED'}],[],sha),false);
+});
+
+test('fresh no-checkout Git clones initialize once; existing dirty worktrees are never reset',async()=>{
+ const {execFileSync}=await import('node:child_process'),{writeFile}=await import('node:fs/promises');const root=await mkdtemp('/tmp/lab-fresh-checkout-');
+ const git=(dir,args)=>execFileSync('git',['-c','core.hooksPath=/dev/null','-C',dir,...args],{encoding:'utf8',stdio:['ignore','pipe','pipe']}).trim();
+ try{const origin=root+'/origin',clone=root+'/clone';await mkdir(origin);git(origin,['init']);await writeFile(origin+'/tracked.txt','original');git(origin,['add','tracked.txt']);git(origin,['-c','user.name=Test','-c','user.email=test@example.com','commit','-m','initial']);const head=git(origin,['rev-parse','HEAD']);
+ execFileSync('git',['clone','--no-checkout',origin,clone],{stdio:'pipe'});assert.match(git(clone,['status','--porcelain']),/D\s+tracked/);
+ await checkoutPinned(async args=>git(clone,args),head,true);assert.equal(git(clone,['status','--porcelain']),'');assert.equal(await readFile(clone+'/tracked.txt','utf8'),'original');
+ await writeFile(clone+'/tracked.txt','preserved edits');await assert.rejects(()=>checkoutPinned(async args=>git(clone,args),head,false),/Dirty maintenance/);assert.equal(await readFile(clone+'/tracked.txt','utf8'),'preserved edits');
+ }finally{await rm(root,{recursive:true,force:true});}
 });

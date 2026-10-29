@@ -1,3 +1,4 @@
+import {activationMatches} from './runtime-activation.js';
 import {labMaintenance,atomicJson} from './lab-maintenance.js';
 import {controlWake} from './control-wake.js';
 import {fork} from 'node:child_process';
@@ -31,11 +32,12 @@ export async function supervise(configPath){
  const rejectedFile=path.join(config.stateDir,'lab-runtime-rejected.json');let rejected=[];try{rejected=JSON.parse(await readFile(rejectedFile,'utf8'));}catch{}if(!Array.isArray(rejected))rejected=[];
  const start=()=>{
   connected=false;childBootAt=new Date().toISOString();state={safeIdle:false};seen=Date.now();
-  child=fork(runtime.entry,[configPath],{env:process.env,stdio:['ignore','inherit','inherit','ipc']});const owned=child;
-  owned.on('message',m=>{if(m?.type==='runner-state'){const wasIdle=state.safeIdle;state={safeIdle:m.safeIdle===true};seen=Date.now();if(state.safeIdle&&!wasIdle)idleWake?.wake();}if(m?.type==='connected'){connected=true;if(candidate&&runtime.commit===candidate.commit){void atomicJson(runtimeFile,{current:runtime,previous:previousRuntime,at:new Date().toISOString()});candidate=null;previousRuntime=null;}if(pending?.sent&&['restart','reconnect'].includes(pending.action))void finish(pending,'completed',pending.action==='restart'?'Runner mới đã kết nối Lab.':'Đã tạo lại kết nối Lab.').catch(()=>{});}});
+  const launchedRuntime={...runtime};
+  child=fork(launchedRuntime.entry,[configPath],{env:process.env,stdio:['ignore','inherit','inherit','ipc']});const owned=child;
+  owned.on('message',m=>{if(m?.type==='runner-state'){const wasIdle=state.safeIdle;state={safeIdle:m.safeIdle===true};seen=Date.now();if(state.safeIdle&&!wasIdle)idleWake?.wake();}if(m?.type==='connected'){connected=true;if(activationMatches(launchedRuntime,candidate,owned===child)){void atomicJson(runtimeFile,{current:runtime,previous:previousRuntime,at:new Date().toISOString()});candidate=null;previousRuntime=null;}if(pending?.sent&&['restart','reconnect'].includes(pending.action))void finish(pending,'completed',pending.action==='restart'?'Runner mới đã kết nối Lab.':'Đã tạo lại kết nối Lab.').catch(()=>{});}});
   let exited=false;
   const onExit=async()=>{if(exited)return;exited=true;
-   const failedCandidate=candidate&&!connected;child=null;connected=false;
+   const failedCandidate=activationMatches(launchedRuntime,candidate,owned===child)&&!connected;child=null;connected=false;
    if(failedCandidate){
     // Restore only after a confirmed exit with no surviving claim/worktree lock.
     let locked=true;try{await readFile(path.join(config.stateDir,'runner.lock','pid'),'utf8');}catch(e){if(e.code==='ENOENT')locked=false;}

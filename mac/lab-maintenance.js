@@ -10,17 +10,22 @@ export function eligibleFinding(c){return c.user?.login===reviewBot&&c.user?.typ
 export function stateDailyLimit(state,at=new Date().toISOString()){return state.jobs.flatMap(j=>j.codingHistory||[]).filter(t=>t.slice(0,10)===at.slice(0,10)).length>=4;}
 export function repairPath(file){return /^(?:mac|server|src|tests|docs|library)\/[A-Za-z0-9_./-]+\.(?:js|jsx|json|md|css)$/.test(file)&&!file.split('/').includes('..')&&!/(?:^|\/)(?:policies|auth)(?:\/|\.)/.test(file)&&!/(?:^|\/)(?:AGENTS\.md|config\.local\.json|install\.js|supervisor\.js|lab-maintenance\.js)$/.test(file);}
 export function ciReady(checks,commit){const rows=latestChecks(checks.check_runs||[]).filter(r=>r.head_sha===commit);return checks.total_count<=100&&rows.some(r=>r.name==='check'&&r.app?.slug==='github-actions'&&r.status==='completed'&&r.conclusion==='success')&&rows.every(r=>r.status==='completed'&&['success','neutral','skipped'].includes(r.conclusion));}
-export function reviewedHead(reviews,comments,commit,summaries=[]){
- if(comments.some(c=>eligibleFinding(c)&&c.commit_id===commit))return false;
- if(reviews.some(r=>r.user?.login===reviewBot&&r.user?.type==='Bot'&&r.commit_id===commit))return true;
- // The authenticated bot publishes a structured, commit-bound completion summary.
- // A reaction is insufficient: it has no commit identity.
- return summaries.some(c=>{if(c.user?.login!==reviewBot||c.user?.type!=='Bot'||typeof c.body!=='string'||c.body.length>20000)return false;
-  const match=/<!-- codex-review-state:v1 (.{1,5000}?) -->/.exec(c.body);if(!match)return false;
-  try{const state=JSON.parse(match[1]),review=state.code_review,security=state.security_review;
-   return review?.commit_sha===commit&&review.status==='completed'&&review.has_any_findings===false&&review.has_unresolved_findings===false&&(!security?.commit_sha||security.commit_sha!==commit||security.status==='completed'&&security.has_any_findings===false&&security.has_unresolved_findings===false);
-  }catch{return false;}
- });
+export function reviewEvidence(reviews,comments,commit,summaries=[]){
+ const exact=reviews.filter(r=>r.user?.login===reviewBot&&r.user?.type==='Bot'&&r.commit_id===commit);
+ let blocked=comments.some(c=>eligibleFinding(c)&&c.commit_id===commit)||exact.some(r=>r.state==='CHANGES_REQUESTED'||priority(r.body)),pending=false,clean=false;
+ for(const c of summaries){
+  if(c.user?.login!==reviewBot||c.user?.type!=='Bot'||typeof c.body!=='string'||c.body.length>20000)continue;
+  const match=/<!-- codex-review-state:v1 (.{1,5000}?) -->/.exec(c.body);if(!match){if(c.body.includes('codex-review-state:v1'))pending=true;continue;}
+  try{const state=JSON.parse(match[1]);for(const key of ['code_review','security_review']){const item=state[key];if(item?.commit_sha!==commit)continue;if(item.has_any_findings===true||item.has_unresolved_findings===true)blocked=true;if(item.status!=='completed'||typeof item.has_any_findings!=='boolean'||typeof item.has_unresolved_findings!=='boolean')pending=true;if(key==='code_review'&&item.status==='completed'&&item.has_any_findings===false&&item.has_unresolved_findings===false)clean=true;}}catch{pending=true;}
+ }
+ return {blocked,pending,clean:!blocked&&!pending&&(clean||exact.some(r=>r.state==='APPROVED'))};
+}
+export const reviewedHead=(reviews,comments,commit,summaries=[])=>reviewEvidence(reviews,comments,commit,summaries).clean;
+export async function checkoutPinned(git,commit,fresh=false){
+ // --no-checkout clones report every tracked file deleted until their first checkout.
+ if(fresh)await git(['checkout','--detach',commit]);
+ if(await git(['status','--porcelain','--untracked-files=all']))throw Error('Dirty maintenance checkout preserved');
+ if(!fresh)await git(['checkout','--detach',commit]);
 }
 
 async function load(file,fallback){try{return JSON.parse(await readFile(file,'utf8'));}catch(e){if(e.code==='ENOENT')return fallback;throw e;}}
@@ -33,11 +38,11 @@ export function labMaintenance(config,run,environment,fetcher=fetch){
  const command=async(exe,args,options={})=>{const out=await run(exe,args,{env:environment,timeout:120000,...options});if(out.code)throw Error('Maintenance command failed: '+exe);return out.stdout.trim();};
  const git=(cwd,args)=>command('git',['-c','core.hooksPath=/dev/null','-C',cwd,...args]);
  const clone=async(dir,commit)=>{
-  try{if((await lstat(dir)).isSymbolicLink())throw Error('Symlink runtime');}catch(e){if(e.code!=='ENOENT')throw e;await command('git',['-c','credential.helper=','-c','credential.helper=!'+gh+' auth git-credential','clone','--no-checkout','--','https://github.com/'+labRepository+'.git',dir]);}
+  let fresh=false;
+  try{if((await lstat(dir)).isSymbolicLink())throw Error('Symlink runtime');}catch(e){if(e.code!=='ENOENT')throw e;await command('git',['-c','credential.helper=','-c','credential.helper=!'+gh+' auth git-credential','clone','--no-checkout','--','https://github.com/'+labRepository+'.git',dir]);fresh=true;}
   if(await git(dir,['remote','get-url','origin'])!=='https://github.com/'+labRepository+'.git')throw Error('Wrong maintenance remote');
   await git(dir,['fetch','--no-tags','origin',commit]);
-  if(await git(dir,['status','--porcelain','--untracked-files=all']))throw Error('Dirty maintenance checkout preserved');
-  await git(dir,['checkout','--detach',commit]);
+  await checkoutPinned(args=>git(dir,args),commit,fresh);
   if((await git(dir,['ls-files','--stage'])).split('\n').some(l=>l.startsWith('120000 ')))throw Error('Symlink in runtime');
  };
  const comments=()=>api(prefix+'/pulls/comments?sort=updated&direction=desc&per_page=100');
@@ -101,7 +106,10 @@ export function labMaintenance(config,run,environment,fetcher=fetch){
     if(findings.length){await fix(pending,pr,findings,save);return;}
     const checks=await api(prefix+'/commits/'+pending.commit+'/check-runs?per_page=100');
     if(!ciReady(checks,pending.commit)){if((checks.check_runs||[]).some(c=>c.head_sha===pending.commit&&c.status==='completed'&&['failure','timed_out','cancelled'].includes(c.conclusion))){pending.phase='blocked';pending.note='CI failed; retained PR, no automatic merge';await save();}return;}
-    if(!reviewedHead(await api(prefix+'/pulls/'+pr.number+'/reviews?per_page=100'),prComments,pending.commit,await api(prefix+'/issues/'+pr.number+'/comments?per_page=100'))&&pending.review?.commit!==pending.commit){
+    const verdictState=reviewEvidence(await api(prefix+'/pulls/'+pr.number+'/reviews?per_page=100'),prComments,pending.commit,await api(prefix+'/issues/'+pr.number+'/comments?per_page=100'));
+    if(verdictState.blocked){pending.phase='blocked';pending.note='Negative exact-head bot review requires correction';await save();return;}
+    if(verdictState.pending)return;
+    if(!verdictState.clean&&pending.review?.commit!==pending.commit){
      const dir=path.join(root,'repairs',String(pending.id)+'-'+pending.attempts);
      if(await git(dir,['rev-parse','HEAD'])!==pending.commit||await git(dir,['status','--porcelain','--untracked-files=all']))throw Error('Review checkout changed');
      pending.phase='reviewing';await save();
@@ -131,7 +139,7 @@ export function labMaintenance(config,run,environment,fetcher=fetch){
   const prs=await api(prefix+'/commits/'+commit+'/pulls');const pr=prs.find(p=>p.merged_at&&p.merge_commit_sha===commit&&p.base?.ref==='main'&&p.head?.repo?.full_name===labRepository);if(!pr||(pr.review_comments||0)>100)return null;
   const rows=await api(prefix+'/pulls/'+pr.number+'/comments?per_page=100'),reviews=await api(prefix+'/pulls/'+pr.number+'/reviews?per_page=100');
   const saved=await load(file,{jobs:[]});const verified=saved.jobs.some(j=>j.phase==='merged'&&j.mergeCommit===commit&&j.commit===pr.head.sha&&j.review?.commit===pr.head.sha);
-  if(rows.some(c=>eligibleFinding(c)&&c.commit_id===pr.head.sha)||!verified&&!reviewedHead(reviews,rows,pr.head.sha,await api(prefix+'/issues/'+pr.number+'/comments?per_page=100')))return null;
+  const decision=reviewEvidence(reviews,rows,pr.head.sha,await api(prefix+'/issues/'+pr.number+'/comments?per_page=100'));if(decision.blocked||decision.pending||!verified&&!decision.clean)return null;
   await mkdir(root,{recursive:true,mode:0o700});const dir=path.join(root,'runtimes',commit);await mkdir(path.dirname(dir),{recursive:true,mode:0o700});
   const ready=await load(path.join(dir,'runtime-ready.json'),null);if(ready?.commit===commit)return {commit,entry:path.join(dir,'mac/runner.js')};
   await clone(dir,commit);await command('npm',['ci','--ignore-scripts'],{cwd:dir,timeout:300000});await command('npm',['run','check'],{cwd:dir,timeout:300000});
