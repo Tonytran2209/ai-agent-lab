@@ -9,7 +9,7 @@
 3. Checkout riêng theo finding/lượt. Codex xác minh nhận xét với source hiện tại, sửa code/test/MD trong scope được phép. Không dùng worktree feedback, không lấy token của Lab vào prompt.
 4. Chạy `npm run check`. PR đang mở được cập nhật bằng push fast-forward; PR đã merge được sửa bằng PR mới từ main. Kiểm tra lại head trước push/merge.
 5. Chờ CI `check` trên đúng commit và một review sạch gắn đúng head. Nếu bot chỉ thả 👍, chạy một lượt Codex chỉ đọc độc lập trên commit đó; không coi reaction là bằng chứng. CI/review không đạt sẽ dừng, giữ PR và log. CI hạ tầng không bị biến thành yêu cầu sửa source.
-6. Sau merge, Railway tiếp tục auto deploy từ main. Bộ cập nhật Mac chỉ lấy main có CI thành công và provenance review hợp lệ; cài dependencies và kiểm thử vào thư mục runtime riêng. Không ghi đè code đang chạy.
+6. Sau merge, Railway tiếp tục auto deploy từ main. Bộ cập nhật Mac chỉ lấy main có CI thành công và provenance review hợp lệ; chờ `/health` của Lab xác nhận đúng SHA đã deploy rồi cài dependencies và kiểm thử vào thư mục runtime riêng. Không ghi đè code đang chạy.
 7. Supervisor yêu cầu child drain ở ranh giới vòng lặp; đợi coding/monitor hoàn tất rồi nạp runtime mới với cùng file config. Khi child kết nối Lab mới ghi pointer `state/lab-runtime.json`. Không cần Terminal cho mỗi cập nhật runner sau khi bootstrap supervisor này.
 
 ## Giới hạn

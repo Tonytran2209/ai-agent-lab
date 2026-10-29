@@ -56,6 +56,14 @@ test('runtime update never installs unreviewed main even with green CI',async()=
  else if(endpoint.includes('/check-runs?'))data={total_count:1,check_runs:[{id:1,name:'check',head_sha:commit,app:{slug:'github-actions'},status:'completed',conclusion:'success'}]};
  else if(endpoint.endsWith('/commits/'+commit+'/pulls'))data=[{number:104,merged_at:'2026-10-29T00:00:00Z',merge_commit_sha:commit,base:{ref:'main'},head:{sha:commit,repo:{full_name:labRepository}}}];
  else if(endpoint.includes('/comments?'))data=[finding];else if(endpoint.includes('/reviews?'))data=[{user:bot,commit_id:commit}];else throw Error('unexpected');return {code:0,stdout:JSON.stringify(data)};};
- assert.equal(await labMaintenance({stateDir:root,labReviewAutomation:true},run,{}).runtime(null),null);assert.equal(executableCalls,0);
+ assert.equal(await labMaintenance({stateDir:root,labReviewAutomation:true,mcpUrl:'https://lab.example/mcp'},run,{},async()=>({ok:true,json:async()=>({ok:true,deployedCommit:commit})})).runtime(null),null);assert.equal(executableCalls,0);
+ }finally{await rm(root,{recursive:true,force:true});}
+});
+
+test('green main never updates Mac before Railway health confirms that exact commit',async()=>{
+ const root=await mkdtemp('/tmp/lab-maintenance-health-');try{
+ let writes=0;const commit='a'.repeat(40);
+ const run=async(exe,args)=>{assert.equal(args[0],'api');const endpoint=args[3];if(endpoint.endsWith('/commits/main'))return {code:0,stdout:JSON.stringify({sha:commit})};if(endpoint.includes('/check-runs?'))return {code:0,stdout:JSON.stringify({total_count:1,check_runs:[{id:1,name:'check',head_sha:commit,app:{slug:'github-actions'},status:'completed',conclusion:'success'}]})};writes++;throw Error('must not install');};
+ for(const deployed of [null,'b'.repeat(40)]){const m=labMaintenance({stateDir:root,labReviewAutomation:true,mcpUrl:'https://lab.example/mcp'},run,{},async(url,options)=>{assert.equal(url.href,'https://lab.example/health');assert.equal(options.redirect,'error');return {ok:true,json:async()=>({ok:true,deployedCommit:deployed})};});assert.equal(await m.runtime(null),null);}assert.equal(writes,0);
  }finally{await rm(root,{recursive:true,force:true});}
 });
