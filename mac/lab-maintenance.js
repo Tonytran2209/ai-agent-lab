@@ -108,6 +108,7 @@ export function labMaintenance(config,run,environment,fetcher=fetch){
    if(pending){
     // Never rerun a paid coding intent after a crash; publishing ambiguity is explicit.
     if(pending.phase!=='ci'){pending.phase='blocked';pending.note='Interrupted coding/publication; inspect retained artifact';await save();return;}
+    if(Date.now()-pending.publishedAt>24*3600000){pending.phase='blocked';pending.note='CI/review observation deadline exceeded; retained PR';await save();return;}
     const pr=await api(prefix+'/pulls/'+pending.prNumber);
     if(pr.merged){pending.phase='merged';pending.mergeCommit=pr.merge_commit_sha;await save();return;}
     if(pr.state!=='open'||pr.head.sha!==pending.commit){pending.phase='blocked';pending.note='PR head/state changed';await save();return;}
@@ -132,8 +133,12 @@ export function labMaintenance(config,run,environment,fetcher=fetch){
      if(await git(dir,['rev-parse','HEAD'])!==pending.commit||await git(dir,['status','--porcelain','--untracked-files=all'])||verdict?.passed!==true){pending.phase='blocked';pending.note='Independent review did not pass';await save();return;}
      pending.review={commit:pending.commit,source:'local-codex-independent',at:new Date().toISOString()};pending.phase='ci';await save();
     }
-    if((await complete(prefix+'/pulls/'+pr.number+'/comments?per_page=100')).some(c=>eligibleFinding(c)&&c.commit_id===pending.commit))return;
-    const latest=await api(prefix+'/pulls/'+pr.number);if(latest.head.sha!==pending.commit||latest.base.sha!==pending.base||latest.state!=='open'||latest.draft)throw Error('PR changed before merge');
+    const finalReview=reviewEvidence(await complete(prefix+'/pulls/'+pr.number+'/reviews?per_page=100'),await complete(prefix+'/pulls/'+pr.number+'/comments?per_page=100'),pending.commit,await complete(prefix+'/issues/'+pr.number+'/comments?per_page=100'));
+    if(finalReview.blocked){pending.phase='blocked';pending.note='New negative review arrived before merge';await save();return;}
+    if(finalReview.pending||!finalReview.clean&&pending.review?.commit!==pending.commit)return;
+    if(!ciReady(await api(prefix+'/commits/'+pending.commit+'/check-runs?per_page=100'),pending.commit))return;
+    const latest=await api(prefix+'/pulls/'+pr.number);if(latest.head.sha!==pending.commit||latest.base.sha!==pending.base||latest.base.ref!=='main'||latest.base.repo?.full_name!==labRepository||latest.head.ref!==pending.branch||latest.head.repo?.full_name!==labRepository||latest.state!=='open'||latest.draft){pending.phase='blocked';pending.note='PR head/base/state changed before merge; retained for inspection';await save();return;}
+
     const merged=await api(prefix+'/pulls/'+pr.number+'/merge','PUT',{sha:pending.commit,merge_method:'squash'});if(!merged.merged)throw Error('Merge not confirmed');pending.phase='merged';pending.mergeCommit=merged.sha;await save();return;
    }
    const queued=state.jobs.find(j=>j.phase==='queued');if(!queued)return;
@@ -142,7 +147,7 @@ export function labMaintenance(config,run,environment,fetcher=fetch){
    const finding=all.find(c=>c.id===queued.id)||await api(prefix+'/pulls/comments/'+queued.id);if(!eligibleFinding(finding)||finding.id!==queued.id){queued.phase='blocked';queued.note='Review no longer matches pinned finding';await save();return;}
    try{await fix(queued,pr,[finding],save);}catch(e){queued.phase='blocked';queued.note=String(e.message).slice(0,250);await save();}
   }catch(error){const saved=await load(file,{jobs:[]});const job=saved.jobs.find(j=>['coding','publishing','reviewing'].includes(j.phase));if(job){job.phase='blocked';job.note=String(error.message).slice(0,250);await atomicJson(file,saved);}throw error;}finally{active=false;}
- },async runtime(currentCommit){
+ },async runtime(currentCommit,prepared=false){
   if(config.labReviewAutomation!==true)return null;
   const commit=(await api(prefix+'/commits/main')).sha;if(!sha(commit)||commit===currentCommit)return null;
   if(!ciReady(await api(prefix+'/commits/'+commit+'/check-runs?per_page=100'),commit))return null;
@@ -152,9 +157,10 @@ export function labMaintenance(config,run,environment,fetcher=fetch){
   const saved=await load(file,{jobs:[]});const verified=saved.jobs.some(j=>j.phase==='merged'&&j.mergeCommit===commit&&j.commit===pr.head.sha&&j.review?.commit===pr.head.sha);
   const decision=reviewEvidence(reviews,rows,pr.head.sha,await complete(prefix+'/issues/'+pr.number+'/comments?per_page=100'));if(decision.blocked||decision.pending||!verified&&!decision.clean)return null;
   await mkdir(root,{recursive:true,mode:0o700});const dir=path.join(root,'runtimes',commit);await mkdir(path.dirname(dir),{recursive:true,mode:0o700});
-  const ready=await load(path.join(dir,'runtime-ready.json'),null);if(ready?.commit===commit)return {commit,entry:path.join(dir,'mac/runner.js')};
+  const ready=await load(path.join(dir,'runtime-ready.json'),null);if(ready?.commit===commit)return {commit,entry:path.join(dir,'mac/runner.js'),verifiedAt:Date.now()};
+  if(prepared)return null;
   await clone(dir,commit);await command('npm',['ci','--ignore-scripts'],{cwd:dir,timeout:300000});await command('npm',['run','check'],{cwd:dir,timeout:300000});
   await command(process.execPath,['--input-type=module','-e',"await import('./mac/runner.js')"],{cwd:dir});
-  await atomicJson(path.join(dir,'runtime-ready.json'),{commit,at:new Date().toISOString()});return {commit,entry:path.join(dir,'mac/runner.js')};
+  await atomicJson(path.join(dir,'runtime-ready.json'),{commit,at:new Date().toISOString()});return this.runtime(currentCommit,true);
  }};
 }

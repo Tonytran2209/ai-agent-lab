@@ -33,19 +33,19 @@ test('a closed unmerged PR is ignored without touching a checkout or calling Cod
 test('exact-head reviewed repair completes once and stale base never merges',async()=>{
  const root=await mkdtemp('/tmp/lab-maintenance-flow-');try{
   const current='b'.repeat(40),fixed='c'.repeat(40),base='d'.repeat(40);let modelCalls=0,merges=0;
-  const dir=root+'/lab-maintenance';await mkdir(dir);const state={jobs:[{id:123,sourcePr:104,prNumber:105,phase:'ci',attempts:1,commit:fixed,base,publishedAt:Date.now()}]};await atomicJson(dir+'/jobs.json',state);
+  const dir=root+'/lab-maintenance';await mkdir(dir);const state={jobs:[{id:123,sourcePr:104,prNumber:105,phase:'ci',attempts:1,commit:fixed,base,branch:'lab-review/123',publishedAt:Date.now()}]};await atomicJson(dir+'/jobs.json',state);
   const run=async(exe,args,options)=>{assert.equal(args[0],'api');const endpoint=args[3];let data;
    if(endpoint.includes('/pulls/comments?'))data=[];
    else if(endpoint.endsWith('/pulls/105/merge')){merges++;assert.equal(JSON.parse(options.input).sha,fixed);data={merged:true,sha:current};}
    else if(endpoint.includes('/issues/105/comments?')||endpoint.includes('/pulls/105/comments?'))data=[];
    else if(endpoint.endsWith('/pulls/105/reviews?per_page=100'))data=[{user:bot,commit_id:fixed,state:'APPROVED'}];
    else if(endpoint.includes('/check-runs?'))data={total_count:1,check_runs:[{id:2,name:'check',head_sha:fixed,app:{slug:'github-actions'},status:'completed',conclusion:'success'}]};
-   else if(endpoint.endsWith('/pulls/105'))data={number:105,state:'open',draft:false,head:{sha:fixed},base:{sha:base}};
+   else if(endpoint.endsWith('/pulls/105'))data={number:105,state:'open',draft:false,head:{sha:fixed,ref:'lab-review/123',repo:{full_name:labRepository}},base:{sha:base,ref:'main',repo:{full_name:labRepository}}};
    else throw Error('Unexpected endpoint '+endpoint);
    return {code:0,stdout:JSON.stringify(data)};
   };
   const maintenance=labMaintenance({stateDir:root,labReviewAutomation:true},run,{});await maintenance.tick();const saved=JSON.parse(await readFile(dir+'/jobs.json'));assert.equal(saved.jobs[0].phase,'merged');assert.equal(saved.jobs[0].mergeCommit,current);assert.equal(merges,1);assert.equal(modelCalls,0);
-  await atomicJson(dir+'/jobs.json',{jobs:[{...state.jobs[0],base:'e'.repeat(40)}]});await assert.rejects(()=>maintenance.tick(),/PR changed/);assert.equal(merges,1);
+  await atomicJson(dir+'/jobs.json',{jobs:[{...state.jobs[0],base:'e'.repeat(40)}]});await maintenance.tick();assert.equal(JSON.parse(await readFile(dir+'/jobs.json')).jobs[0].phase,'blocked');assert.equal(merges,1);
  }finally{await rm(root,{recursive:true,force:true});}
 });
 
@@ -102,4 +102,14 @@ test('complete review pagination includes later negative evidence and fails clos
  await assert.rejects(()=>completeReviewPages(async()=>Array.from({length:100},()=>approved),'reviews?per_page=100'),/pagination/);
  const summary={user:bot,body:'<!-- codex-review-state:v1 '+JSON.stringify({code_review:{commit_sha:sha,status:'completed',has_any_findings:true,has_unresolved_findings:true}})+' -->'};
  const summaries=await completeReviewPages(async endpoint=>endpoint.endsWith('&page=2')?[summary]:Array.from({length:100},()=>({user:{login:'other'},body:''})),'comments?per_page=100');assert.equal(reviewedHead([approved],[],sha,summaries),false);
+});
+
+test('a stale pending CI job becomes explicit blocked state without a model or merge',async()=>{
+ const root=await mkdtemp('/tmp/lab-maintenance-expiry-');try{await mkdir(root+'/lab-maintenance');await atomicJson(root+'/lab-maintenance/jobs.json',{jobs:[{id:123,phase:'ci',prNumber:105,publishedAt:Date.now()-25*3600000,attempts:1}]});let reads=0;const run=async(_,args)=>{reads++;assert.ok(args[3].includes('/pulls/comments?'));return {code:0,stdout:'[]'};};await labMaintenance({stateDir:root,labReviewAutomation:true},run,{}).tick();const state=JSON.parse(await readFile(root+'/lab-maintenance/jobs.json'));assert.equal(state.jobs[0].phase,'blocked');assert.equal(reads,1);}finally{await rm(root,{recursive:true,force:true});}
+});
+
+test('a late negative top-level review is refreshed before merge and cannot be overridden by local approval',async()=>{
+ const root=await mkdtemp('/tmp/lab-late-review-');try{const commit='a'.repeat(40),base='b'.repeat(40);await mkdir(root+'/lab-maintenance');await atomicJson(root+'/lab-maintenance/jobs.json',{jobs:[{id:123,phase:'ci',prNumber:105,branch:'lab-review/123',base,commit,publishedAt:Date.now(),attempts:1,review:{commit}}]});let reviews=0,merges=0;
+ const run=async(_,args)=>{const endpoint=args[3];let data;if(endpoint.includes('/pulls/comments?')||endpoint.includes('/issues/105/comments?')||endpoint.includes('/pulls/105/comments?'))data=[];else if(endpoint.includes('/reviews?')){reviews++;data=reviews===1?[]:[{user:bot,commit_id:commit,state:'CHANGES_REQUESTED',body:'P1 late issue'}];}else if(endpoint.includes('/check-runs?'))data={total_count:1,check_runs:[{id:1,name:'check',head_sha:commit,app:{slug:'github-actions'},status:'completed',conclusion:'success'}]};else if(endpoint.endsWith('/pulls/105'))data={state:'open',number:105,head:{sha:commit,ref:'lab-review/123',repo:{full_name:labRepository}},base:{sha:base,ref:'main',repo:{full_name:labRepository}}};else if(endpoint.includes('/merge')){merges++;data={merged:true};}else throw Error('Unexpected '+endpoint);return {code:0,stdout:JSON.stringify(data)};};await labMaintenance({stateDir:root,labReviewAutomation:true},run,{}).tick();assert.equal(merges,0);assert.equal(reviews,2);assert.equal(JSON.parse(await readFile(root+'/lab-maintenance/jobs.json')).jobs[0].phase,'blocked');
+ }finally{await rm(root,{recursive:true,force:true});}
 });

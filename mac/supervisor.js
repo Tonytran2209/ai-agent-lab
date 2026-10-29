@@ -1,4 +1,4 @@
-import {activationMatches} from './runtime-activation.js';
+import {activationMatches,candidateFresh} from './runtime-activation.js';
 import {labMaintenance,atomicJson} from './lab-maintenance.js';
 import {controlWake} from './control-wake.js';
 import {fork} from 'node:child_process';
@@ -53,11 +53,11 @@ export async function supervise(configPath){
  const tick=async()=>{
   if(stopping)return;if(busy){idleWake?.wake();return;}busy=true;
   try{
-   if(!child&&Date.now()>=nextStart)start();
+   if(!child&&Date.now()>=nextStart){if(candidate&&!candidateFresh(candidate)&&previousRuntime){runtime=previousRuntime;candidate=null;previousRuntime=null;}start();}
    if(config.labReviewAutomation===true&&!maintenanceTask&&Date.now()-maintenanceAt>300000&&state.safeIdle&&!pending){
-    maintenanceAt=Date.now();maintenanceTask=(async()=>{await maintenance.tick();const next=await maintenance.runtime(runtime.commit);if(next&&!rejected.includes(next.commit)){candidate=next;}})().catch(e=>diagnostic(e)).finally(()=>{maintenanceTask=null;});
+    maintenanceAt=Date.now();maintenanceTask=(async()=>{await maintenance.tick();const next=await maintenance.runtime(runtime.commit);if(candidate&&!candidateFresh(candidate)&&!previousRuntime)candidate=null;if(next&&!rejected.includes(next.commit)){candidate=next;}})().catch(e=>diagnostic(e)).finally(()=>{maintenanceTask=null;});
    }
-   if(candidate&&candidate.entry!==runtime.entry&&child&&state.safeIdle&&!pending&&!maintenanceTask){previousRuntime=runtime;runtime=candidate;child.send({type:'drain-maintenance'});}
+   if(candidate&&candidateFresh(candidate)&&candidate.entry!==runtime.entry&&child&&state.safeIdle&&!pending&&!maintenanceTask){previousRuntime=runtime;runtime=candidate;child.send({type:'drain-maintenance'});}
    const stalled=child&&Date.now()-seen>180000;
    if(stalled&&idleRestart(state))child.kill('SIGTERM');
    await api('/heartbeat',{workerId,controlProtocol:'runner-control-v1',version:supervisorVersion+(runtime.commit?' / '+runtime.commit.slice(0,12):''),bootAt,childBootAt,state:stalled?'stalled':!child?'backoff':pending?.action==='restart'?'restarting':state.safeIdle?'idle':connected?'busy':'starting',childSeenAt:seen?new Date(seen).toISOString():null,codex:health});

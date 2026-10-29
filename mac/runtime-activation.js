@@ -3,3 +3,5 @@
 export function activationMatches(launched,candidate,isCurrentChild){
  return Boolean(isCurrentChild&&candidate&&launched?.commit===candidate.commit&&launched?.entry===candidate.entry);
 }
+
+export function candidateFresh(candidate,now=Date.now()){return Number.isFinite(candidate?.verifiedAt)&&now>=candidate.verifiedAt&&now-candidate.verifiedAt<60000;}
