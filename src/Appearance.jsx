@@ -20,5 +20,5 @@ export function Appearance({theme,setTheme}){
     {value:'system',label:'Hệ thống',Icon:MonitorSmartphone},
     {value:'light',label:'Sáng',Icon:Sun},
     {value:'dark',label:'Tối',Icon:MoonStar}
-  ].map(({value,label,Icon})=><label className="appearance-choice" key={value} title={label}><input className="sr-only" type="radio" name={name} value={value} aria-label={label} checked={theme===value} onChange={()=>setTheme(value)}/><span><Icon size={23} strokeWidth={1.8} aria-hidden="true"/></span></label>)}</div></fieldset>;
+  ].map(({value,label,Icon})=><label className="appearance-choice" key={value} title={label}><input className="sr-only" type="radio" name={name} value={value} aria-label={label} checked={theme===value} onChange={()=>setTheme(value)}/><span><Icon size={19} strokeWidth={1.8} aria-hidden="true"/></span></label>)}</div></fieldset>;
 }
