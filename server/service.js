@@ -108,6 +108,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
     return r.riskFloor === "high" || r.riskFloor === "medium" && draft.risk === "low" ? { ...draft, risk: r.riskFloor } : draft;
   }
   function cancelPreparation(r) {
+    if(r.automation?.mode==='review')r.automationHistory=[...(r.automationHistory||[]),{...r.automation,baseCommit:r.baseCommit,at:now()}].slice(-10);
     delete r.automation;
     if (["queued", "running"].includes(r.preparation?.status)) r.preparation = { ...r.preparation, status: "cancelled" };
   }
@@ -273,7 +274,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
         }
       });
     },
-    recoverSupplementalChecks(id){return transaction(db,()=>{const r=get(id),p=projects.get(r.projectId);if(r.status!=='awaiting-approval'||r.workflowProtocol!=='direct-v1'||r.draft?.risk!=='medium'||r.approval||r.lease||r.result||r.executionBlocked||r.preparation?.status!=='completed'||r.ai?.source!=='codex-local'||r.ai.observedBaseCommit!==r.baseCommit||r.delivery?.configurationRevision!==p.configurationRevision||r.delivery?.environment!==p.releaseEnvironment||r.review?.by||!p.enabled||!p.runnerEnabled||r.automation?.reasons?.length!==1||r.automation.reasons[0]!=='Medium tự chạy cần ít nhất một test hành vi; tiêu chí còn lại cần test hoặc kiểm tra cụ thể.'||decideAutomation(r,p).mode!=='automatic')return false;assertTurn(r);return service.routeByRisk(id,hash(JSON.stringify(publicRequest(r))));});},
+    recoverSupplementalChecks(id){return transaction(db,()=>{const r=get(id),p=projects.get(r.projectId);if(r.status!=='awaiting-approval'||r.workflowProtocol!=='direct-v1'||r.draft?.risk!=='medium'||r.approval||r.lease||r.result||r.executionBlocked||r.preparation?.status!=='completed'||r.ai?.source!=='codex-local'||r.ai.observedBaseCommit!==r.baseCommit||r.delivery?.configurationRevision!==p.configurationRevision||r.delivery?.environment!==p.releaseEnvironment||r.review?.by||!p.enabled||!p.runnerEnabled||r.automation?.reasons?.length!==1||r.automation.reasons[0]!=='Medium tự chạy cần ít nhất một test hành vi; tiêu chí còn lại cần test hoặc kiểm tra cụ thể.'||decideAutomation(r,p,library(r.libraryVersionId).sourcePaths).mode!=='automatic')return false;assertTurn(r);return service.routeByRisk(id,hash(JSON.stringify(publicRequest(r))));});},
     routeByRisk(id, expectedHash) {
       return transaction(db, () => {
         const r = get(id); mutable(r);
@@ -288,7 +289,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
         r.riskFloor = d.risk;
         r.draft = d; r.policyVersion = "risk-v2";
         r.riskAssessment={protocol:'verified-triage-v1',assessor:r.ai?.source||'admin',preliminaryRisk:r.classification?.modelRisk||r.classification?.risk||null,routingRisk:r.classification?.risk||null,codexRisk:r.ai?.codexRisk||null,finalRisk:d.risk,policyAdjusted:Boolean(r.ai?.codexRisk&&r.ai.codexRisk!==d.risk),policyReasons:[...new Set([...d.riskReasons,...(r.ai?.intentRisk&&r.ai.intentRisk!==r.ai.codexRisk?['Mức tối thiểu theo nội dung feedback: '+r.ai.intentRisk]:[]),...(previousRiskFloor&&previousRiskFloor!==r.ai?.codexRisk?['Mức tối thiểu đã ghim: '+previousRiskFloor]:[])])],disagrees:Boolean(r.classification&&r.ai?.codexRisk&&(r.classification.modelRisk||r.classification.risk)!==r.ai.codexRisk),reason:(d.impact?.summary||d.problem).slice(0,1200),evidencePaths:(r.ai?.evidence||[]).map(e=>e.path),baseCommit:r.baseCommit,rubricVersion:'risk-brief-v2',at:now()};
-        r.automation=decideAutomation(r,projects.get(r.projectId));
+        r.automation=decideAutomation(r,projects.get(r.projectId),library(r.libraryVersionId).sourcePaths);
         r.review = { required: r.automation.mode === "automatic" ? "none" : d.risk !== "high" ? "check" : "approve-high" };
         if (r.automation.mode === "automatic") {
           r.approval = { actor: "Impact policy v1", mode: d.risk==="low"?"auto-low-risk":"auto-impact", at: now(), requestHash: hash(JSON.stringify({ draft: d, baseCommit: r.baseCommit, libraryVersionId: r.libraryVersionId })) };
@@ -296,7 +297,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
           return changed(r, "request_auto_approved", "AI Agent Lab", r.automation.reasons.join(" "));
         }
         r.approval = null; r.status = r.unresolvedCheckpoints.length ? "needs-triage" : "awaiting-approval";
-        return changed(r, d.risk !== "high" ? "review_required" : "high_risk_approval_required", "AI Agent Lab");
+        return changed(r, d.risk !== "high" ? "review_required" : "high_risk_approval_required", "AI Agent Lab", r.automation.reasons.join(" "));
       });
     },
     learningExamples(input) {
@@ -341,7 +342,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
         const r = get(id);
         if (hash(JSON.stringify(publicRequest(r))) !== expectedHash) fail("Request đã đổi. Cần kiểm tra lại.");
         const d = r.draft;
-        if(r.governanceProtocol&&decideAutomation(r,projects.get(r.projectId)).mode!=="automatic")return publicRequest(r);
+        if(r.governanceProtocol&&decideAutomation(r,projects.get(r.projectId),library(r.libraryVersionId).sourcePaths).mode!=="automatic")return publicRequest(r);
         // Policy is evaluated server-side, never solely from the model's risk label.
         const eligible = r.status === "awaiting-approval" && d && d.layer === "design" && d.risk === "low" &&
           !d.questions.length && !d.newFiles.length && d.allowedPaths.length <= 5 &&
