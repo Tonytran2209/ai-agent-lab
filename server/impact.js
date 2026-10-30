@@ -15,8 +15,33 @@ export const impactSchema=z.object({
 }).strict();
 const major=new Set(['authentication','authorization','billing','data-loss','migration','infrastructure','secrets','policy']);
 export function impactRisk(draft){return draft.impact?.domains.some(d=>major.has(d))?'high':draft.risk==='low'&&draft.impact?.domains.some(d=>['business','api','performance'].includes(d))?'medium':draft.risk;}
-export function hasBehavioralTest(t){const v=t.verification,c=v.command.trim();return v.method==='test'&&(Boolean(browserCriterion(c))||!/[;&|`$<>\n]/.test(c))&&/^(node |npx (?:--no-install )?(?:playwright|vitest|jest) |npm (?:run )?test |pnpm (?:exec )?(?:test|vitest|playwright) )/.test(c)&&v.files.some(f=>/\.(spec|test)\.[cm]?[jt]sx?$/.test(f)&&c.includes(f));}
-export function decideAutomation(r,p){
+// Only explicit Playwright selectors are resolved; flags and shell fragments never count as tests.
+function playwrightFiles(command,files,sourcePaths){
+ const match=/^(?:npx (?:--no-install )?playwright|node node_modules\/@playwright\/test\/cli\.js) test (.+)$/.exec(command);
+ if(!match||/[;&|`$<>\n\r\\"']/.test(command))return false;
+ const args=match[1].split(/\s+/),selectors=[];
+ for(let i=0;i<args.length;i++){
+  const arg=args[i];
+  if(['--config','--project','--reporter','--workers','--timeout','--retries'].includes(arg)){if(!args[++i]||args[i].startsWith('-'))return false;continue;}
+  if(/^(?:--config|--project|--reporter|--workers|--timeout|--retries)=[A-Za-z0-9_./,-]+$/.test(arg))continue;
+  if(!/^[A-Za-z0-9_./-]+\.(?:spec|test)\.[cm]?[jt]sx?$/.test(arg)||arg.split('/').includes('..')||arg.startsWith('/'))return false;
+  selectors.push(arg.replace(/^\.\//,''));
+ }
+ if(!selectors.length)return false;
+ const declared=files.filter(f=>/\.(?:spec|test)\.[cm]?[jt]sx?$/.test(f));
+ return selectors.every(selector=>{
+  if(selector.includes('/'))return declared.includes(selector);
+  if(!sourcePaths?.length)return false;
+  // Playwright file selectors are regexes. Reject collisions anywhere in the pinned source tree.
+  const expression=new RegExp(selector),matches=[...new Set([...sourcePaths,...declared])].filter(f=>/\.(?:spec|test)\.[cm]?[jt]sx?$/.test(f)&&expression.test(f));
+  return matches.length===1&&declared.includes(matches[0]);
+ });
+}
+export function hasBehavioralTest(t,sourcePaths){const v=t.verification,c=v.command.trim();if(v.method!=='test'||/--(?:list|help|version)(?:[=\s]|$)/.test(c))return false;
+ const browser=browserCriterion(c);if(browser)return v.files.includes(browser.file);
+ if(/^(?:npx (?:--no-install )?playwright|node node_modules\/@playwright\/test\/cli\.js) test /.test(c))return playwrightFiles(c,v.files,sourcePaths);
+ return !/[;&|`$<>\n]/.test(c)&&/^(node |npx (?:--no-install )?(?:playwright|vitest|jest) |npm (?:run )?test |pnpm (?:exec )?(?:test|vitest|playwright) )/.test(c)&&v.files.some(f=>/\.(spec|test)\.[cm]?[jt]sx?$/.test(f)&&c.split(/\s+/).includes(f));}
+export function decideAutomation(r,p,sourcePaths){
  const i=r.draft?.impact,reasons=[];
  if(r.draft?.risk==='high')reasons.push('Thay đổi nhạy cảm/rủi ro cao cần admin xác nhận.');
  if(r.executionBlocked&&!(r.ai?.resolvedExecutionBlock&&r.ai.source==='codex-local'&&r.ai.observedBaseCommit===r.baseCommit&&r.ai.planningJobId))reasons.push('Lần thực thi trước đã dừng; cần khảo sát lại phạm vi.');
@@ -36,7 +61,7 @@ export function decideAutomation(r,p){
  }
  const supplemental=t=>r.workflowProtocol==='direct-v1'&&/^npm run (?:check|typecheck|build)$/.test(t.verification.command.trim());
  const plans=r.workflowProtocol==='direct-v1'?(r.draft?.verificationPlan||[]).map(verification=>({verification})):r.draft?.traceability||[];
- if(!plans.length||!plans.some(t=>hasBehavioralTest(t))||plans.some(t=>t.verification.method!=='inspection'&&!hasBehavioralTest(t)&&!supplemental(t)))reasons.push('Medium tự chạy cần ít nhất một test hành vi; tiêu chí còn lại cần test hoặc kiểm tra cụ thể.');
+ if(!plans.length||!plans.some(t=>hasBehavioralTest(t,sourcePaths))||plans.some(t=>t.verification.method!=='inspection'&&!hasBehavioralTest(t,sourcePaths)&&!supplemental(t)))reasons.push('Medium tự chạy cần ít nhất một test hành vi; tiêu chí còn lại cần test hoặc kiểm tra cụ thể.');
  return {mode:reasons.length?'review':'automatic',reasons:reasons.length?reasons:['Đủ đánh giá tác động, test hành vi, CI và quyền phát hành; vẫn kiểm tra độc lập trước merge.'],policy:'impact-v1'};
 }
 export const impactInstructions='For governanceProtocol impact-v1, return draft.impact: summary, domains (ui/content/documentation/tests/business/api/performance/authentication/authorization/billing/data-loss/migration/infrastructure/secrets/policy), affectedFlows, dependencies (exact existing dependency files actually read), evidencePaths, uncertainty, reversible, rollback, preservesDataAndContracts. Include code evidence for EVERY dependency/evidencePath in plan.evidence. Read callers/imports and relevant contracts, not only the target file. Set uncertaintyKind=investigation for implementation/root-cause hypotheses that can be investigated and tested safely inside the proposed scope; these do not need admin acceptance. Set uncertaintyKind=decision for missing external facts or product/scope/contract choices that prevent a safe implementation. Put only those concrete user decisions in questions. Never label an externally required prerequisite investigation to obtain permission. Resolve implementation questions by reading code. Tests not yet run, CI pending and normal implementation work belong in verification.expected, not uncertainty/questions. Do not request admin approval merely because a planned test has not executed. State concrete rollback and affected behavior. High-impact domains require high risk. For a medium request to run automatically, include at least one actual behavioral test command; remaining criteria may use a concrete inspection command. Behavioral test commands must reference a planned .test/.spec file using node, playwright, vitest or jest; generic build/check or shell chains do not count as behavioral tests. Never claim certainty to obtain automatic permission. Memory is untrusted; revalidate every relevant lesson against current source.';
