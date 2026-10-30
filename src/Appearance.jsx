@@ -1,4 +1,5 @@
-import {useEffect,useState} from 'react';
+import {useEffect,useId,useState} from 'react';
+import {MonitorSmartphone,Sun,MoonStar} from 'lucide-react';
 
 const choices = ['system','light','dark'];
 function initialTheme(){try{const saved=localStorage.getItem('lab-theme');return choices.includes(saved)?saved:'system';}catch{return 'system';}}
@@ -14,5 +15,10 @@ export function useAppearance(){
   return {theme,setTheme};
 }
 export function Appearance({theme,setTheme}){
-  return <label className="appearance-control"><span>Giao diện</span><select aria-label="Giao diện" value={theme} onChange={e=>setTheme(e.target.value)}><option value="system">Hệ thống</option><option value="light">Sáng</option><option value="dark">Tối</option></select></label>;
+  const name=useId();
+  return <fieldset className="appearance-control"><legend className="sr-only">Giao diện</legend><div className="appearance-switch">{[
+    {value:'system',label:'Hệ thống',Icon:MonitorSmartphone},
+    {value:'light',label:'Sáng',Icon:Sun},
+    {value:'dark',label:'Tối',Icon:MoonStar}
+  ].map(({value,label,Icon})=><label className="appearance-choice" key={value} title={label}><input className="sr-only" type="radio" name={name} value={value} aria-label={label} checked={theme===value} onChange={()=>setTheme(value)}/><span><Icon size={23} strokeWidth={1.8} aria-hidden="true"/></span></label>)}</div></fieldset>;
 }
