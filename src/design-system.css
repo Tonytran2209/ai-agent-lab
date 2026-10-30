@@ -73,13 +73,13 @@ pre{overflow:auto;max-width:100%;background:var(--surface-soft);line-height:1.6}
 
 /* Operational signals: dedicated foreground, fill, border and solid indicator. */
 :root{
-  --signal-success-text:#166534;--signal-success-fill:#dcfce7;--signal-success-border:#86c99a;--signal-success-dot:#16803c;
+  --signal-success-text:#166534;--signal-success-fill:#dcfce7;--signal-success-border:#86c99a;--signal-success-dot:#16803c;--progress-success-fill:#16a34a;
   --signal-info-text:#1d4ed8;--signal-info-fill:#eff6ff;--signal-info-border:#93b4ed;
   --signal-warning-text:#92400e;--signal-warning-fill:#fff3d4;--signal-warning-border:#d6a74a;
   --signal-error-text:#b91c1c;--signal-error-fill:#fef2f2;--signal-error-border:#e6a0a0;
 }
 [data-theme=dark]{
-  --signal-success-text:#86efac;--signal-success-fill:#143622;--signal-success-border:#34754b;--signal-success-dot:#4ade80;
+  --signal-success-text:#86efac;--signal-success-fill:#143622;--signal-success-border:#34754b;--signal-success-dot:#4ade80;--progress-success-fill:#4ade80;
   --signal-info-text:#93c5fd;--signal-info-fill:#152e4d;--signal-info-border:#355d8a;
   --signal-warning-text:#fcd34d;--signal-warning-fill:#3c2d12;--signal-warning-border:#8b6926;
   --signal-error-text:#fca5a5;--signal-error-fill:#421f25;--signal-error-border:#a8525d;
@@ -124,7 +124,7 @@ pre{overflow:auto;max-width:100%;background:var(--surface-soft);line-height:1.6}
 .progress-card li:not(:last-child):after{content:none}
 .progress-segment{height:6px;background:var(--border);border-radius:99px;overflow:hidden;position:relative;margin-bottom:12px}
 .progress-segment>span{display:block;height:100%;width:100%;background:transparent;border-radius:inherit;transition:background 180ms}
-.progress-card li.done .progress-segment>span{background:var(--signal-success-dot)}
+.progress-card li.done .progress-segment>span{background:var(--progress-success-fill)}
 .progress-card li.current .progress-segment>span{background:var(--signal-text)}
 .progress-card.is-active li.current .progress-segment:after{content:'';position:absolute;inset:0;transform:translateX(-100%);background:linear-gradient(90deg,transparent,rgb(255 255 255 / 55%),transparent);animation:progress-flow 1.8s ease-in-out infinite}
 .progress-step-label{display:flex;align-items:flex-start;gap:6px;min-width:0}
