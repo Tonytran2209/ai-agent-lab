@@ -154,15 +154,7 @@ pre{overflow:auto;max-width:100%;background:var(--surface-soft);line-height:1.6}
 @media(max-width:600px){.progress-card .progress-overview{padding:16px}.progress-header{gap:10px;flex-wrap:wrap;margin-bottom:18px}.progress-header strong{font-size:15px}.progress-stage{font-size:12px}.progress-card ol{gap:6px}.progress-step-label{display:grid;justify-items:start;gap:6px}.progress-card li small{font-size:12px;line-height:1.5}.progress-card .progress-activity{padding:14px}.task-primary-actions .button{flex:1 1 auto}.task-action-toolbar .button{min-height:44px}.request-control-buttons{justify-content:flex-start}.task-action-toolbar .request-control-note{font-size:12px}}
 @media(prefers-reduced-motion:reduce){.progress-card.is-active li.current .progress-segment:after{animation:none;background:none;content:none}.progress-card .spin{animation:none}}
 
-/* Reserve saturated green for the connection signal and the main success cue. */
-.progress-card li.done .progress-segment>span{background:var(--secondary)}
-.progress-card li.done small,.progress-card li.done .progress-step-icon{color:var(--secondary)}
-.progress-card li.done .progress-step-icon{background:var(--surface-soft)}
-.progress-card[data-tone=success] .progress-stage{color:var(--secondary);background:var(--surface-soft);border-color:var(--border)}
-.progress-card[data-tone=success] .progress-activity>svg{color:var(--secondary)}
-.risk-low{--signal-text:var(--secondary);--signal-fill:var(--surface-soft);--signal-border:var(--border)}
-.inbox-state[data-tone=deployed]{background:var(--surface-soft);border-color:var(--border);color:var(--secondary)}
-.inbox-state[data-tone=deployed] .inbox-state-icon{color:var(--signal-success-text)}
+/* Shared semantic status colours remain consistent across badges and progress. */
 .inbox-meta{display:flex;align-items:center;justify-content:space-between;gap:16px;max-width:1280px;margin:0 auto 16px;color:var(--muted);font-size:12px}.inbox-meta[hidden]{display:none}
 .feedback-start[hidden]+.inbox-meta+.project-filters{margin-top:24px}
 .streamlined .topbar{position:sticky;top:0;z-index:18;background:var(--canvas)}
@@ -183,3 +175,5 @@ pre{overflow:auto;max-width:100%;background:var(--surface-soft);line-height:1.6}
 @media(max-width:600px){.toast .icon-button{width:44px;height:44px;min-width:44px}}
 
 .notification-history-summary{position:sticky;top:0;z-index:1;background:var(--card)}
+
+.history-entry-wrap{position:relative;display:flex;border-bottom:1px solid var(--border)}.history-entry-wrap .history-entry{flex:1;border:0;min-width:0}.notification-delete{align-self:flex-start;margin:16px 12px 0 0;flex-shrink:0}.notification-clear{margin-left:auto}.progress-stage[data-tone]{color:var(--signal-text);background:var(--signal-fill);border-color:var(--signal-border)}

@@ -97,6 +97,8 @@ export function createApp(config, options = {}) {
   app.post("/api/auth/logout", (req, res) => { auth.logout(res); res.json({ ok: true }); });
   app.get('/api/notifications',(req,res)=>{const q=z.object({before:z.coerce.number().int().positive().safe().optional(),limit:z.coerce.number().int().min(1).max(100).default(50)}).strict().parse(req.query);res.json(notificationCenter.list(req.user,q));});
   app.post('/api/notifications',limiter(60), (req,res)=>res.status(201).json(notificationCenter.record(req.user,req.body)));
+  app.delete('/api/notifications',(req,res)=>res.json(notificationCenter.remove(req.user)));
+  app.delete('/api/notifications/:id',(req,res)=>res.json(notificationCenter.remove(req.user,z.coerce.number().int().positive().safe().parse(req.params.id))));
   app.post('/api/notifications/read',(req,res)=>{const b=z.object({through:z.number().int().nonnegative().safe()}).strict().parse(req.body);res.json(notificationCenter.markRead(req.user,b.through));});
   app.get("/api/config", (req, res) => res.json({ aiConfigured: agent.enabled()?agent.settings().keyConfigured:config.LAB_PLANNING_MODE!=="server"||Boolean(config.OPENAI_API_KEY), planningMode:agent.enabled()?"lab-agent":config.LAB_PLANNING_MODE==="server"?"server":"codex-local", model: agent.enabled()?agent.settings().model:config.LAB_PLANNING_MODE==="server"?(config.OPENAI_MODEL||"gpt-4.1-mini"):"Codex trên Mac",
     workflow:{mode:(options.simplifiedWorkflow??config.LAB_WORKFLOW_MODE!=='legacy')?'direct-v1':'legacy',serializedProjects:options.serializeProjects??true}, classifier:{enabled:agent.enabled(),configured:agent.settings().keyConfigured,model:agent.settings().model,strategy:agent.settings().strategy},
