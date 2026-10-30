@@ -52,10 +52,10 @@ pre{overflow:auto;max-width:100%;background:var(--surface-soft);line-height:1.6}
 .brand{font-size:19px;padding:0 8px;letter-spacing:0;flex-shrink:0}.brand-icon{background:var(--surface-soft);color:var(--text);border-color:var(--border);width:36px;height:36px}.brand small{font-size:9px;color:var(--muted);letter-spacing:1.2px}
 .streamlined .sidebar nav{margin-top:28px}.nav-item{font-size:14px;min-height:36px;padding:8px 12px;gap:10px;color:var(--text);margin-bottom:4px;border:0;border-radius:10px}.nav-item.active{background:var(--surface-selected);color:var(--text);border:0}.nav-item:hover:not(.active):not(:disabled){background:var(--surface-hover)}.nav-count{font-size:12px;color:var(--secondary);background:var(--surface-soft)}
 .sidebar-bottom{padding-top:24px}.pull-mode{padding:16px 8px;border-color:var(--border);margin-bottom:12px}.pull-mode strong,.account strong{font-size:13px}.pull-mode small,.account small{font-size:12px;color:var(--muted);line-height:1.5}.account{padding:4px 8px}.avatar{width:32px;height:32px;font-size:12px;background:var(--surface-selected)}
-.appearance-control{display:flex;min-width:0;margin:0;padding:0 8px;border:0}
-.appearance-switch{display:inline-flex;align-items:center;gap:2px;padding:4px;border:1px solid var(--border);border-radius:999px;background:var(--canvas)}
+.appearance-control{display:flex;min-width:0;margin:0;padding:0;border:0}
+.appearance-switch{display:inline-flex;align-items:center;gap:2px;padding:3px;border:1px solid var(--border);border-radius:999px;background:var(--canvas)}
 .appearance-choice{position:relative;display:block;margin:0;cursor:pointer;border-radius:50%}
-.appearance-choice>span{display:flex;align-items:center;justify-content:center;width:44px;height:44px;border-radius:50%;color:var(--muted);background:transparent;transition:background-color 120ms,color 120ms}
+.appearance-choice>span{display:flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:50%;color:var(--muted);background:transparent;transition:background-color 120ms,color 120ms}
 .appearance-choice input:checked+span{background:var(--surface-selected);color:var(--text)}
 .appearance-choice input:focus-visible+span{outline:2px solid var(--focus);outline-offset:2px}
 @media(hover:hover) and (pointer:fine){.appearance-choice:hover input:not(:checked)+span{background:var(--surface-hover);color:var(--text)}}
@@ -195,3 +195,10 @@ pre{overflow:auto;max-width:100%;background:var(--surface-soft);line-height:1.6}
 .project-filters>button:active:not(:disabled){background:var(--surface-selected)}
 .notification-history-summary{align-items:center}.notification-clear{white-space:nowrap}
 @media(prefers-reduced-motion:reduce){button{transition:none}}
+
+/* A compact utility dock; reserve a clear footer lane rather than covering actions. */
+.appearance-dock{position:fixed;right:calc(16px + env(safe-area-inset-right,0px));bottom:calc(16px + env(safe-area-inset-bottom,0px));z-index:19;width:max-content;border-radius:999px;box-shadow:0 2px 8px rgb(0 0 0 / 8%)}
+.appearance-dock[data-obscured=true]{visibility:hidden;pointer-events:none}
+.streamlined .main{padding-bottom:calc(80px + env(safe-area-inset-bottom,0px))}
+.login-page{padding-bottom:calc(80px + env(safe-area-inset-bottom,0px))}
+@media(max-width:600px){.appearance-dock{right:calc(12px + env(safe-area-inset-right,0px));bottom:calc(12px + env(safe-area-inset-bottom,0px))}.appearance-choice>span{width:36px;height:36px}.login-form{padding-top:32px}body:has(input:not([type=radio]):focus,textarea:focus,[contenteditable=true]:focus) .appearance-dock{visibility:hidden;pointer-events:none}}
