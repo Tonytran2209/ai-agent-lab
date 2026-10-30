@@ -17,3 +17,5 @@ Quick notifications appear at the top right and shrink toward the actual header 
 New authenticated API routes: GET /api/notifications (before, limit), POST /api/notifications (idempotent user notice), POST /api/notifications/read (monotonic visible read cursor). Existing request/config/worker API contracts remain unchanged.
 
 Settings operation notices and errors are mirrored through a shared React notice context without altering their existing inline messages or API handlers. Empty values, input drafts and repeated unchanged polling errors do not create notifications. Model evaluation history copies only outcome/phase metadata, never evaluation cases or model/provider output.
+
+Users may delete one or clear all visible notifications for their own account. Persistent user-scoped tombstones preserve request events and other users’ histories and prevent backfill resurrection. Routine Mac work/idle/busy transitions are omitted; connection loss/recovery, readiness changes and actionable supervisor problems remain visible.
