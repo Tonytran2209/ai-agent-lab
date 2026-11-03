@@ -42,7 +42,36 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 export function createApp(config, options = {}) {
   const auth = createAuth(config);
   const db = options.db ?? openDatabase(config.DATA_DIR || path.join(root, "data"));
-  const service = createService(db, {...options,serializeProjects:options.serializeProjects??true,simplifiedWorkflow:options.simplifiedWorkflow??config.LAB_WORKFLOW_MODE!=='legacy',requireTraceability:config.MD_TRACEABILITY_ENABLED!=="false"});
+  const staging = config.RAILWAY_ENVIRONMENT_NAME === 'staging-a2a' || config.LAB_ENVIRONMENT === 'staging';
+  const bootstrapDefaults = config.LAB_BOOTSTRAP_DEFAULT_PROJECTS === 'true' || (!staging && config.LAB_BOOTSTRAP_DEFAULT_PROJECTS !== 'false');
+  if (config.LAB_REMOVE_UNUSED_DEFAULT_PROJECTS === 'true' || (config.RAILWAY_ENVIRONMENT_NAME === 'staging-a2a' && config.LAB_REMOVE_UNUSED_DEFAULT_PROJECTS !== 'false' && !bootstrapDefaults)) {
+    if (!staging || bootstrapDefaults) throw Error('Default project cleanup requires staging and disabled bootstrap.');
+    // Only remove unused seed registrations; retain immutable libraries and all history.
+    db.exec('CREATE TABLE IF NOT EXISTS projects (id TEXT PRIMARY KEY, repository TEXT NOT NULL UNIQUE COLLATE NOCASE, data TEXT NOT NULL)');
+    const defaults = [['writer-studio','Tonytran2209/RebuildWriterStudioTool'],['intercom-writer-studio','Tonytran2209/intercom-writer-studio']];
+    for (const [id, repository] of defaults) {
+      const row=db.prepare('SELECT data FROM projects WHERE id=? AND repository=?').get(id,repository);
+      if (!row) continue;
+      const used=db.prepare('SELECT data FROM requests').all().some(r=>{const v=JSON.parse(r.data);return v.projectId===id||v.repository?.toLowerCase()===repository.toLowerCase();});
+      if (used) throw Error('Staging cleanup refused: default project has request history. Use a fresh staging volume.');
+      for (const table of ['ci_setup_jobs','deployment_onboarding','deployment_credentials','project_onboarding']) {
+        if (db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(table) && db.prepare(`SELECT 1 FROM ${table} WHERE project_id=?`).get(id)) throw Error('Staging cleanup refused: default project has onboarding/CI/deployment state. Use a fresh staging volume.');
+      }
+    }
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      for (const [id, repository] of defaults) {
+        const row=db.prepare('SELECT data FROM projects WHERE id=? AND repository=?').get(id,repository);
+        if (!row) continue;
+        db.prepare('INSERT OR IGNORE INTO settings(key,value) VALUES (?,?)').run('staging_removed_seed:'+id,row.data);
+        db.prepare('DELETE FROM projects WHERE id=? AND repository=?').run(id,repository);
+      }
+      const current=db.prepare("SELECT l.data FROM libraries l JOIN settings s ON s.value=l.id WHERE s.key='current_library'").get();
+      if (current && defaults.some(([id,repo])=>{const lib=JSON.parse(current.data);return lib.projectId===id&&lib.repository===repo;})) db.prepare("DELETE FROM settings WHERE key='current_library'").run();
+      db.exec('COMMIT');
+    } catch(e) {db.exec('ROLLBACK');throw e;}
+  }
+  const service = createService(db, {...options,bootstrapDefaults,serializeProjects:options.serializeProjects??true,simplifiedWorkflow:options.simplifiedWorkflow??config.LAB_WORKFLOW_MODE!=='legacy',requireTraceability:config.MD_TRACEABILITY_ENABLED!=="false"});
   const onboarding=createOnboarding(db,service);
   const onboardingApi=options.onboardingApi||onboardingGithub(config.GITHUB_TOKEN);
   const deploymentOnboarding=createDeployOnboarding(db,service,config,{github:onboardingApi,...options.deploymentOptions});
@@ -101,8 +130,8 @@ export function createApp(config, options = {}) {
   app.delete('/api/notifications/:id',(req,res)=>res.json(notificationCenter.remove(req.user,z.coerce.number().int().positive().safe().parse(req.params.id))));
   app.post('/api/notifications/read',(req,res)=>{const b=z.object({through:z.number().int().nonnegative().safe()}).strict().parse(req.body);res.json(notificationCenter.markRead(req.user,b.through));});
   app.get("/api/config", (req, res) => res.json({ aiConfigured: agent.enabled()?agent.settings().keyConfigured:config.LAB_PLANNING_MODE!=="server"||Boolean(config.OPENAI_API_KEY), planningMode:agent.enabled()?"lab-agent":config.LAB_PLANNING_MODE==="server"?"server":"codex-local", model: agent.enabled()?agent.settings().model:config.LAB_PLANNING_MODE==="server"?(config.OPENAI_MODEL||"gpt-4.1-mini"):"Codex trên Mac",
-    workflow:{mode:(options.simplifiedWorkflow??config.LAB_WORKFLOW_MODE!=='legacy')?'direct-v1':'legacy',serializedProjects:options.serializeProjects??true}, classifier:{enabled:agent.enabled(),configured:agent.settings().keyConfigured,model:agent.settings().model,strategy:agent.settings().strategy},
-    aiUsage: req.user.role === "admin" ? {...service.aiLedger.summary(config),coordinatorUsage:service.projects().map(p=>({projectId:p.id,...agent.usage(p.id)}))} : undefined, policyVersion: "risk-v2", runner: service.runnerStatus(), mcpUrl: (config.APP_URL || "http://localhost:3000").replace(/\/$/, "") + "/mcp", project: service.project("writer-studio") }));
+    workspace:{environment:staging?'staging':'production',bootstrapDefaults}, workflow:{mode:(options.simplifiedWorkflow??config.LAB_WORKFLOW_MODE!=='legacy')?'direct-v1':'legacy',serializedProjects:options.serializeProjects??true}, classifier:{enabled:agent.enabled(),configured:agent.settings().keyConfigured,model:agent.settings().model,strategy:agent.settings().strategy},
+    aiUsage: req.user.role === "admin" ? {...service.aiLedger.summary(config),coordinatorUsage:service.projects().map(p=>({projectId:p.id,...agent.usage(p.id)}))} : undefined, policyVersion: "risk-v2", runner: service.runnerStatus(), mcpUrl: (config.APP_URL || "http://localhost:3000").replace(/\/$/, "") + "/mcp", project: service.projects()[0] || null }));
   app.get('/api/settings/cloud',auth.admin,(req,res)=>res.json(cloud.get()));
   app.put('/api/settings/cloud',auth.admin,(req,res)=>res.json(cloud.update(req.body)));
   app.post('/api/settings/cloud/dispatch',auth.admin,limiter(2,3600000),async(req,res)=>res.json(await cloud.dispatch()));
@@ -255,7 +284,7 @@ export function createApp(config, options = {}) {
   app.get("/api/library", (req, res) => res.json(service.currentLibrary(req.query.projectId)));
   const syncing = new Set();
   app.post("/api/library/sync", auth.admin, limiter(3, 10 * 60000), async (req, res) => {
-    const id=req.body?.projectId||'writer-studio'; service.project(id);
+    const id=req.body?.projectId||service.projects()[0]?.id; service.project(id);
     if(syncing.has(id))fail("Library của project đang đồng bộ."); syncing.add(id);
     try { res.json(await syncLibrary(service, config.GITHUB_TOKEN,id)); } finally { syncing.delete(id); }
   });

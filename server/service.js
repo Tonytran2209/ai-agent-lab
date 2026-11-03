@@ -54,23 +54,29 @@ function addVersion(library) {
 export function createService(db, options = {}) {
   const feedbackImages=createFeedbackImages(db);
   const seed = options.seed ?? JSON.parse(readFileSync(new URL("../library/writer-studio.json", import.meta.url), "utf8"));
+  const bootstrapDefaults = options.bootstrapDefaults !== false;
   const seeded = addVersion(seed);
-  db.prepare("INSERT OR IGNORE INTO libraries(id,data) VALUES (?,?)").run(seeded.id, JSON.stringify(seeded));
-db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',?)").run(seeded.id);
+  if (bootstrapDefaults) {
+    db.prepare("INSERT OR IGNORE INTO libraries(id,data) VALUES (?,?)").run(seeded.id, JSON.stringify(seeded));
+    db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',?)").run(seeded.id);
+  }
   const projects = createProjects(db);
-  const currentLibrary = (projectId = seed.projectId) => library(projects.get(projectId).libraryVersionId);
+  const defaultProjectId = () => projects.list().find(p=>p.id===seed.projectId)?.id || projects.list()[0]?.id;
+  const currentLibrary = (projectId = defaultProjectId()) => library(projects.get(projectId).libraryVersionId);
   const library = id => {
     const row = db.prepare("SELECT data FROM libraries WHERE id=?").get(id);
     if (!row) fail("Không tìm thấy library version.", 404);
     return JSON.parse(row.data);
   };
 
-  const legacy = library(db.prepare("SELECT value FROM settings WHERE key='current_library'").get().value);
-  projects.seed(legacy, {runnerEnabled:true,releaseEnabled:true});
-  if (!options.seed) {
-    const extra=addVersion(JSON.parse(readFileSync(new URL('../library/intercom-writer-studio.json',import.meta.url),'utf8')));
-    db.prepare('INSERT OR IGNORE INTO libraries(id,data) VALUES (?,?)').run(extra.id,JSON.stringify(extra));
-    projects.seed(extra,{runnerEnabled:true,ciReady:extra.ciReady});
+  if (bootstrapDefaults) {
+    const legacy = library(db.prepare("SELECT value FROM settings WHERE key='current_library'").get().value);
+    projects.seed(legacy, {runnerEnabled:true,releaseEnabled:true});
+    if (!options.seed) {
+      const extra=addVersion(JSON.parse(readFileSync(new URL('../library/intercom-writer-studio.json',import.meta.url),'utf8')));
+      db.prepare('INSERT OR IGNORE INTO libraries(id,data) VALUES (?,?)').run(extra.id,JSON.stringify(extra));
+      projects.seed(extra,{runnerEnabled:true,ciReady:extra.ciReady});
+    }
   }
   const ciSetup=createCiSetup(db,projects,library);
   const save = r => db.prepare("INSERT INTO requests(id,data) VALUES (?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data").run(r.id, JSON.stringify(r));
@@ -303,7 +309,7 @@ db.prepare("INSERT OR IGNORE INTO settings(key,value) VALUES ('current_library',
     learningExamples(input) {
       const tokens = text => new Set(String(text).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").split(/[^\p{L}\p{N}]+/u).filter(t => t.length >= 3));
       const query = tokens(input.feedback + " " + input.screen);
-      return list().filter(r => r.projectId === (input.projectId || seed.projectId) && r.repository === (input.repository || projects.get(input.projectId || seed.projectId).repository) && ["completed", "rejected"].includes(r.status) && r.draft && r.id !== input.id)
+      return list().filter(r => r.projectId === (input.projectId || defaultProjectId()) && r.repository === (input.repository || projects.get(input.projectId || defaultProjectId()).repository) && ["completed", "rejected"].includes(r.status) && r.draft && r.id !== input.id)
         .map(r => ({ r, score: [...tokens(r.feedback + " " + r.screen + " " + r.draft.module)].filter(t => query.has(t)).length }))
         .filter(v => v.score >= 2).sort((a,b) => b.score - a.score).slice(0,3).map(({r}) => {
           const last = db.prepare("SELECT data FROM events WHERE request_id=? AND json_extract(data,'$.type')='request_rejected' ORDER BY id DESC LIMIT 1").get(r.id);
