@@ -11,6 +11,7 @@ function fixture(){const dir=mkdtempSync(path.join(os.tmpdir(),'lab-staging-')),
 test('empty staging boots, authenticates and serves config/projects without a Writer library',async()=>{
  const f=fixture(),{app,service}=createApp(config,{db:f.db});const server=app.listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));
  try{assert.deepEqual(service.projects(),[]);const base='http://127.0.0.1:'+server.address().port;
+ const health=await(await fetch(base+'/health')).json();assert.equal(health.workspaceEnvironment,'staging');assert.equal(health.bootstrapDefaults,false);
  const login=await fetch(base+'/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:'Admin',password:config.ADMIN_PASSWORD})});assert.equal(login.status,200);const headers={Cookie:login.headers.get('set-cookie').split(';')[0]};
  for(const url of ['/api/config','/api/projects','/api/requests']){const r=await fetch(base+url,{headers});assert.equal(r.status,200,url);const b=await r.json();if(url.endsWith('config'))assert.equal(b.project,null);}
  const lib=JSON.parse(readFileSync(new URL('../library/writer-studio.json',import.meta.url),'utf8'));lib.projectId='a2a-test-project';lib.repository='Example/a2a-test';service.addLibrary(lib);assert.equal(service.currentLibrary().projectId,lib.projectId);assert.equal(service.projects()[0].runnerEnabled,false);assert.equal(service.projects()[0].releaseEnabled,false);
