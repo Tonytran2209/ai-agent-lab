@@ -209,3 +209,6 @@ pre{overflow:auto;max-width:100%;background:var(--surface-soft);line-height:1.6}
 @media(max-width:1100px){.documents-workspace{grid-template-columns:240px minmax(0,1fr)}}
 @media(max-width:700px){.document-library{margin:16px auto}.documents-toolbar{align-items:flex-start;flex-wrap:wrap}.documents-workspace{grid-template-columns:1fr;min-height:0}.documents-browser{border-right:0;border-bottom:1px solid var(--border);padding:12px}.documents-browser nav{min-height:0;max-height:230px}.documents-group>button{min-height:44px}.documents-reader-heading{padding:16px}.documents-authority{margin:12px 16px 0}.documents-outline{padding:12px 16px}.documents-outline button{min-height:44px}.documents-text{padding:16px;max-height:65dvh;min-height:240px}.documents-reader-heading .button{min-height:44px}}
 .document-library,.documents-toolbar strong,.documents-reader-heading h2,.documents-outline summary{color:var(--text)}
+/* Page-level project navigation must keep its own header spacing; the generic
+   project-filter margin reset above also serves filters inside page content. */
+.streamlined .main>.library-projects{max-width:1440px;margin:24px auto 20px}
