@@ -453,3 +453,201 @@
   color: var(--perf-tone);
   background: color-mix(in srgb, var(--perf-tone) 9%, var(--card));
 }
+
+/* Reference palette scoped to the dashboard. Status labels retain their semantics. */
+.performance-page {
+  --perf-lime: #ceff62;
+  --perf-rose: #ffb9ad;
+  --perf-blue: #abc8ff;
+  --perf-yellow: #ffeb86;
+  --perf-orange: #ff793d;
+  --perf-ink: #242522;
+  --perf-color-text: #20251a;
+  --perf-color-muted: #424c31;
+}
+.performance-page .perf-card {
+  border-radius: 24px;
+}
+.perf-metric {
+  min-height: 176px;
+  display: flex;
+  flex-direction: column;
+}
+.perf-metric > strong {
+  font-size: 36px;
+  letter-spacing: -1px;
+  margin-top: 20px;
+}
+.perf-metric > small {
+  margin-top: auto;
+}
+.performance-page .perf-metric[data-surface] {
+  --text: var(--perf-color-text);
+  --secondary: var(--perf-color-muted);
+  --muted: var(--perf-color-muted);
+  --perf-tone: var(--perf-color-text);
+  border-color: transparent;
+  color: var(--text);
+}
+.perf-metric[data-surface="lime"] {
+  --card: var(--perf-lime);
+}
+.perf-metric[data-surface="rose"] {
+  --card: var(--perf-rose);
+}
+.perf-metric[data-surface="blue"] {
+  --card: var(--perf-blue);
+}
+.perf-metric[data-surface="yellow"] {
+  --card: var(--perf-yellow);
+}
+.performance-page .perf-metric[data-surface="ink"],
+.performance-page .perf-system-card {
+  --card: var(--perf-ink);
+  --text: #f6f7ef;
+  --secondary: #c3c6bc;
+  --muted: #c3c6bc;
+  --border: #45483e;
+  --success: #ceff62;
+  --warning: #ffdf80;
+  --danger: #ffa39a;
+  --perf-tone: #f6f7ef;
+  color: var(--text);
+}
+.perf-trend-card {
+  --card: var(--perf-orange);
+  --text: #291f17;
+  --secondary: #4a2d1c;
+  --muted: #4a2d1c;
+  --border: #c2562a;
+  color: var(--text);
+  border-color: transparent;
+}
+.perf-trend-card .perf-bar {
+  background: var(--perf-ink);
+  opacity: 1;
+  border-radius: 8px 8px 0 0;
+}
+.perf-trend-card .perf-tag {
+  color: var(--text);
+  border-color: var(--text);
+}
+.perf-project-grid .perf-card {
+  border-top: 3px solid var(--accent);
+}
+.perf-project-numbers strong {
+  font-size: 30px;
+  font-variant-numeric: tabular-nums;
+}
+.perf-report {
+  animation: perf-enter 320ms ease-out both;
+}
+.perf-report .perf-metrics > .perf-card {
+  animation: perf-enter 420ms ease-out both;
+}
+.perf-report .perf-metrics > .perf-card:nth-child(2) {
+  animation-delay: 55ms;
+}
+.perf-report .perf-metrics > .perf-card:nth-child(3) {
+  animation-delay: 110ms;
+}
+.perf-report .perf-metrics > .perf-card:nth-child(4) {
+  animation-delay: 165ms;
+}
+.perf-grid > .perf-card,
+.perf-project-grid > .perf-card {
+  animation: perf-enter 460ms 100ms ease-out both;
+}
+.perf-bar {
+  transform-origin: bottom;
+  animation: perf-bar-grow 650ms ease-out both;
+  animation-delay: calc(min(var(--bar-index, 0), 10) * 22ms);
+  transition: height 400ms ease;
+}
+.perf-switch button {
+  transition:
+    background-color 180ms,
+    color 180ms;
+}
+.perf-card {
+  transition:
+    border-color 180ms,
+    box-shadow 180ms;
+}
+@media (hover: hover) {
+  .perf-project-grid .perf-card:hover {
+    border-color: var(--accent);
+  }
+}
+.perf-loading {
+  padding: 0;
+}
+.perf-skeleton-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+.perf-skeleton {
+  height: 176px;
+  border-radius: 24px;
+  background: var(--surface-soft);
+  animation: perf-pulse 1.2s ease-in-out infinite alternate;
+}
+@keyframes perf-enter {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes perf-bar-grow {
+  from {
+    transform: scaleY(0);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}
+@keyframes perf-pulse {
+  from {
+    opacity: 0.45;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@media (max-width: 1150px) {
+  .perf-skeleton-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 600px) {
+  .perf-metric > strong {
+    font-size: 30px;
+  }
+  .perf-metric {
+    min-height: 170px;
+  }
+  .performance-page .perf-card {
+    border-radius: 20px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .performance-page *,
+  .performance-page *::before,
+  .performance-page *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+/* Keep accessible table labels inside the horizontal scroll container. */
+.perf-table-scroll {
+  position: relative;
+}
+.perf-metric > strong,
+.perf-project-numbers strong {
+  position: relative;
+}

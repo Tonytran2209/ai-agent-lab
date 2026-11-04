@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   Activity,
   ArrowUpRight,
@@ -66,14 +66,73 @@ function PerformanceSelect({ children, ...props }) {
     </span>
   );
 }
-function Metric({ icon: Icon, label, value, note, tone = "neutral" }) {
+const count = (value) => number(Math.round(value));
+const percentage = (value) => number(value) + "%";
+function AnimatedValue({ value, format = count }) {
+  const current = useRef(0);
+  const [display, setDisplay] = useState(0);
+  useEffect(() => {
+    const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    let frame;
+    const finish = () => {
+      cancelAnimationFrame(frame);
+      current.current = value;
+      setDisplay(value);
+    };
+    const from = current.current ?? 0;
+    if (value == null || motion.matches || from === value) {
+      finish();
+    } else {
+      const started = performance.now();
+      const tick = (now) => {
+        const progress = Math.min(1, (now - started) / 650);
+        const next = from + (value - from) * (1 - Math.pow(1 - progress, 3));
+        current.current = next;
+        setDisplay(next);
+        if (progress < 1) frame = requestAnimationFrame(tick);
+      };
+      frame = requestAnimationFrame(tick);
+    }
+    const onMotion = () => {
+      if (motion.matches) finish();
+    };
+    motion.addEventListener("change", onMotion);
+    return () => {
+      cancelAnimationFrame(frame);
+      motion.removeEventListener("change", onMotion);
+    };
+  }, [value]);
   return (
-    <article className="perf-card perf-metric" data-tone={tone}>
+    <>
+      <span aria-hidden="true">
+        {value == null ? "—" : format(display ?? 0)}
+      </span>
+      <span className="sr-only">{value == null ? "—" : format(value)}</span>
+    </>
+  );
+}
+function Metric({
+  icon: Icon,
+  label,
+  value,
+  note,
+  tone = "neutral",
+  surface,
+  format,
+}) {
+  return (
+    <article
+      className="perf-card perf-metric"
+      data-tone={tone}
+      data-surface={surface}
+    >
       <div className="perf-card-label">
         <Icon size={16} aria-hidden="true" />
         {label}
       </div>
-      <strong>{value}</strong>
+      <strong>
+        <AnimatedValue value={value} format={format} />
+      </strong>
       <small>{note}</small>
     </article>
   );
@@ -203,11 +262,16 @@ export default function Performance({ api, onRequest }) {
       )}
       {!data && !error && (
         <div className="perf-loading" role="status">
-          Đang tải báo cáo vận hành…
+          <span className="sr-only">Đang tải báo cáo vận hành…</span>
+          <div className="perf-skeleton-grid" aria-hidden="true">
+            {[0, 1, 2, 3].map((i) => (
+              <div className="perf-skeleton" key={i} />
+            ))}
+          </div>
         </div>
       )}
       {data && (
-        <>
+        <div className="perf-report" key={scope + days + reportProject}>
           {scope === "lab" ? (
             <>
               <div className="perf-metrics">
@@ -215,7 +279,8 @@ export default function Performance({ api, onRequest }) {
                   icon={Activity}
                   label="Lượt gọi API"
                   tone={lab.http.calls ? "info" : "neutral"}
-                  value={number(lab.http.calls)}
+                  value={lab.http.calls}
+                  surface="blue"
                   note="HTTP tới API, runner và MCP"
                 />
                 <Metric
@@ -228,13 +293,15 @@ export default function Performance({ api, onRequest }) {
                         ? "error"
                         : "success"
                   }
+                  surface={
+                    lab.http.errors ? "rose" : lab.http.calls ? "lime" : "ink"
+                  }
+                  format={percentage}
                   value={
                     lab.http.calls
-                      ? number(
-                          (100 * (lab.http.calls - lab.http.errors)) /
-                            lab.http.calls,
-                        ) + "%"
-                      : "—"
+                      ? (100 * (lab.http.calls - lab.http.errors)) /
+                        lab.http.calls
+                      : null
                   }
                   note={
                     number(lab.http.errors) +
@@ -247,21 +314,24 @@ export default function Performance({ api, onRequest }) {
                   icon={Clock}
                   label="Thời gian phản hồi TB"
                   tone={lab.http.calls ? "info" : "neutral"}
-                  value={duration(lab.http.averageMs)}
+                  value={lab.http.averageMs}
+                  format={duration}
+                  surface="yellow"
                   note={"Cao nhất " + duration(lab.http.maxMs)}
                 />
                 <Metric
                   icon={GitBranch}
                   label="Đang vận hành"
                   tone={lab.active ? "info" : "neutral"}
-                  value={number(lab.active)}
+                  value={lab.active}
+                  surface="ink"
                   note={
                     number(lab.running) + " request đang xử lý · toàn thời gian"
                   }
                 />
               </div>
               <div className="perf-grid">
-                <article className="perf-card">
+                <article className="perf-card perf-trend-card">
                   <div className="perf-card-heading">
                     <div>
                       <h2>Feedback theo thời gian</h2>
@@ -291,6 +361,7 @@ export default function Performance({ api, onRequest }) {
                           <div
                             className="perf-bar"
                             style={{
+                              "--bar-index": data.trend.indexOf(v),
                               height: (v.created / maximum) * 100 + "%",
                             }}
                             title={v.day + " · " + v.created + " feedback"}
@@ -305,7 +376,7 @@ export default function Performance({ api, onRequest }) {
                     <span>{data.trend.at(-1)?.day}</span>
                   </div>
                 </article>
-                <article className="perf-card">
+                <article className="perf-card perf-system-card">
                   <div className="perf-card-heading">
                     <div>
                       <h2>Sức khỏe hệ thống</h2>
@@ -383,13 +454,15 @@ export default function Performance({ api, onRequest }) {
                   label="Đã deploy"
                   tone={summary.deployed ? "success" : "neutral"}
                   value={summary.deployed}
+                  surface="yellow"
                   note="Trạng thái phát hành được Lab ghi nhận"
                 />
                 <Metric
                   icon={Clock}
                   label="P95 thời gian tới deploy"
                   tone={summary.deliverySamples ? "info" : "neutral"}
-                  value={duration(summary.p95DeliveryMs)}
+                  value={summary.p95DeliveryMs}
+                  format={duration}
                   note={
                     summary.deliverySamples +
                     " mẫu · gồm thời gian chờ và xử lý"
@@ -449,19 +522,19 @@ export default function Performance({ api, onRequest }) {
                       <div className="perf-project-numbers">
                         <div>
                           <strong data-tone={p.active ? "info" : "neutral"}>
-                            {p.active}
+                            <AnimatedValue value={p.active} />
                           </strong>
                           <small>Đang vận hành</small>
                         </div>
                         <div>
                           <strong data-tone={p.blocked ? "warning" : "neutral"}>
-                            {p.blocked}
+                            <AnimatedValue value={p.blocked} />
                           </strong>
                           <small>Chờ lượt</small>
                         </div>
                         <div>
                           <strong data-tone={p.attention ? "error" : "neutral"}>
-                            {p.attention}
+                            <AnimatedValue value={p.attention} />
                           </strong>
                           <small>Cần xử lý</small>
                         </div>
@@ -595,7 +668,7 @@ export default function Performance({ api, onRequest }) {
             theo ngày tạo feedback, trạng thái phản ánh lần cập nhật mới nhất.
             Biểu đồ theo UTC, thời điểm hiển thị theo múi giờ thiết bị.
           </p>
-        </>
+        </div>
       )}
     </section>
   );
