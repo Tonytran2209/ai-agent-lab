@@ -20,3 +20,7 @@ Keep the production LaunchAgent/config/token/state unchanged. A staging runner n
 ## Verification
 
 Log in on the staging domain: no Writer/Intercom cards or old production feedback. Add the test repo: verify runner/release remain off until configured. Redeploy: no seed projects reappear. Production keeps existing defaults unless explicitly configured otherwise. Never merge environment-specific settings or secrets into main.
+
+## Read-only monitoring targets
+
+Performance may read authenticated aggregate runtime reports from explicitly configured production app endpoints through `LAB_MONITORING_TARGETS` (see `docs/app-monitoring.md`). These app-specific monitoring secrets grant only aggregate reads. They are separate from connected projects, broad provider tokens, runner credentials and release bindings. Keep the isolated project registry and execution permissions unchanged.

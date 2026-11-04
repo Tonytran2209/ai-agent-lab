@@ -786,3 +786,5 @@
     animation: none;
   }
 }
+
+.perf-runtime-chart{overflow-x:auto;justify-content:flex-start;gap:12px}.perf-runtime-chart .perf-bar-column{flex:1 0 42px;max-width:72px}.perf-project-report+.perf-project-report{margin-top:32px}.perf-health dd{overflow-wrap:anywhere}

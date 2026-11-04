@@ -1,3 +1,4 @@
+import {createAppMonitoring,monitoringTargets} from './app-monitoring.js';
 import {createPerformance} from './performance.js';
 import {createNotificationCenter} from './notifications.js';
 import {createDeployOnboarding,deploymentInput,deploymentProtocol} from './deploy-onboarding.js';
@@ -95,6 +96,7 @@ export function createApp(config, options = {}) {
   const runnerControl=createRunnerControl(db,service);
   const notificationCenter=createNotificationCenter(db);
   const performanceReport = createPerformance(db, service);
+  const appMonitoring = createAppMonitoring({targets:()=>monitoringTargets(config.LAB_MONITORING_TARGETS || '[]')});
   const app = express();
   app.use(['/api', '/runner', '/mcp'], performanceReport.middleware);
   // Railway edge proxy adds one trusted hop; app is designed for one replica.
@@ -158,6 +160,10 @@ export function createApp(config, options = {}) {
   app.post('/api/data/backup',auth.admin,limiter(2,3600000),async(req,res)=>res.json(await dataManagement.backup()));
   app.get('/api/projects/:id/export',auth.admin,(req,res)=>res.attachment(req.params.id+'-lab.json').json(dataManagement.export(req.params.id)));
   app.post('/api/data/restore-preview',auth.admin,(req,res)=>res.json(dataManagement.preview(req.body)));
+  app.get('/api/monitoring', auth.admin, async (req,res) => {
+    const {days}=z.object({days:z.coerce.number().int().min(1).max(30).default(7)}).strict().parse(req.query);
+    res.set('Cache-Control','private, no-store').json(await appMonitoring.snapshot(days));
+  });
   app.get("/api/performance", auth.admin, (req, res) => {
     const {days,projectId}=z.object({days:z.coerce.number().int().min(1).max(30).default(7),projectId:z.string().min(3).max(64).optional()}).strict().parse(req.query);
     res.json(performanceReport.snapshot(days,projectId));

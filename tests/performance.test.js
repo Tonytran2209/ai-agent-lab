@@ -45,6 +45,7 @@ test("performance preserves project boundaries, stale signals and legacy missing
   ];
   const service = {
     list: () => requests,
+    project: id => ({id}),
     projects: () => [
       { id: "a", repository: "owner/a", enabled: true, runnerEnabled: true },
       { id: "b", repository: "owner/b", enabled: true, runnerEnabled: true },
@@ -83,6 +84,15 @@ test("performance preserves project boundaries, stale signals and legacy missing
       3,
     );
     assert.equal(snapshot.trend.length, 7);
+    const scoped=report.snapshot(7,'a');
+    assert.equal(scoped.summary.total,2);
+    assert.equal(scoped.summary.failed,0);
+    assert.equal(scoped.trend.reduce((n,v)=>n+v.created,0),2);
+    assert.equal(scoped.lab.active,0);
+    assert.equal(scoped.lab.http.calls,1);
+    assert.equal(scoped.lab.httpScope,'workspace');
+    assert.equal(scoped.projects[1].total,1);
+    assert.ok(scoped.recent.every(r=>r.projectId==='a'));
   } finally {
     db.close();
   }
@@ -117,7 +127,9 @@ test("report API requires admin and rejects unbounded ranges", async () => {
       });
       return { Cookie: response.headers.get("set-cookie").split(";")[0] };
     };
+    assert.equal((await fetch(base+'/api/monitoring')).status,401);
     const member = await login(config.USER_PASSWORD);
+    assert.equal((await fetch(base+'/api/monitoring',{headers:member})).status,403);
     assert.equal(
       (await fetch(base + "/api/performance", { headers: member })).status,
       403,
@@ -132,6 +144,10 @@ test("report API requires admin and rejects unbounded ranges", async () => {
       headers: admin,
     });
     assert.equal(response.status, 200);
+    assert.equal((await fetch(base+'/api/monitoring?days=31',{headers:admin})).status,400);
+    const monitored=await fetch(base+'/api/monitoring?days=7',{headers:admin});
+    assert.equal(monitored.status,200);
+    assert.equal(monitored.headers.get('cache-control'),'private, no-store');
     const body = await response.json();
     assert.equal(body.projects.length, 0);
     assert.equal(body.summary.total, 0);

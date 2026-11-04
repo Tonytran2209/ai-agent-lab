@@ -60,7 +60,8 @@ export function createPerformance(db, service) {
           Date.parse(new Date(now).toISOString().slice(0, 10)) -
           (days - 1) * 86400000;
       const requests = service.list().filter((r) => !r.archivedAt);
-      const cohort = requests.filter((r) => Date.parse(r.createdAt) >= since);
+      const scoped = requests.filter(r => !projectId || r.projectId === projectId);
+      const cohort = scoped.filter((r) => Date.parse(r.createdAt) >= since);
       const runner = service.runnerStatus();
       const metrics = (rows) => {
         const durations = rows
@@ -107,7 +108,7 @@ export function createPerformance(db, service) {
                       ? "ready"
                       : "error",
           lastSeenAt: runner.lastSeenAt,
-          ...metrics(cohort.filter((r) => r.projectId === p.id)),
+          ...metrics(requests.filter(r => r.projectId === p.id && Date.parse(r.createdAt) >= since)),
           active: current.length,
           running: current.filter(running).length,
           blocked: current.filter((r) => r.projectQueue?.blocked).length,
@@ -167,6 +168,7 @@ export function createPerformance(db, service) {
             lastSeenAt: runner.lastSeenAt,
           },
           recordingErrors,
+          httpScope: "workspace",
           http: {
             calls,
             errors,
@@ -176,8 +178,8 @@ export function createPerformance(db, service) {
               : null,
             maxMs: calls ? Math.max(...hours.map((r) => r.max_ms)) : null,
           },
-          active: requests.filter(active).length,
-          running: requests.filter((r) => active(r) && running(r)).length,
+          active: scoped.filter(active).length,
+          running: scoped.filter((r) => active(r) && running(r)).length,
         },
         summary: metrics(cohort),
         projects,
