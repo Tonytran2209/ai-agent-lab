@@ -27,3 +27,14 @@ test('inbox loading covers active source survey, code, CI and repair but stops o
  for(const r of [{status:'running',lease},{status:'feedback',preparation:{engine:'codex-local',status:'running'},planning:{lease}},{status:'verifying',verification:{phase:'ci'}},{status:'failed',ciRepair:{phase:'running',lease}},{status:'rechecking',recheck:{phase:'running',lease}},{status:'review',delivery:{phase:'checking'}}])assert.equal(inboxIndicator(r,now),'processing');
  for(const r of [{status:'running',lease:expired},{status:'failed'},{status:'rechecking',recheck:{phase:'running',lease:expired}},{status:'awaiting-approval'}])assert.equal(inboxIndicator(r,now),'idle');
 });
+
+
+test('failed CI on an older base can be replanned only after all workers stop',async()=>{
+ const {canReplanOnCurrentBase}=await import('../src/workflow.js');
+ const r={status:'failed',draft:{risk:'low'},result:{commit:'old'},projectQueue:{staleBase:true}};
+ assert.equal(canReplanOnCurrentBase(r),true);
+ for(const lane of ['planning','ciRepair','recheck','verification','release'])assert.equal(canReplanOnCurrentBase({...r,[lane]:{lease:{expiresAt:'2000-01-01'}}}),false);
+ assert.equal(canReplanOnCurrentBase({...r,lease:{}}),false);
+ assert.equal(canReplanOnCurrentBase({...r,projectQueue:{staleBase:false}}),false);
+ for(const status of ['running','claimed','verifying','completed','review','rejected'])assert.equal(canReplanOnCurrentBase({...r,status}),false);
+});

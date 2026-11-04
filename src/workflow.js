@@ -1,3 +1,4 @@
+export const canReplanOnCurrentBase=r=>Boolean(r.projectQueue?.staleBase&&r.draft&&['approved','awaiting-approval','draft','needs-triage','failed'].includes(r.status)&&!r.lease&&!r.planning?.lease&&!r.ciRepair?.lease&&!r.recheck?.lease&&!r.verification?.lease&&!r.release);
 export const stalePreparation=r=>Boolean(r.projectQueue?.staleBase&&r.draft&&!r.result&&!r.release&&['feedback','needs-triage','draft','awaiting-approval','approved'].includes(r.status));
 export const workflowLabels = {
   feedback: "Feedback mới — chờ chuẩn bị request",

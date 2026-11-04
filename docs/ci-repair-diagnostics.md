@@ -24,3 +24,10 @@ preparation stage, and dirty workspaces report `workspace-dirty` without startin
 Codex. Per-request/per-attempt result files preserve interrupted repair reports.
 A blocked scope remains blocked: these diagnostics never authorize additional
 files or ignore pre-existing CI failures.
+
+If a separately reviewed fix lands on main while the request is failed, sync the
+project library and use **Chuẩn bị lại trên main mới**. This admin action archives
+the old plan/result through the existing rebase API and prepares a fresh plan.
+It is unavailable while any worker holds a claim (including expired claims) or a
+release exists. It does not copy old approval to a changed plan or let a repair
+silently absorb unrelated baseline changes.
