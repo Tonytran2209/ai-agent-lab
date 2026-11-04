@@ -31,3 +31,14 @@ the old plan/result through the existing rebase API and prepares a fresh plan.
 It is unavailable while any worker holds a claim (including expired claims) or a
 release exists. It does not copy old approval to a changed plan or let a repair
 silently absorb unrelated baseline changes.
+
+Verification waits for the server when a bounded in-scope test-only successor is
+observed, instead of treating it as an immediate unauthorized-head failure. This
+never marks checks passed or permits the publisher to merge a different head.
+
+GitHub can expose a new branch ref before PR metadata catches up. For a known
+pushed repair, the server verifies the exact branch ref and linear ancestry,
+shows actual new-commit job states, and explicitly waits for PR synchronization.
+Even green checks during this state cannot promote the artifact until the PR's
+actual head/diff is independently verified. Old failed checks cannot trigger a
+new coding attempt while PR metadata is stale.

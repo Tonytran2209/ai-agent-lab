@@ -39,3 +39,12 @@ test('repair collects both failed shards before aggregate and tolerates one unav
  assert.equal(calls.length,3);assert.match(logs,/job 3/);assert.match(logs,/actual assertion/);assert.ok(!logs.includes('private transport'));
  assert.equal(repairDiagnostic({repairCode:'workspace-dirty'},'chuẩn bị worktree và dependency').code,'workspace-dirty');
 });
+
+test('PR metadata lag supersedes the old failed CI display without promoting a repair result',async()=>{
+ const {resultRevision}=await import('../server/verification.js');const f=fixture();try{
+  const r=f.s.create({feedback:'Fix preview contrast.'},'User'),raw=f.s.rawForAnalysis(r.id),old='a'.repeat(40),head='c'.repeat(40);
+  Object.assign(raw,{workflowProtocol:'direct-v1',status:'failed',result:{commit:old},verification:{phase:'failed'},ciRepair:{phase:'pushed',commit:head},ciObservation:{commit:old,failed:true,jobs:[]}});f.db.prepare('UPDATE requests SET data=? WHERE id=?').run(JSON.stringify(raw),r.id);
+  f.s.observeCriterionCi(r.id,resultRevision(raw),{commit:head,prNumber:4,prUrl:`https://github.com/${r.repository}/pull/4`,pendingReason:'pr-head-sync',observedPrHead:old,failed:false,jobs:[{name:'browser-check',status:'queued',conclusion:null}],failures:[]});
+  const next=f.s.get(r.id);assert.equal(next.status,'verifying');assert.equal(next.verification.phase,'ci');assert.equal(next.result.commit,old);assert.match(next.verification.note,/thông tin PR chưa cập nhật/);assert.equal(next.release,undefined);assert.equal(next.acceptance,undefined);
+ }finally{f.close();}
+});
