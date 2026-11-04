@@ -41,22 +41,35 @@ export async function collectCriterionCi(r,token,fetcher=fetch){
  const prs=await api('pulls?state=open&head='+encodeURIComponent(r.repository.split('/')[0]+':'+branch)+'&base='+encodeURIComponent(r.branch));if(prs.length!==1)return null;
  const pr=await api('pulls/'+prs[0].number),commit=pr.head?.sha;
  if(pr.head?.ref!==branch||pr.head?.repo?.full_name!==r.repository||pr.base?.repo?.full_name!==r.repository||pr.base?.ref!==r.branch)throw Error('PR không khớp project.');
+ const repair=r.ciRepair;
+ if(r.workflowProtocol==='direct-v1'&&repair?.phase==='pushed'&&!repair.lease&&repair.prNumber===pr.number&&repair.head===commit&&repair.commit!==commit&&/^[a-f0-9]{40}$/.test(repair.commit||'')&&repair.checks?.some(c=>c.command==='npm run check'&&c.passed)&&repair.checks.every(c=>c.passed)){
+  const ref=await api('git/ref/heads/'+branch);
+  if(ref.object?.sha!==repair.commit||ref.object?.type!=='commit')throw Error('Nhánh GitHub chưa khớp commit sửa CI đã báo; giữ nguyên artifact.');
+  await verifyArtifactLineage(api,r.baseCommit,repair.commit,r.result.commit);
+  const checks=await api('commits/'+repair.commit+'/check-runs?per_page=100'),evidence=assessCi(checks,await api('commits/'+repair.commit+'/status'),repair.commit),infrastructure=await ciInfrastructure(api,checks,repair.commit);
+  // A confirmed branch push is not proof that the PR's diff/scope has caught up.
+  // Show actual new-head jobs but never accept or start another repair on stale PR metadata.
+  return {pending:true,pendingReason:'pr-head-sync',observedPrHead:commit,commit:repair.commit,prNumber:pr.number,prUrl:pr.html_url,failed:false,failures:[],jobs:[...evidence.jobs.filter(j=>!infrastructure.jobs.some(row=>row.name===j.name)),...infrastructure.jobs]};
+ }
  const files=await api('pulls/'+pr.number+'/files?per_page=100');
  if(!files.length||files.length!==pr.changed_files||files.some(f=>!r.draft.allowedPaths.includes(f.filename)||f.previous_filename&&!r.draft.allowedPaths.includes(f.previous_filename)))throw Error('Artifact vượt phạm vi đã duyệt.');
  await verifyArtifactLineage(api,r.baseCommit,commit,r.result.commit);
- const checks=await api('commits/'+commit+'/check-runs?per_page=100'),evidence=assessCi(checks,await api('commits/'+commit+'/status'),commit);
- const infrastructure=await ciInfrastructure(api,checks,commit);
- const observation={commit,prNumber:pr.number,prUrl:pr.html_url,failed:evidence.failed||evidence.failures.length>0,jobs:[...evidence.jobs.filter(j=>!infrastructure.jobs.some(row=>row.name===j.name)),...infrastructure.jobs],failureKind:infrastructure.failureKind,failures:evidence.failures};
- if(!evidence.ready){return {pending:true,commit,prNumber:pr.number,prUrl:pr.html_url,failed:evidence.failed||evidence.failures.length>0,jobs:[...evidence.jobs.filter(j=>!infrastructure.jobs.some(row=>row.name===j.name)),...infrastructure.jobs],failureKind:infrastructure.failureKind,failures:evidence.failures};}
+ let verifiedTestFollowup=null;
  if(r.workflowProtocol==='direct-v1'){
   const reviewed=r.ciRepair?.phase==='pushed'?r.ciRepair.commit:r.result.commit;
-  let verifiedTestFollowup=null;
   if(reviewed&&commit!==reviewed){
    await verifyArtifactLineage(api,r.baseCommit,commit,reviewed);
    const delta=await api('compare/'+reviewed+'...'+commit);
    if(delta.status!=='ahead'||delta.base_commit?.sha!==reviewed||!delta.files?.length||delta.files.length>20||delta.files.some(f=>!isTestFollowupPath(f.filename)||f.previous_filename&&!isTestFollowupPath(f.previous_filename)))throw Error('Commit mới cần đánh giá tài liệu/phạm vi lại; không chỉ sửa test.');
    verifiedTestFollowup={reviewedCommit:reviewed,changedPaths:delta.files.map(f=>f.filename)};
   }
+ }
+
+ const checks=await api('commits/'+commit+'/check-runs?per_page=100'),evidence=assessCi(checks,await api('commits/'+commit+'/status'),commit);
+ const infrastructure=await ciInfrastructure(api,checks,commit);
+ const observation={commit,prNumber:pr.number,prUrl:pr.html_url,failed:evidence.failed||evidence.failures.length>0,jobs:[...evidence.jobs.filter(j=>!infrastructure.jobs.some(row=>row.name===j.name)),...infrastructure.jobs],failureKind:infrastructure.failureKind,failures:evidence.failures};
+ if(!evidence.ready){return {pending:true,...(verifiedTestFollowup?{pendingReason:'test-followup-ci',verifiedTestFollowup}:{}),commit,prNumber:pr.number,prUrl:pr.html_url,failed:evidence.failed||evidence.failures.length>0,jobs:[...evidence.jobs.filter(j=>!infrastructure.jobs.some(row=>row.name===j.name)),...infrastructure.jobs],failureKind:infrastructure.failureKind,failures:evidence.failures};}
+ if(r.workflowProtocol==='direct-v1'){
   return {commit,branch,changedPaths:files.map(f=>f.filename),prNumber:pr.number,prUrl:pr.html_url,evidenceUrl:evidence.evidenceUrl,criteria:[],source:'github-actions',wholeCi:{commit,jobs:evidence.jobs},observation,verifiedTestFollowup};
  }
  const url=evidence.evidenceUrl,match=new RegExp('^https://github.com/'+r.repository+'/actions/runs/[0-9]+/job/([0-9]+)$').exec(url||'');if(!match)throw Error('Thiếu job browser độc lập.');

@@ -54,10 +54,20 @@ export async function publishStep({ request: r, config, run, api, signal, purpos
     const prFiles = await api(prefix + '/pulls/' + release.prNumber + '/files?per_page=100');
     if (pr.changed_files !== prFiles.length || prFiles.some(f => !r.draft.allowedPaths.includes(f.filename)||f.previous_filename&&!r.draft.allowedPaths.includes(f.previous_filename)) || JSON.stringify(prFiles.map(f=>f.filename).sort())!==JSON.stringify([...r.result.changedPaths].sort())) throw new Error('PR chứa file ngoài phạm vi.');
     if (purpose === 'verification' && (pr.merged || pr.state !== 'open')) throw new Error('PR kiểm tra đã bị đóng hoặc merge ngoài luồng.');
+    const pendingRepair=r.ciRepair;
+    if(purpose==='verification'&&pendingRepair?.phase==='pushed'&&!pendingRepair.lease&&pendingRepair.prNumber===pr.number&&pendingRepair.head===pr.head?.sha&&pendingRepair.commit!==pr.head?.sha&&pendingRepair.checks?.some(c=>c.command==='npm run check'&&c.passed)&&pendingRepair.checks.every(c=>c.passed)){
+      await verifyArtifactLineage(suffix=>api(prefix+'/'+suffix),r.baseCommit,pendingRepair.commit,r.result.commit);
+      if(Date.now()-Date.parse(release.phaseStartedAt||release.authorizedAt)>30*60000)throw new Error('Hết thời gian chờ GitHub đồng bộ PR với commit sửa CI; giữ artifact để phục hồi.');
+      return {phase:'ci',note:'GitHub đã nhận commit sửa CI; đang chờ thông tin PR cập nhật đúng head. Chưa nghiệm thu hoặc phát hành.'};
+    }
     if(pr.head?.sha!==r.result.commit){
       const repair=r.ciRepair;
-      if(purpose!=='verification'||repair?.phase!=='pushed'||repair.lease||repair.commit!==pr.head?.sha||repair.prNumber!==pr.number||!repair.checks?.some(c=>c.command==='npm run check'&&c.passed)||repair.checks.some(c=>!c.passed))throw new Error('PR đã đổi head ngoài bản sửa CI đang được theo dõi.');
-      await verifyArtifactLineage(suffix=>api(prefix+'/'+suffix),r.baseCommit,repair.commit,r.result.commit);
+      const knownRepair=purpose==='verification'&&repair?.phase==='pushed'&&!repair.lease&&repair.commit===pr.head?.sha&&repair.prNumber===pr.number&&repair.checks?.some(c=>c.command==='npm run check'&&c.passed)&&repair.checks.every(c=>c.passed);
+      if(knownRepair)await verifyArtifactLineage(suffix=>api(prefix+'/'+suffix),r.baseCommit,repair.commit,r.result.commit);
+      else if(purpose==='verification'&&await testOnlyFollowup(suffix=>api(prefix+'/'+suffix),r,pr.head?.sha)){
+        if(Date.now()-Date.parse(release.phaseStartedAt||release.authorizedAt)>30*60000)throw new Error('Hết thời gian chờ server xác minh commit sửa test; giữ PR để kiểm tra.');
+        return {phase:'ci',note:'Commit sửa test đã đổi; đang chờ server đối chiếu scope và CI độc lập đúng commit. Chưa nghiệm thu hoặc phát hành.'};
+      }else throw new Error('PR đã đổi head ngoài bản sửa CI đang được theo dõi.');
       // The server independently validates this head and promotes it only after CI succeeds.
       return {phase:'ci',note:'Đang kiểm tra bản sửa CI mới '+repair.commit.slice(0,12)+'. Chờ server xác minh CI đúng commit trước khi nghiệm thu.'};
     }
@@ -141,4 +151,13 @@ export async function pollReleases(config, token, run, signal, onPullRequest = a
     await request('/' + row.id + '/report', { releaseToken: claimed.releaseToken, update });
     return; // One release stage per poll; all remote operations are idempotent across retries.
   }
+}
+
+// Observation only. The server still owns exact-head CI and result promotion.
+export async function testOnlyFollowup(api,r,head){
+ if(r.workflowProtocol!=='direct-v1')return false;
+ await verifyArtifactLineage(api,r.baseCommit,head,r.result.commit);
+ const delta=await api('compare/'+r.result.commit+'...'+head);
+ const testPath=p=>typeof p==='string'&&/^(?:tests\/(?:agent-lab|browser)\/|backend\/tests\/)[A-Za-z0-9_./-]+\.(?:test|spec)\.[cm]?[jt]sx?$/.test(p)&&!p.split('/').includes('..')&&r.draft.allowedPaths.includes(p);
+ return delta.status==='ahead'&&delta.base_commit?.sha===r.result.commit&&delta.files?.length>0&&delta.files.length<=20&&delta.files.every(f=>testPath(f.filename)&&(!f.previous_filename||testPath(f.previous_filename)));
 }

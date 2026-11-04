@@ -139,3 +139,20 @@ test('legacy deployment times recover from success history once and never from m
   assert.equal(createService(db).get(normal).release.deployedAt,'2024-01-02T00:00:00.000Z');
  } finally {db.close();rmSync(dir,{recursive:true,force:true});}
 });
+
+
+test('verification observes scoped test-only successors without accepting or publishing them',async()=>{
+ const head='d'.repeat(40),file='tests/browser/contrast.spec.ts',r={...packet('ci'),status:'verifying',workflowProtocol:'direct-v1',draft:{...draft,allowedPaths:[file]},result:{...report,changedPaths:[file]}};
+ const calls=[];
+ const api=async(endpoint,method='GET')=>{calls.push([endpoint,method]);assert.equal(method,'GET');if(endpoint.endsWith('/pulls/1'))return {...pr,head:{...pr.head,sha:head}};if(endpoint.includes('/pulls/1/files'))return[{filename:file}];if(endpoint.endsWith('/commits/'+head))return{sha:head,parents:[{sha:commit}]};if(endpoint.endsWith('/commits/'+commit))return{sha:commit,parents:[{sha:base}]};if(endpoint.includes('/compare/'))return{status:'ahead',base_commit:{sha:commit},files:[{filename:file}]};throw Error(endpoint);};
+ const result=await publishStep({request:r,purpose:'verification',config,run:gitRun,api});assert.equal(result.phase,'ci');assert.ok(!calls.some(([p,m])=>m!=='GET'||p.endsWith('/merge')));
+ const {testOnlyFollowup}=await import('../mac/release.js');
+ for(const files of [[{filename:'src/components/workspace/Step4Draft.tsx'}],[{filename:file,previous_filename:'src/old.ts'}],[],Array(21).fill({filename:file})]){assert.equal(await testOnlyFollowup(async p=>p.startsWith('compare/')?{status:'ahead',base_commit:{sha:commit},files}:p==='commits/'+head?{parents:[{sha:commit}]}:{parents:[{sha:base}]},r,head),false);}
+ await assert.rejects(()=>publishStep({request:{...r,status:'completed'},purpose:'release',config,run:gitRun,api}),/head ngoài/);
+});
+
+test('verification waits for a pushed repair to propagate to PR metadata without reading old failed jobs',async()=>{
+ const head='d'.repeat(40),r={...packet('ci'),status:'verifying',ciRepair:{phase:'pushed',prNumber:1,head:commit,commit:head,checks:[{command:'npm run check',passed:true}]}};
+ const api=async p=>{if(p.endsWith('/pulls/1'))return pr;if(p.endsWith('/files?per_page=100'))return draft.allowedPaths.map(filename=>({filename}));if(p.endsWith('/commits/'+head))return{parents:[{sha:commit}]};if(p.endsWith('/commits/'+commit))return{parents:[{sha:base}]};throw Error('Must not read stale CI: '+p);};
+ assert.equal((await publishStep({request:r,purpose:'verification',config,run:gitRun,api})).phase,'ci');
+});
