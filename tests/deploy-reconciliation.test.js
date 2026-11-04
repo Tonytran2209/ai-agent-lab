@@ -73,7 +73,7 @@ test('automatic deploy observation preserves terminal errors, survives restart/b
  try{
   const before=f.s.get(f.id);await createRecovery(f.s,{GITHUB_TOKEN:'test'},options).tick();assert.equal(calls,1);assert.equal(f.s.get(f.id).release.phase,'failed');assert.equal(f.s.get(f.id).release.note,before.release.note);
   const restarted=createService(f.db);await createRecovery(restarted,{GITHUB_TOKEN:'test'},options).tick();assert.equal(calls,1);
-  now=61001;ready=true;await createRecovery(restarted,{GITHUB_TOKEN:'test'},options).tick();const done=restarted.get(f.id);assert.equal(calls,2);assert.equal(syncs,1);assert.equal(done.release.phase,'deployed');assert.equal(done.release.librarySync,'synced');assert.equal(done.release.mergeCommit,old);assert.deepEqual(done.approval,before.approval);assert.deepEqual(done.result,before.result);assert.equal(done.release.deploymentRecovery.previous.note,before.release.note);
+  now=61001;ready=true;await createRecovery(restarted,{GITHUB_TOKEN:'test'},options).tick();const done=restarted.get(f.id);assert.equal(calls,2);assert.equal(syncs,1);assert.equal(done.release.phase,'deployed');assert.equal(done.release.librarySync,'synced');assert.ok(Number.isFinite(Date.parse(done.release.deployedAt)));assert.equal(done.release.deployedAtSource,'lab-confirmation');assert.equal(restarted.releaseLibrarySync(f.id,false).release.deployedAt,done.release.deployedAt);assert.equal(done.release.mergeCommit,old);assert.deepEqual(done.approval,before.approval);assert.deepEqual(done.result,before.result);assert.equal(done.release.deploymentRecovery.previous.note,before.release.note);
   await createRecovery(restarted,{GITHUB_TOKEN:'test'},options).tick();assert.equal(calls,2);assert.equal(syncs,1);
  }finally{f.close();}
 });

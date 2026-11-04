@@ -23,7 +23,12 @@ test('admin acceptance queues a bound release; claims are exclusive, sanitized a
   const next=s.claimRelease(r.id,'publisher');s.updateRelease(r.id,next.releaseToken,{phase:'deploying',mergeCommit:merged,note:'Đã merge đúng commit.'});
   const fail=s.claimRelease(r.id,'publisher');s.updateRelease(r.id,fail.releaseToken,{phase:'failed',note:'Railway mất kết nối.'});
   const retry=s.publish(r.id,'Admin');assert.equal(retry.release.phase,'deploying');assert.equal(retry.status,'completed');assert.equal(s.ready().length,0);
-  const final=s.claimRelease(r.id,'publisher');s.updateRelease(r.id,final.releaseToken,{phase:'deployed',note:'Railway xác nhận đúng commit.'});assert.equal(s.releases().length,0);assert.equal(s.releaseLibrarySync(r.id,true).release.librarySync,'synced');
+  const final=s.claimRelease(r.id,'publisher');s.updateRelease(r.id,final.releaseToken,{phase:'deployed',note:'Railway xác nhận đúng commit.'});assert.equal(s.releases().length,0);const deployedAt=s.get(r.id).release.deployedAt;
+  assert.ok(Number.isFinite(Date.parse(deployedAt)));
+  assert.equal(s.get(r.id).release.deployedAtSource,'lab-confirmation');
+  assert.equal(s.releaseLibrarySync(r.id,true).release.librarySync,'synced');
+  assert.equal(s.releaseLibrarySync(r.id,false).release.deployedAt,deployedAt);
+  assert.equal(createService(db).get(r.id).release.deployedAt,deployedAt);
  }finally{db.close();rmSync(dir,{recursive:true,force:true});}
 });
 test('high risk requires separate explicit release confirmation and failed checks cannot publish',()=>{
@@ -105,4 +110,32 @@ test('post-ready validation rejects changed scope or CI and leaves unknown merge
  for(const mode of ['scope','ci','unknown']){let ready=false;const normal=ciApi();const api=async(e,m,b)=>{if(e==='graphql'){ready=true;return {};}if(m==='PUT')throw Error('must not merge');if(e.endsWith('/pulls/1'))return {...pr,draft:!ready,mergeable:ready&&mode==='unknown'?null:true};if(ready&&mode==='scope'&&e.includes('/files?'))return [{filename:'backend/secrets.ts'}];if(ready&&mode==='ci'&&e.includes('/check-runs?'))return {total_count:2,check_runs:[check,{...check,name:'browser-check',conclusion:'failure'}]};return normal(e,m,b);};
  const call=()=>publishStep({request:packet('ci'),config,run:gitRun,api});if(mode==='unknown')assert.equal((await call()).phase,'ci');else await assert.rejects(call,mode==='scope'?/phạm vi/:/CI/);
  }
+});
+
+test('legacy deployment times recover from success history once and never from mutable updates',()=>{
+ const dir=mkdtempSync(path.join(os.tmpdir(),'release-time-')),db=openDatabase(dir),s=createService(db);
+ try {
+  const make=feedback=>{
+   const r=s.create({feedback},'Member');
+   const raw=s.rawForAnalysis(r.id);
+   raw.createdAt='2024-01-01T00:00:00.000Z';raw.status='completed';
+   raw.release={phase:'deployed',updatedAt:'2024-01-10T00:00:00.000Z'};
+   db.prepare('UPDATE requests SET data=? WHERE id=?').run(JSON.stringify(raw),r.id);
+   return r.id;
+  };
+  const normal=make('Check normal historic deployment timing.');
+  const recovered=make('Check recovered historic deployment timing.');
+  const missing=make('Check missing historic deployment timing.');
+  const insert=db.prepare('INSERT INTO events(request_id,data) VALUES(?,?)');
+  insert.run(normal,JSON.stringify({type:'release_deployed',at:'2024-01-02T00:00:00.000Z'}));
+  insert.run(normal,JSON.stringify({type:'release_library_synced',at:'2024-01-09T00:00:00.000Z'}));
+  insert.run(recovered,JSON.stringify({type:'release_deployment_reconciled',at:'2024-01-03T00:00:00.000Z'}));
+  const restarted=createService(db);
+  assert.equal(restarted.get(normal).release.deployedAt,'2024-01-02T00:00:00.000Z');
+  assert.equal(restarted.get(normal).release.deployedAtSource,'event-history');
+  assert.equal(restarted.get(recovered).release.deployedAt,'2024-01-03T00:00:00.000Z');
+  assert.equal(restarted.get(missing).release.deployedAt,undefined);
+  restarted.releaseLibrarySync(normal,false);
+  assert.equal(createService(db).get(normal).release.deployedAt,'2024-01-02T00:00:00.000Z');
+ } finally {db.close();rmSync(dir,{recursive:true,force:true});}
 });

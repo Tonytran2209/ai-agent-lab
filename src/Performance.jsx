@@ -465,7 +465,12 @@ export default function Performance({ api, onRequest }) {
                   format={duration}
                   note={
                     summary.deliverySamples +
-                    " mẫu · gồm thời gian chờ và xử lý"
+                    " mẫu · gồm thời gian chờ và xử lý" +
+                    (summary.missingDeploymentTimes
+                      ? " · " +
+                        summary.missingDeploymentTimes +
+                        " thiếu mốc deploy"
+                      : "")
                   }
                 />
               </div>
@@ -666,7 +671,9 @@ export default function Performance({ api, onRequest }) {
           <p className="perf-footnote">
             Dữ liệu request đã lưu · loại trừ thùng rác. Các chỉ số trong kỳ
             theo ngày tạo feedback, trạng thái phản ánh lần cập nhật mới nhất.
-            Biểu đồ theo UTC, thời điểm hiển thị theo múi giờ thiết bị.
+            Biểu đồ theo UTC, thời điểm hiển thị theo múi giờ thiết bị. Thời
+            lượng deploy tính tới lúc Lab xác nhận thành công; request thiếu mốc
+            thời gian được loại khỏi mẫu P95.
           </p>
         </div>
       )}

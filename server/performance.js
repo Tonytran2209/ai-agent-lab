@@ -56,14 +56,18 @@ export function createPerformance(db, service) {
     snapshot(days, projectId) {
       if (projectId) service.project(projectId);
       const now = Date.now(),
-        since = Date.parse(new Date(now).toISOString().slice(0, 10)) - (days - 1) * 86400000;
+        since =
+          Date.parse(new Date(now).toISOString().slice(0, 10)) -
+          (days - 1) * 86400000;
       const requests = service.list().filter((r) => !r.archivedAt);
       const cohort = requests.filter((r) => Date.parse(r.createdAt) >= since);
       const runner = service.runnerStatus();
       const metrics = (rows) => {
         const durations = rows
           .filter((r) => r.release?.phase === "deployed")
-          .map((r) => Date.parse(r.release.updatedAt) - Date.parse(r.createdAt))
+          .map(
+            (r) => Date.parse(r.release.deployedAt) - Date.parse(r.createdAt),
+          )
           .filter((ms) => Number.isFinite(ms) && ms >= 0);
         return {
           total: rows.length,
@@ -72,6 +76,9 @@ export function createPerformance(db, service) {
           deployed: rows.filter((r) => r.release?.phase === "deployed").length,
           p95DeliveryMs: percentile(durations),
           deliverySamples: durations.length,
+          missingDeploymentTimes:
+            rows.filter((r) => r.release?.phase === "deployed").length -
+            durations.length,
         };
       };
       const projects = service.projects().map((p) => {
@@ -111,12 +118,19 @@ export function createPerformance(db, service) {
               .filter((r) => r.release)
               .sort(
                 (a, b) =>
-                  Date.parse(b.release.updatedAt) -
-                  Date.parse(a.release.updatedAt),
+                  Date.parse(
+                    b.release.deployedAt || b.release.updatedAt || b.createdAt,
+                  ) -
+                  Date.parse(
+                    a.release.deployedAt || a.release.updatedAt || a.createdAt,
+                  ),
               )
               .map((r) => ({
                 phase: r.release.phase,
-                at: r.release.updatedAt,
+                at:
+                  r.release.phase === "deployed"
+                    ? r.release.deployedAt || null
+                    : r.release.updatedAt,
               }))[0] || null,
           runtimeStatus: "unknown",
         };

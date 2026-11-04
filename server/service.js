@@ -88,6 +88,20 @@ export function createService(db, options = {}) {
   const list = () => db.prepare("SELECT data FROM requests ORDER BY rowid DESC").all().map(row => JSON.parse(row.data));
   const event = (id, type, actor, detail = "") => db.prepare("INSERT INTO events(request_id,data) VALUES (?,?)")
     .run(id, JSON.stringify({ type, actor, detail, at: now() }));
+  // Recover legacy confirmation times only from durable success events.
+  transaction(db, () => {
+    const history = db.prepare("SELECT data FROM events WHERE request_id=? ORDER BY id");
+    for (const r of list().filter(r => r.release?.phase === 'deployed' && !r.release.deployedAt)) {
+      const success = history.all(r.id).map(row => JSON.parse(row.data)).find(e =>
+        ['release_deployed', 'release_deployment_reconciled'].includes(e.type) &&
+        Number.isFinite(Date.parse(e.at)) && Date.parse(e.at) >= Date.parse(r.createdAt));
+      if (success) {
+        r.release.deployedAt = success.at;
+        r.release.deployedAtSource = 'event-history';
+        save(r);
+      }
+    }
+  });
   const serialized=options.serializeProjects===true;
   if(serialized){db.exec('CREATE TABLE IF NOT EXISTS local_planning (request_id TEXT PRIMARY KEY,data TEXT NOT NULL); CREATE TABLE IF NOT EXISTS project_queue_order(ticket INTEGER PRIMARY KEY AUTOINCREMENT,request_id TEXT UNIQUE NOT NULL,draining INTEGER NOT NULL,historical_deployed INTEGER NOT NULL DEFAULT 0)');for(const r of list().reverse())db.prepare('INSERT OR IGNORE INTO project_queue_order(request_id,draining,historical_deployed) VALUES (?,?,?)').run(r.id,Number(!r.queueProtocol&&r.status!=='rejected'&&(r.status!=='completed'||Boolean(r.release&&r.release.phase!=='deployed'))&&Boolean(r.draft||r.result||r.lease||r.preparation?.status==='running')),Number(r.release?.phase==='deployed'));}
   const queueTicket=(r,renew=false)=>{if(!serialized)return;if(renew)db.prepare('DELETE FROM project_queue_order WHERE request_id=?').run(r.id);db.prepare('INSERT OR IGNORE INTO project_queue_order(request_id,draining) VALUES (?,0)').run(r.id);};
@@ -651,7 +665,11 @@ export function createService(db, options = {}) {
         if(update.phase==="deployed"&&projects.get(r.projectId).postDeployUrl&&!update.postDeployCheck)fail("Thiếu kiểm tra HTTP sau deploy.");
         const owner = rel.lease.owner, previous = rel.phase;
         Object.assign(rel, update, { updatedAt: now(), lease: null });
-        if (previous !== rel.phase) rel.phaseStartedAt = now();
+        if (previous !== rel.phase) rel.phaseStartedAt = rel.updatedAt;
+        if (update.phase === 'deployed' && !rel.deployedAt) {
+          rel.deployedAt = rel.updatedAt;
+          rel.deployedAtSource = 'lab-confirmation';
+        }
         save(r);
         if(update.phase==='deployed')service.memory.list(r.projectId);
         if (previous !== rel.phase || update.phase === "failed") return changed(r, "release_" + update.phase, owner, update.note);
@@ -670,7 +688,7 @@ export function createService(db, options = {}) {
       if(p.repository!==r.repository||p.branch!==r.branch||proof.environment!==(r.delivery?.environment||p.releaseEnvironment))fail('Project/environment đã đổi trong lúc đối chiếu.',409);
       if(r.updatedAt!==expectedRevision||r.status!=='completed'||rel?.phase!=='failed'||r.lease||rel.lease||r.ciRepair?.lease||r.verification?.lease||r.recheck?.lease||service.localPlanning.get(id)?.lease||proof.protocol!=='deployment-reconciliation-v1'||proof.originalMergeCommit!==rel.mergeCommit)fail('Request hoặc worker đã đổi trong lúc đối chiếu; đọc lại trạng thái.',409);
       const previous={phase:rel.phase,note:rel.note,deploymentUrl:rel.deploymentUrl,at:rel.updatedAt};
-      rel.deploymentRecovery={...proof,actor,previous};rel.phase='deployed';rel.deploymentUrl=proof.deploymentUrl;rel.updatedAt=now();rel.librarySync='pending';rel.syncNextAt=null;
+      rel.deploymentRecovery={...proof,actor,previous};rel.phase='deployed';rel.deploymentUrl=proof.deploymentUrl;rel.updatedAt=now();rel.deployedAt=rel.deployedAt||rel.updatedAt;rel.deployedAtSource=rel.deployedAtSource||'lab-confirmation';rel.librarySync='pending';rel.syncNextAt=null;
       if(proof.postDeployCheck)rel.postDeployCheck=proof.postDeployCheck;
       rel.note='Đã xác minh Railway phục hồi tại commit '+proof.deployedCommit.slice(0,12)+', bao gồm merge gốc '+rel.mergeCommit.slice(0,12)+'. Giữ nguyên lịch sử lỗi, kế hoạch và quyền đã duyệt.';
       return changed(r,'release_deployment_reconciled',actor,rel.note);

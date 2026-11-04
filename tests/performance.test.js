@@ -14,7 +14,11 @@ test("performance preserves project boundaries, stale signals and legacy missing
       status: "completed",
       createdAt: now,
       updatedAt: now,
-      release: { phase: "deployed", updatedAt: now },
+      release: {
+        phase: "deployed",
+        deployedAt: now,
+        updatedAt: new Date(Date.parse(now) + 86400000).toISOString(),
+      },
       lease: { token: "private" },
     },
     {
@@ -70,6 +74,8 @@ test("performance preserves project boundaries, stale signals and legacy missing
     assert.equal(snapshot.summary.total, 3);
     assert.equal(snapshot.summary.deliverySamples, 1);
     assert.equal(snapshot.summary.p95DeliveryMs, 0);
+    assert.equal(snapshot.summary.missingDeploymentTimes, 1);
+    assert.equal(snapshot.projects[0].latestRelease.at, now);
     assert.equal(snapshot.projects[0].runtimeStatus, "unknown");
     assert.equal(JSON.stringify(snapshot).includes("private"), false);
     assert.equal(
