@@ -25,10 +25,10 @@ export async function recheckArtifact(r,config,run,signal,prepare,env){
   return [{command:'npm run check',passed:build.code===0,output:'Mac recheck worker independently executed on '+r.result.commit+'; exit '+build.code},{command:'git -c core.whitespace=cr-at-eol diff --check',passed:whitespace.code===0,output:'Compared pinned base to exact artifact commit; CRLF recognized, real trailing whitespace still rejected; exit '+whitespace.code},...additional];
  }finally{await run('git',['-C',config.repoPath,'worktree','remove','--force',worktree],{env,timeout:60000}).catch(()=>{});}
 }
-export async function pollRechecks(config,token,run,signal,prepare,env){
+export async function pollRechecks(config,token,run,signal,prepare,env,queuedRows){
  const endpoint=new URL('/runner/rechecks',config.mcpUrl);
  const request=async(suffix='',body)=>{const res=await fetch(endpoint.href+(suffix||'?protocol=artifact-recheck-v2'),{method:body?'POST':'GET',signal:AbortSignal.timeout(15000),headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});if(res.status===404&&!suffix)return {requests:[]};if(!res.ok)throw new Error('Recheck API HTTP '+res.status);return res.json();};
- for(const r of (await request()).requests){
+ for(const r of queuedRows??(await request()).requests){
   if(signal?.aborted)return;if(!matchesProject(r,config))continue;
   let claim;try{claim=await request('/'+r.id+'/claim',{protocol:'artifact-recheck-v2'});}catch{continue;}
   const controller=new AbortController(),abort=()=>controller.abort();signal?.addEventListener('abort',abort,{once:true});if(signal?.aborted)abort();

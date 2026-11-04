@@ -1,13 +1,13 @@
 import { matchesProject } from './projects.js';
 import { githubClient, publishStep } from './release.js';
-export async function pollVerifications(config,token,run,signal,onPullRequest=async()=>{},allowedRequestIds) {
+export async function pollVerifications(config,token,run,signal,onPullRequest=async()=>{},allowedRequestIds,queuedRows) {
   const endpoint=new URL('/runner/verifications',config.mcpUrl);
   const request=async(suffix='',body)=>{
     const res=await fetch(endpoint.href+suffix,{method:body?'POST':'GET',signal:AbortSignal.timeout(15000),headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});
     if(res.status===404&&!suffix)return {requests:[]};
     if(!res.ok)throw new Error('Verification API: '+res.status);return res.json();
   };
-  const {requests}=await request();
+  const requests=queuedRows??(await request()).requests;
   for(const row of [...requests].reverse()){
     if(signal?.aborted)return;if(allowedRequestIds&&!allowedRequestIds.has(row.id))continue;
     if(!matchesProject(row,config))continue;

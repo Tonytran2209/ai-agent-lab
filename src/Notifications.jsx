@@ -1,3 +1,4 @@
+import {startPolling} from './polling.js';
 import {readOutbox,savePending,removePending} from './notification-outbox.js';
 import React,{useEffect,useRef,useState} from 'react';
 import {Bell,AlertTriangle,Check,Monitor,LoaderCircle,Trash2} from 'lucide-react';
@@ -24,10 +25,10 @@ export function useNotifications({user,api,open,onIncoming,labels}){
   const poll=async()=>{if(busy||!alive)return;busy=true;try{try{queue.current=[...new Map([...readOutbox(localStorage,key),...queue.current].map(n=>[n.clientId,n])).values()];}catch{}await flush();const data=await api('/notifications');if(!alive||session.current!==key)return;setState(old=>({...data,nextBefore:old.items.length>data.items.length?old.nextBefore:data.nextBefore,items:[...new Map([...old.items,...data.items].map(n=>[n.id,n])).values()].filter(n=>!data.hiddenIds?.includes(n.id)).sort((a,b)=>b.id-a.id).map(n=>({...n,read:n.id<=data.readId}))}));setError('');
    if(latest!==null&&!openRef.current){const n=data.items.find(n=>n.id>latest&&n.eventType!=='progress'&&!seenClients.current.has(n.clientId));if(n)incoming.current?.({title:n.title,message:notificationMessage(n,labelsRef.current),requestId:n.requestId,type:n.type||(/fail|reject|error/.test(n.eventType||n.phase||'')?'error':'info'),source:notificationSource(n)});}
    latest=data.latestId;
-  }catch(e){if(alive)setError(syncError(e));}finally{busy=false;if(requestedMore&&alive){requestedMore=false;void poll();}}};
-  pollRef.current={key,poll,record(value){const b={clientId:crypto.randomUUID(),title:String(value.title||'').slice(0,200),message:String(value.message||'').slice(0,2500)||'Đã cập nhật.',type:['info','success','warning','error'].includes(value.type)?value.type:'success',view:views[value.view]?value.view:'inbox',...(value.requestId?{requestId:value.requestId}:{})};seenClients.current.add(b.clientId);queue.current.push(b);persist();if(busy)requestedMore=true;else void poll();}};
-  void poll();const interval=setInterval(()=>void poll(),5000);
-  return()=>{alive=false;clearInterval(interval);if(session.current===key)session.current=null;pollRef.current=null;};
+  }catch(e){if(alive)setError(syncError(e));throw e;}finally{busy=false;if(requestedMore&&alive){requestedMore=false;void polling.tick();}}};
+  pollRef.current={key,poll:()=>polling.tick(),record(value){const b={clientId:crypto.randomUUID(),title:String(value.title||'').slice(0,200),message:String(value.message||'').slice(0,2500)||'Đã cập nhật.',type:['info','success','warning','error'].includes(value.type)?value.type:'success',view:views[value.view]?value.view:'inbox',...(value.requestId?{requestId:value.requestId}:{})};seenClients.current.add(b.clientId);queue.current.push(b);persist();if(busy)requestedMore=true;else void polling.tick();}};
+  const polling=startPolling(poll,{interval:()=>openRef.current?15000:30000});
+  return()=>{alive=false;polling.stop();if(session.current===key)session.current=null;pollRef.current=null;};
  },[user?.name,user?.role]);
  const marked=useRef(0);
  useEffect(()=>{marked.current=0;},[user?.name,user?.role]);

@@ -1,3 +1,4 @@
+import {startPolling} from './polling.js';
 import React, { useEffect, useRef, useState } from "react";
 import {
   Activity,
@@ -352,16 +353,16 @@ export default function Performance({ api, onRequest }) {
         }
       } catch (e) {
         if (!cancelled) setError(e.message);
+        throw e;
       } finally {
         inFlight = false;
         if (!cancelled) setBusy(false);
       }
     }
-    load();
-    const timer = setInterval(load, 30000);
+    const polling = startPolling(load,{interval:()=>60000});
     return () => {
       cancelled = true;
-      clearInterval(timer);
+      polling.stop();
     };
   }, [days, refresh, reportProject]);
   const projects =

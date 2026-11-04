@@ -1,3 +1,4 @@
+import {requestIndexRows,requestIndexPage} from './request-index.js';
 import {reportedRetryPassed} from './recheck-policy.js';
 import {isTestFollowupPath} from './criterion-ci.js';
 import {executionReadiness} from './execution-readiness.js';
@@ -63,10 +64,14 @@ export function createService(db, options = {}) {
   const projects = createProjects(db);
   const defaultProjectId = () => projects.list().find(p=>p.id===seed.projectId)?.id || projects.list()[0]?.id;
   const currentLibrary = (projectId = defaultProjectId()) => library(projects.get(projectId).libraryVersionId);
+  const libraryCache=new Map();let libraryCacheBytes=0;
   const library = id => {
+    const cached=libraryCache.get(id);if(cached)return structuredClone(cached.value);
     const row = db.prepare("SELECT data FROM libraries WHERE id=?").get(id);
     if (!row) fail("Không tìm thấy library version.", 404);
-    return JSON.parse(row.data);
+    const value=JSON.parse(row.data),bytes=Buffer.byteLength(row.data);
+    if(bytes<=4*1024*1024){while(libraryCache.size&&(libraryCache.size>=4||libraryCacheBytes+bytes>8*1024*1024)){const key=libraryCache.keys().next().value;libraryCacheBytes-=libraryCache.get(key).bytes;libraryCache.delete(key);}libraryCache.set(id,{value,bytes});libraryCacheBytes+=bytes;}
+    return structuredClone(value);
   };
 
   if (bootstrapDefaults) {
@@ -106,7 +111,8 @@ export function createService(db, options = {}) {
   if(serialized){db.exec('CREATE TABLE IF NOT EXISTS local_planning (request_id TEXT PRIMARY KEY,data TEXT NOT NULL); CREATE TABLE IF NOT EXISTS project_queue_order(ticket INTEGER PRIMARY KEY AUTOINCREMENT,request_id TEXT UNIQUE NOT NULL,draining INTEGER NOT NULL,historical_deployed INTEGER NOT NULL DEFAULT 0)');for(const r of list().reverse())db.prepare('INSERT OR IGNORE INTO project_queue_order(request_id,draining,historical_deployed) VALUES (?,?,?)').run(r.id,Number(!r.queueProtocol&&r.status!=='rejected'&&(r.status!=='completed'||Boolean(r.release&&r.release.phase!=='deployed'))&&Boolean(r.draft||r.result||r.lease||r.preparation?.status==='running')),Number(r.release?.phase==='deployed'));}
   const queueTicket=(r,renew=false)=>{if(!serialized)return;if(renew)db.prepare('DELETE FROM project_queue_order WHERE request_id=?').run(r.id);db.prepare('INSERT OR IGNORE INTO project_queue_order(request_id,draining) VALUES (?,0)').run(r.id);};
   const queueRows=rows=>{if(!serialized)return rows;const order=new Map(db.prepare('SELECT request_id,ticket,draining,historical_deployed FROM project_queue_order').all().map(x=>[x.request_id,x]));const leases=new Map(db.prepare("SELECT request_id,json_extract(data,'$.lease.expiresAt') AS expiresAt FROM local_planning WHERE json_extract(data,'$.lease') IS NOT NULL").all().map(j=>[j.request_id,j.expiresAt]));return rows.map(r=>({...r,historicalDeployment:Boolean(order.get(r.id)?.historical_deployed),queueTicket:order.get(r.id)?.ticket||0,queuePriority:order.get(r.id)?.draining||0,planningLease:leases.get(r.id)||null}));};
-  const queueState=(r,rows)=>serialized?projectQueueState(r,Array.isArray(rows)?rows:queueRows(list().reverse()),projects.get(r.projectId),currentLibrary(r.projectId).sourceCommit):null;
+  const librarySourceCommit=id=>{const row=db.prepare("SELECT json_extract(data,'$.sourceCommit') AS sourceCommit FROM libraries WHERE id=?").get(id);if(!row)fail("Không tìm thấy library version.",404);return row.sourceCommit;};
+  const queueState=(r,rows)=>{if(!serialized)return null;const p=projects.get(r.projectId);return projectQueueState(r,Array.isArray(rows)?rows:queueRows(list().reverse()),p,librarySourceCommit(p.libraryVersionId));};
   const assertOpen=r=>{if(r.archivedAt||r.stopControl)fail('Request đã dừng hoặc nằm trong thùng rác; tạo feedback mới để thực hiện tiếp.',409);};
   const assertTurn=r=>{assertOpen(r);if(queueState(r)?.blocked)fail('Project đang xử lý '+queueState(r).blockedBy+'; chờ deploy và đồng bộ MD trước khi nhận việc tiếp.',409);};
   const publicRequest = (r,queueRows) => {
@@ -168,6 +174,12 @@ export function createService(db, options = {}) {
     aiLedger: createAiLedger(db),
     ciSetup,
     projects:()=>projects.list().map(p=>({...p,ciSetup:ciSetup.get(p.id)})), project:id=>({...projects.get(id),ciSetup:ciSetup.get(id)}), updateProject:projects.update, bindDeployment:projects.bindDeployment, updateDeploymentOptions:(id,opts)=>projects.update(id,opts,{deploymentVerified:true}),
+    requestIndex(user,query){
+      const rows=requestIndexRows(db),ordered=queueRows(rows.map(v=>v.request).reverse());
+      const page=requestIndexPage(rows,user,query),planningLeases=new Map(db.prepare("SELECT request_id,json_extract(data,'$.lease.expiresAt') AS expiresAt FROM local_planning WHERE json_type(data,'$.lease')='object'").all().map(r=>[r.request_id,r.expiresAt]));
+      page.requests=page.requests.map(r=>({...r,...(serialized?{projectQueue:queueState(r,ordered)}:{}),planning:{lease:planningLeases.get(r.id)?{expiresAt:planningLeases.get(r.id)}:null},...(r.status==='approved'?{executionReadiness:executionReadiness(get(r.id))}:{})}));
+      return page;
+    },
     currentLibrary, library, list: () => {const rows=list(),ordered=queueRows([...rows].reverse());return rows.map(r=>publicRequest(r,ordered));},
     reportRunner(input) {
       const value = { ...input, projects:input.projects ?? this.runnerStatus().projects ?? [], contractProtocol:input.contractProtocol??this.runnerStatus().contractProtocol, governanceProtocol:input.governanceProtocol??this.runnerStatus().governanceProtocol, attachmentProtocol:input.attachmentProtocol??this.runnerStatus().attachmentProtocol, deploymentProtocol:input.deploymentProtocol??this.runnerStatus().deploymentProtocol,publisherEnabled:input.publisherEnabled??this.runnerStatus().publisherEnabled,lastSeenAt: now() };
