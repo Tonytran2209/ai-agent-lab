@@ -29,3 +29,13 @@ test('repair diagnostics distinguish failure causes without publishing raw model
  const unknown=repairDiagnostic(new Error('private provider error'),'đọc log CI');assert.equal(unknown.code,'worker-error');assert.ok(!unknown.note.includes('private provider'));assert.equal(unknown.exitCode,undefined);
 });
 test('repair failure code and exit status persist without allowing a new attempt or raw output',()=>{const f=fixture();try{const r=f.s.create({feedback:'Fix bounded preview rendering.'},'User'),raw=f.s.rawForAnalysis(r.id);Object.assign(raw,{status:'failed',draft:{risk:'low'},result:{commit:'a'.repeat(40)},ciObservation:{failed:true,failureKind:'test',commit:'b'.repeat(40),prNumber:4,prUrl:`https://github.com/${r.repository}/pull/4`}});f.db.prepare('UPDATE requests SET data=? WHERE id=?').run(JSON.stringify(raw),r.id);f.s.updateProject(r.projectId,{ciRepairEnabled:true});f.s.assertRepairAuthority=()=>{};const repairs=createCiRepair(f.db,f.s);repairs.enqueue(r.id);const c=repairs.claim(r.id);repairs.report(r.id,c.repairToken,{phase:'failed',modelStarted:true,note:'Codex exited; inspect local diagnostics.',failureCode:'codex-exit',exitCode:1,stderr:'must-not-persist'});assert.deepEqual(repairs.get(r.id).failure,{code:'codex-exit',exitCode:1});assert.equal(repairs.get(r.id).attempts,1);assert.equal(repairs.get(r.id).phase,'failed');assert.ok(!JSON.stringify(repairs.get(r.id)).includes('must-not-persist'));}finally{f.close();}});
+
+test('repair collects both failed shards before aggregate and tolerates one unavailable log',async()=>{
+ const {repairLogJobs,collectRepairLogs,repairDiagnostic}=await import('../mac/repair.js');
+ const job=(id,name)=>({name,url:`https://github.com/owner/repo/actions/runs/1/job/${id}`});
+ const failures=[job(1,'browser-check'),job(2,'browser-tests (mobile)'),job(3,'browser-tests (desktop)'),job(2,'duplicate'),{url:'https://evil.test/actions/runs/1/job/4'}];
+ assert.deepEqual(repairLogJobs('owner/repo',failures).map(j=>j.url.split('/').at(-1)),['2','3','1']);
+ const calls=[];const logs=await collectRepairLogs('owner/repo',failures,async(exe,args)=>{calls.push(args.at(-1));if(args.at(-1).includes('/2/'))throw Error('private transport failure');return{code:0,stdout:'\x1b[31mactual assertion\x1b[0m'};},'gh');
+ assert.equal(calls.length,3);assert.match(logs,/job 3/);assert.match(logs,/actual assertion/);assert.ok(!logs.includes('private transport'));
+ assert.equal(repairDiagnostic({repairCode:'workspace-dirty'},'chuẩn bị worktree và dependency').code,'workspace-dirty');
+});

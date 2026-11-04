@@ -16,3 +16,11 @@ installation source while the runner is safely idle. A server deployment or a
 restart of an unchanged runtime alone does not install this worker change. Old
 workers remain compatible but retain the old generic failure messages. Previously
 discarded failure details cannot be reconstructed by this update.
+
+Repair collection reads up to four distinct failed GitHub jobs, prioritizing
+individual shards over `browser-check`. One unavailable log does not discard the
+other shard diagnostics. Fetch/worktree/dependency errors are attributed to the
+preparation stage, and dirty workspaces report `workspace-dirty` without starting
+Codex. Per-request/per-attempt result files preserve interrupted repair reports.
+A blocked scope remains blocked: these diagnostics never authorize additional
+files or ignore pre-existing CI failures.
