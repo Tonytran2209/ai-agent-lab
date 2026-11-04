@@ -33,3 +33,11 @@ Admin project cards show per-project checkout readiness reported by Mac; this is
 ## Intercom CI readiness
 
 At registration Intercom had no GitHub workflow. Feedback analysis and approved coding can run, but automatic UI verification needs `writer-check` and `browser-check` from GitHub Actions. A draft PR may be created for inspection; absence of required CI is reported and never treated as passing. Existing admin supplemental visual-verification remains available only after actual verification, tied to the exact result. Automatic release remains off until configured. This change does not modify/deploy the connected Intercom application itself.
+
+## Performance report
+
+Admins can open **Performance** in the workspace navigation. **AI Agent Lab** shows current API/SQLite/runner signals, aggregated HTTP response counts and timings, feedback creation by UTC day, and delivery metrics. **Projects** shows checkout readiness from the latest runner heartbeat, current queue counts, and acceptance/deployment outcomes for each registered project. Recent feedback opens the existing Inbox detail.
+
+The 1/7/30-day filter selects feedback by creation time, using UTC calendar days including today. Current states and queue counts reflect the latest saved records, excluding archived feedback. P95 delivery time measures creation to the saved deployed release timestamp, including waiting time, and displays its sample count. A completed request means accepted work, while deployment is reported separately. Runtime app health remains unknown until an independent health source is configured.
+
+HTTP measurements cover completed responses on `/api`, `/runner`, and `/mcp`, including dashboard polling. Hourly SQLite aggregates retain at most 31 days and survive restarts. Measurements begin at installation, 5xx and 4xx responses are counted separately, and averages/maxima measure HTTP response time, not worker execution time. Process uptime resets on restart. An external monitor is required to detect total Lab outages. The dashboard refreshes every 30 seconds and preserves the last successful report when a refresh fails. The report endpoint requires an admin session and exposes only allow-listed operational fields.
