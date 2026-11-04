@@ -48,3 +48,12 @@ test('PR metadata lag supersedes the old failed CI display without promoting a r
   const next=f.s.get(r.id);assert.equal(next.status,'verifying');assert.equal(next.verification.phase,'ci');assert.equal(next.result.commit,old);assert.match(next.verification.note,/thông tin PR chưa cập nhật/);assert.equal(next.release,undefined);assert.equal(next.acceptance,undefined);
  }finally{f.close();}
 });
+
+test('independently scoped test follow-up waits for CI without carrying old failed status or accepting code',async()=>{
+ const {resultRevision}=await import('../server/verification.js');const f=fixture();try{
+ const r=f.s.create({feedback:'Fix preview contrast.'},'User'),raw=f.s.rawForAnalysis(r.id),old='a'.repeat(40),head='c'.repeat(40),file='tests/browser/contrast.spec.ts';
+ Object.assign(raw,{workflowProtocol:'direct-v1',status:'failed',draft:{allowedPaths:[file]},result:{commit:old},verification:{phase:'failed'}});f.db.prepare('UPDATE requests SET data=? WHERE id=?').run(JSON.stringify(raw),r.id);
+ f.s.observeCriterionCi(r.id,resultRevision(raw),{commit:head,prNumber:4,prUrl:`https://github.com/${r.repository}/pull/4`,pendingReason:'test-followup-ci',verifiedTestFollowup:{reviewedCommit:old,changedPaths:[file]},failed:false,jobs:[{name:'browser-check',status:'queued',conclusion:null}],failures:[]});
+ const next=f.s.get(r.id);assert.equal(next.status,'verifying');assert.equal(next.verification.phase,'ci');assert.equal(next.result.commit,old);assert.match(next.verification.note,/Đang kiểm tra commit sửa test/);assert.equal(next.release,undefined);assert.equal(next.acceptance,undefined);
+ }finally{f.close();}
+});

@@ -49,3 +49,12 @@ test('confirmed repair branch with stale PR metadata observes new jobs without a
  const proof=await collectCriterionCi(r,null,fetcher);assert.equal(proof.pending,true);assert.equal(proof.pendingReason,'pr-head-sync');assert.equal(proof.commit,head);assert.equal(proof.failed,false);assert.equal(proof.wholeCi,undefined);assert.equal(proof.jobs.every(j=>j.conclusion==='success'),true);assert.ok(!fetched.some(k=>k.includes('commits/'+old+'/check-runs')));
  fixtures['git/ref/heads/'+branch].object.sha=base;await assert.rejects(()=>collectCriterionCi(r,null,fetcher),/Nhánh GitHub/);
 });
+
+test('test-only successor scope is checked before pending CI can clear a stale failed display',async()=>{
+ const repo='owner/repo',old='a'.repeat(40),head='c'.repeat(40),base='b'.repeat(40),branch='lab/REQ-ABCDEF12-123',file='tests/browser/draft.spec.ts';
+ const r={id:'REQ-ABCDEF12',repository:repo,branch:'main',baseCommit:base,workflowProtocol:'direct-v1',draft:{allowedPaths:[file]},result:{commit:old,localArtifact:{branch}}};
+ const fixtures={['pulls?state=open&head='+encodeURIComponent('owner:'+branch)+'&base=main']:[{number:6}],'pulls/6':{number:6,changed_files:1,html_url:'https://github.com/'+repo+'/pull/6',head:{sha:head,ref:branch,repo:{full_name:repo}},base:{ref:'main',repo:{full_name:repo}}},'pulls/6/files?per_page=100':[{filename:file}],['commits/'+head]:{parents:[{sha:old}]},['commits/'+old]:{parents:[{sha:base}]},['compare/'+old+'...'+head]:{status:'ahead',base_commit:{sha:old},files:[{filename:file}]},['commits/'+head+'/check-runs?per_page=100']:{total_count:0,check_runs:[]},['commits/'+head+'/status']:{statuses:[]}};
+ const fetcher=async url=>({ok:true,json:async()=>structuredClone(fixtures[url.split(repo+'/')[1]])});
+ const proof=await collectCriterionCi(r,null,fetcher);assert.equal(proof.pending,true);assert.equal(proof.pendingReason,'test-followup-ci');assert.equal(proof.wholeCi,undefined);assert.equal(proof.failed,false);
+ fixtures['compare/'+old+'...'+head].files=[{filename:'src/other.ts'}];await assert.rejects(()=>collectCriterionCi(r,null,fetcher),/không chỉ sửa test/);
+});
