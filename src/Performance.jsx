@@ -7,6 +7,7 @@ import {
   GitBranch,
   Clock,
   CheckCircle2,
+  ChevronDown,
 } from "lucide-react";
 import "./performance.css";
 
@@ -57,9 +58,17 @@ function Signal({ tone = "neutral", children }) {
     </span>
   );
 }
-function Metric({ icon: Icon, label, value, note }) {
+function PerformanceSelect({ children, ...props }) {
   return (
-    <article className="perf-card perf-metric">
+    <span className="perf-select">
+      <select {...props}>{children}</select>
+      <ChevronDown size={16} aria-hidden="true" />
+    </span>
+  );
+}
+function Metric({ icon: Icon, label, value, note, tone = "neutral" }) {
+  return (
+    <article className="perf-card perf-metric" data-tone={tone}>
       <div className="perf-card-label">
         <Icon size={16} aria-hidden="true" />
         {label}
@@ -136,14 +145,14 @@ export default function Performance({ api, onRequest }) {
         <div className="perf-toolbar">
           <label>
             <span className="sr-only">Khoảng thời gian báo cáo</span>
-            <select
+            <PerformanceSelect
               value={days}
               onChange={(e) => setDays(Number(e.target.value))}
             >
               <option value={1}>Hôm nay · UTC</option>
               <option value={7}>7 ngày qua</option>
               <option value={30}>30 ngày qua</option>
-            </select>
+            </PerformanceSelect>
           </label>
           <button
             className="button"
@@ -205,12 +214,20 @@ export default function Performance({ api, onRequest }) {
                 <Metric
                   icon={Activity}
                   label="Lượt gọi API"
+                  tone={lab.http.calls ? "info" : "neutral"}
                   value={number(lab.http.calls)}
                   note="HTTP tới API, runner và MCP"
                 />
                 <Metric
                   icon={CheckCircle2}
                   label="Phản hồi không lỗi máy chủ"
+                  tone={
+                    !lab.http.calls
+                      ? "neutral"
+                      : lab.http.errors
+                        ? "error"
+                        : "success"
+                  }
                   value={
                     lab.http.calls
                       ? number(
@@ -229,12 +246,14 @@ export default function Performance({ api, onRequest }) {
                 <Metric
                   icon={Clock}
                   label="Thời gian phản hồi TB"
+                  tone={lab.http.calls ? "info" : "neutral"}
                   value={duration(lab.http.averageMs)}
                   note={"Cao nhất " + duration(lab.http.maxMs)}
                 />
                 <Metric
                   icon={GitBranch}
                   label="Đang vận hành"
+                  tone={lab.active ? "info" : "neutral"}
                   value={number(lab.active)}
                   note={
                     number(lab.running) + " request đang xử lý · toàn thời gian"
@@ -345,6 +364,7 @@ export default function Performance({ api, onRequest }) {
                 <Metric
                   icon={GitBranch}
                   label="Project đã kết nối"
+                  tone={data.projects.length ? "info" : "neutral"}
                   value={data.projects.length}
                   note={
                     data.projects.filter((p) => p.enabled).length +
@@ -354,18 +374,21 @@ export default function Performance({ api, onRequest }) {
                 <Metric
                   icon={CheckCircle2}
                   label="Đã nghiệm thu"
+                  tone={summary.completed ? "success" : "neutral"}
                   value={summary.completed}
                   note="Theo nhóm feedback được tạo trong kỳ"
                 />
                 <Metric
                   icon={ArrowUpRight}
                   label="Đã deploy"
+                  tone={summary.deployed ? "success" : "neutral"}
                   value={summary.deployed}
                   note="Trạng thái phát hành được Lab ghi nhận"
                 />
                 <Metric
                   icon={Clock}
                   label="P95 thời gian tới deploy"
+                  tone={summary.deliverySamples ? "info" : "neutral"}
                   value={duration(summary.p95DeliveryMs)}
                   note={
                     summary.deliverySamples +
@@ -383,7 +406,7 @@ export default function Performance({ api, onRequest }) {
                     Hàng đợi hiện tại và kết quả của feedback được tạo trong kỳ.
                   </p>
                 </div>
-                <select
+                <PerformanceSelect
                   aria-label="Lọc project báo cáo"
                   value={projectId}
                   onChange={(e) => setProjectId(e.target.value)}
@@ -394,7 +417,7 @@ export default function Performance({ api, onRequest }) {
                       {p.name}
                     </option>
                   ))}
-                </select>
+                </PerformanceSelect>
               </div>
               {!projects.length ? (
                 <div className="perf-card perf-empty">
@@ -425,15 +448,21 @@ export default function Performance({ api, onRequest }) {
                       </Signal>
                       <div className="perf-project-numbers">
                         <div>
-                          <strong>{p.active}</strong>
+                          <strong data-tone={p.active ? "info" : "neutral"}>
+                            {p.active}
+                          </strong>
                           <small>Đang vận hành</small>
                         </div>
                         <div>
-                          <strong>{p.blocked}</strong>
+                          <strong data-tone={p.blocked ? "warning" : "neutral"}>
+                            {p.blocked}
+                          </strong>
                           <small>Chờ lượt</small>
                         </div>
                         <div>
-                          <strong>{p.attention}</strong>
+                          <strong data-tone={p.attention ? "error" : "neutral"}>
+                            {p.attention}
+                          </strong>
                           <small>Cần xử lý</small>
                         </div>
                       </div>

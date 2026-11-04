@@ -305,6 +305,7 @@
 }
 .perf-section-heading {
   align-items: flex-end;
+  margin-bottom: 24px;
 }
 .perf-section-heading h2 {
   margin: 0;
@@ -383,15 +384,72 @@
     font-size: 9px;
   }
 }
-.perf-section-heading > select {
+.perf-section-heading > .perf-select {
   width: auto;
   min-width: 220px;
   max-width: 320px;
   flex-shrink: 0;
 }
 @media (max-width: 600px) {
-  .perf-section-heading > select {
+  .perf-section-heading > .perf-select {
     width: 100%;
     max-width: 100%;
   }
+}
+
+/* Keep native keyboard/picker behavior with a consistent inset chevron. */
+.perf-select {
+  position: relative;
+  display: inline-flex;
+  min-width: 0;
+  max-width: 100%;
+  color: var(--secondary);
+}
+.performance-page .perf-select select {
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: none;
+  width: 100%;
+  margin: 0;
+  padding: 8px 44px 8px 14px;
+  cursor: pointer;
+}
+.perf-select > svg {
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+.perf-select:focus-within > svg {
+  color: var(--focus);
+}
+.perf-project-grid {
+  margin-top: 0;
+}
+.performance-page [data-tone="info"] {
+  --perf-tone: var(--link);
+}
+.performance-page [data-tone="success"] {
+  --perf-tone: var(--success);
+}
+.performance-page [data-tone="warning"] {
+  --perf-tone: var(--warning);
+}
+.performance-page [data-tone="error"] {
+  --perf-tone: var(--danger);
+}
+.perf-metric {
+  --perf-tone: var(--text);
+}
+.perf-metric > strong,
+.perf-project-numbers strong[data-tone] {
+  color: var(--perf-tone, var(--text));
+}
+.perf-metric .perf-card-label svg {
+  box-sizing: content-box;
+  padding: 6px;
+  border-radius: 8px;
+  color: var(--perf-tone);
+  background: color-mix(in srgb, var(--perf-tone) 9%, var(--card));
 }
