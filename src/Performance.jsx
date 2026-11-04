@@ -310,7 +310,7 @@ function RuntimeReport({ target: t, days }) {
               label="Tổng bài viết"
               value={r.articles?.total ?? null}
               surface="ink"
-              note="Kho hiện tại · loại trùng theo ID"
+              note="Kho hiện tại · loại trùng / phiên bản mới nhất"
             />
           </div>
           <div className="perf-grid">
@@ -570,6 +570,12 @@ function RuntimeReport({ target: t, days }) {
                           quality_gate_runs: "Quality gates",
                           editorial_approvals: "Phê duyệt biên tập",
                           website_content_inventory: "Kho website",
+                          eb_v2_packages: "EB V2 · Packages",
+                          eb_v2_gate_runs: "EB V2 · Gate runs",
+                          eb_v2_feedback_threads: "EB V2 · Feedback",
+                          eb_v2_library_documents: "EB V2 · Thư viện",
+                          eb_v2_discovery_items: "EB V2 · Discovery",
+                          eb_v2_channel_outputs: "EB V2 · Output mới nhất theo kênh",
                         }[name] || name}
                       </td>
                       <td>
@@ -674,7 +680,7 @@ function RuntimeReport({ target: t, days }) {
                     {[
                       "Provider / model",
                       "Bước",
-                      "Calls / cache hits",
+                      "Lượt đã lưu / cache hits",
                       "Input / cached / output",
                       "Có giá",
                       "USD ước tính",
@@ -687,7 +693,7 @@ function RuntimeReport({ target: t, days }) {
                   {ledger.map((m, i) => (
                     <tr key={i}>
                       <td>
-                        {m.provider} / {m.model}
+                        {m.source ? m.source + ' · ' : ''}{m.provider} / {m.model}
                       </td>
                       <td>{m.step}</td>
                       <td>
