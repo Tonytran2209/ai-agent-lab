@@ -8,7 +8,6 @@ import {
   GitBranch,
   Clock,
   CheckCircle2,
-  ChevronDown,
 } from "lucide-react";
 import "./performance.css";
 
@@ -63,7 +62,6 @@ function PerformanceSelect({ children, ...props }) {
   return (
     <span className="perf-select">
       <select {...props}>{children}</select>
-      <ChevronDown size={16} aria-hidden="true" />
     </span>
   );
 }

@@ -384,7 +384,7 @@
   }
 }
 
-/* Keep native keyboard/picker behavior with a consistent inset chevron. */
+/* Dashboard sizing. Shared select visuals live in design-system.css. */
 .perf-select {
   position: relative;
   display: inline-flex;
@@ -393,23 +393,8 @@
   color: var(--secondary);
 }
 .performance-page .perf-select select {
-  appearance: none;
-  -webkit-appearance: none;
-  background-image: none;
   width: 100%;
   margin: 0;
-  padding: 8px 44px 8px 14px;
-  cursor: pointer;
-}
-.perf-select > svg {
-  position: absolute;
-  right: 14px;
-  top: 50%;
-  transform: translateY(-50%);
-  pointer-events: none;
-}
-.perf-select:focus-within > svg {
-  color: var(--focus);
 }
 .performance-page [data-tone="info"] {
   --perf-tone: var(--link);
