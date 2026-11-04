@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import {
   Activity,
   ArrowUpRight,
+  ArrowRight,
   RefreshCw,
   Server,
   GitBranch,
@@ -135,6 +136,188 @@ function Metric({
       </strong>
       <small>{note}</small>
     </article>
+  );
+}
+
+function ProjectReport({ project: p, runner }) {
+  const stages = [
+    { label: "Feedback", value: p.total, detail: "Được tạo trong kỳ" },
+    { label: "Nghiệm thu", value: p.completed, detail: "Đã chấp nhận kết quả" },
+    { label: "Deploy", value: p.deployed, detail: "Lab xác nhận thành công" },
+  ];
+  const connectionTone =
+    p.connection === "ready"
+      ? "success"
+      : ["error", "stale"].includes(p.connection)
+        ? "warning"
+        : "neutral";
+  return (
+    <section
+      className="perf-project-report"
+      aria-labelledby={"project-report-" + p.id}
+    >
+      <header className="perf-project-heading">
+        <div>
+          <span className="eyebrow">PROJECT REPORT</span>
+          <h2 id={"project-report-" + p.id}>{p.name}</h2>
+          <p className="perf-repository">{p.repository}</p>
+        </div>
+        <Signal tone={connectionTone}>{connectionLabels[p.connection]}</Signal>
+      </header>
+      <div className="perf-metrics">
+        <Metric
+          icon={GitBranch}
+          label="Feedback trong kỳ"
+          value={p.total}
+          surface="blue"
+        />
+        <Metric
+          icon={CheckCircle2}
+          label="Đã nghiệm thu"
+          value={p.completed}
+          surface="lime"
+        />
+        <Metric
+          icon={ArrowUpRight}
+          label="Đã deploy"
+          value={p.deployed}
+          surface="yellow"
+        />
+        <Metric
+          icon={Clock}
+          label="P95 tới deploy"
+          value={p.p95DeliveryMs}
+          format={duration}
+          surface="ink"
+          note={p.deliverySamples + " mẫu · gồm thời gian chờ và xử lý"}
+        />
+      </div>
+      <div className="perf-grid">
+        <article className="perf-card perf-trend-card perf-delivery-flow">
+          <div className="perf-card-heading">
+            <div>
+              <h2>Luồng bàn giao</h2>
+              <p>Kết quả tích lũy của nhóm feedback được tạo trong kỳ</p>
+            </div>
+            <GitBranch size={18} aria-hidden="true" />
+          </div>
+          <ol className="perf-flow" aria-label={"Luồng bàn giao của " + p.name}>
+            {stages.map((stage, index) => (
+              <li key={stage.label}>
+                <span className="perf-flow-step">0{index + 1}</span>
+                <strong>
+                  <AnimatedValue value={stage.value} />
+                </strong>
+                <h3>{stage.label}</h3>
+                <small>{stage.detail}</small>
+                {index < stages.length - 1 && (
+                  <ArrowRight
+                    className="perf-flow-arrow"
+                    size={20}
+                    aria-hidden="true"
+                  />
+                )}
+              </li>
+            ))}
+          </ol>
+          <p className="perf-footnote">
+            Thời lượng tính tới mốc deployedAt đã lưu.{" "}
+            {p.missingDeploymentTimes > 0
+              ? p.missingDeploymentTimes +
+                " request thiếu mốc deploy được loại khỏi mẫu P95."
+              : p.deliverySamples
+                ? "Các mẫu thời gian hiện có đã được ghi nhận."
+                : "Chưa có mẫu thời gian deploy trong kỳ."}
+          </p>
+        </article>
+        <article className="perf-card perf-system-card">
+          <div className="perf-card-heading">
+            <div>
+              <h2>Kết nối & vận hành</h2>
+              <p>Tín hiệu mới nhất của runner và checkout</p>
+            </div>
+            <Server size={18} aria-hidden="true" />
+          </div>
+          <ol
+            className="perf-connection-flow"
+            aria-label={"Kết nối vận hành của " + p.name}
+          >
+            <li>
+              <Server size={18} aria-hidden="true" />
+              <strong>Agent Lab</strong>
+              <Signal tone="success">Đang phản hồi</Signal>
+            </li>
+            <li>
+              <Activity size={18} aria-hidden="true" />
+              <strong>Mac runner</strong>
+              <Signal tone={runner.connected ? "success" : "warning"}>
+                {runner.connected ? "Đã kết nối" : "Chưa có tín hiệu mới"}
+              </Signal>
+            </li>
+            <li>
+              <GitBranch size={18} aria-hidden="true" />
+              <strong>Checkout</strong>
+              <Signal tone={connectionTone}>
+                {connectionLabels[p.connection]}
+              </Signal>
+            </li>
+          </ol>
+          <div className="perf-project-numbers">
+            <div>
+              <strong>
+                <AnimatedValue value={p.active} />
+              </strong>
+              <small>Đang vận hành</small>
+            </div>
+            <div>
+              <strong data-tone={p.blocked ? "warning" : "neutral"}>
+                <AnimatedValue value={p.blocked} />
+              </strong>
+              <small>Chờ lượt</small>
+            </div>
+            <div>
+              <strong data-tone={p.attention ? "error" : "neutral"}>
+                <AnimatedValue value={p.attention} />
+              </strong>
+              <small>Cần xử lý</small>
+            </div>
+          </div>
+          <dl className="perf-health">
+            <div>
+              <dt>Đang xử lý</dt>
+              <dd>{p.running} request</dd>
+            </div>
+            <div>
+              <dt>Heartbeat runner</dt>
+              <dd>{timestamp(p.lastSeenAt)}</dd>
+            </div>
+            <div>
+              <dt>Phát hành gần nhất</dt>
+              <dd>
+                {p.latestRelease ? (
+                  <>
+                    {statusLabels[p.latestRelease.phase] ||
+                      p.latestRelease.phase}
+                    <br />
+                    <small>{timestamp(p.latestRelease.at)}</small>
+                  </>
+                ) : (
+                  "Chưa có phát hành"
+                )}
+              </dd>
+            </div>
+            <div>
+              <dt>Runtime app</dt>
+              <dd>Chưa có dữ liệu runtime</dd>
+            </div>
+          </dl>
+          <p className="perf-footnote">
+            Số liệu hàng đợi phản ánh trạng thái hiện tại. Runtime app cần
+            health check riêng sau deploy.
+          </p>
+        </article>
+      </div>
+    </section>
   );
 }
 
@@ -503,94 +686,9 @@ export default function Performance({ api, onRequest }) {
                   để bắt đầu.
                 </div>
               ) : (
-                <div className="perf-project-grid">
+                <div className="perf-project-reports">
                   {projects.map((p) => (
-                    <article className="perf-card" key={p.id}>
-                      <div className="perf-card-heading">
-                        <div>
-                          <h2>{p.name}</h2>
-                          <p className="perf-repository">{p.repository}</p>
-                        </div>
-                        <GitBranch size={18} />
-                      </div>
-                      <Signal
-                        tone={
-                          p.connection === "ready"
-                            ? "success"
-                            : ["error", "stale"].includes(p.connection)
-                              ? "warning"
-                              : "neutral"
-                        }
-                      >
-                        {connectionLabels[p.connection]}
-                      </Signal>
-                      <div className="perf-project-numbers">
-                        <div>
-                          <strong data-tone={p.active ? "info" : "neutral"}>
-                            <AnimatedValue value={p.active} />
-                          </strong>
-                          <small>Đang vận hành</small>
-                        </div>
-                        <div>
-                          <strong data-tone={p.blocked ? "warning" : "neutral"}>
-                            <AnimatedValue value={p.blocked} />
-                          </strong>
-                          <small>Chờ lượt</small>
-                        </div>
-                        <div>
-                          <strong data-tone={p.attention ? "error" : "neutral"}>
-                            <AnimatedValue value={p.attention} />
-                          </strong>
-                          <small>Cần xử lý</small>
-                        </div>
-                      </div>
-                      <dl className="perf-health">
-                        <div>
-                          <dt>Feedback trong kỳ</dt>
-                          <dd>{p.total}</dd>
-                        </div>
-                        <div>
-                          <dt>Đã nghiệm thu / deploy</dt>
-                          <dd>
-                            {p.completed} / {p.deployed}
-                          </dd>
-                        </div>
-                        <div>
-                          <dt>P95 tới deploy</dt>
-                          <dd>
-                            {duration(p.p95DeliveryMs)} · {p.deliverySamples}{" "}
-                            mẫu
-                          </dd>
-                        </div>
-                        <div>
-                          <dt>Phát hành gần nhất</dt>
-                          <dd>
-                            {p.latestRelease ? (
-                              <>
-                                {statusLabels[p.latestRelease.phase] ||
-                                  p.latestRelease.phase}
-                                <br />
-                                <small>{timestamp(p.latestRelease.at)}</small>
-                              </>
-                            ) : (
-                              "Chưa có phát hành"
-                            )}
-                          </dd>
-                        </div>
-                        <div>
-                          <dt>Tín hiệu runner</dt>
-                          <dd>{timestamp(p.lastSeenAt)}</dd>
-                        </div>
-                        <div>
-                          <dt>Runtime app</dt>
-                          <dd>Chưa có dữ liệu runtime</dd>
-                        </div>
-                      </dl>
-                      <p className="perf-footnote">
-                        Trạng thái checkout dựa trên heartbeat runner. Runtime
-                        cần health check riêng của app sau deploy.
-                      </p>
-                    </article>
+                    <ProjectReport key={p.id} project={p} runner={lab.runner} />
                   ))}
                 </div>
               )}
