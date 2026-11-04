@@ -163,7 +163,13 @@ export function createApp(config, options = {}) {
     res.json(performanceReport.snapshot(days,projectId));
   });
   app.get("/api/ai/usage", auth.admin, (req, res) => res.json(service.aiLedger.summary(config)));
-  app.get("/api/requests", (req, res) => res.json({ requests: service.list().filter(r=>!r.archivedAt||req.user.role==='admin'&&req.query.includeArchived==='true') }));
+  app.get("/api/requests", (req, res) => {
+    if(req.query.summary==='true'){
+      const q=z.object({summary:z.literal('true'),limit:z.coerce.number().int().min(1).max(200).default(200),before:z.coerce.number().int().positive().safe().optional(),includeArchived:z.enum(['true','false']).optional()}).strict().parse(req.query);
+      return res.json(service.requestIndex(req.user,{...q,includeArchived:q.includeArchived==='true'}));
+    }
+    return res.json({requests:service.list().filter(r=>!r.archivedAt||req.user.role==='admin'&&req.query.includeArchived==='true')});
+  });
   app.post("/api/requests", limiter(20), (req, res) => {
     const created = service.create(req.body, req.user.name, {deduplicate:true});
     if (created.duplicate) return res.status(200).json(created);
@@ -288,7 +294,12 @@ export function createApp(config, options = {}) {
   app.post("/api/settings/lark/retry/:id",auth.admin,limiter(6),(req,res)=>res.status(202).json(lark.retry(req.params.id)));
   app.post("/api/settings/lark/test",auth.admin,limiter(3,60000),(req,res)=>res.status(202).json(lark.test()));
   app.get("/api/projects/:id/intelligence",auth.admin,(req,res)=>res.json(service.memory.metrics(req.params.id)));
-  app.get("/api/library", (req, res) => res.json(service.currentLibrary(req.query.projectId)));
+  app.get("/api/library", (req, res) => {
+    const version=service.project(req.query.projectId||service.projects()[0].id).libraryVersionId;
+    res.set({'ETag':'"library-'+version+'"','Cache-Control':'private, no-cache'});
+    if(req.fresh)return res.status(304).end();
+    return res.json(service.currentLibrary(req.query.projectId));
+  });
   const syncing = new Set();
   app.post("/api/library/sync", auth.admin, limiter(3, 10 * 60000), async (req, res) => {
     const id=req.body?.projectId||service.projects()[0]?.id; service.project(id);

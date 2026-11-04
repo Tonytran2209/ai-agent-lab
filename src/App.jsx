@@ -1,3 +1,4 @@
+import {startPolling,loadRequestIndex} from './polling.js';
 import Performance from './Performance.jsx';
 import LibraryView from './LibraryView.jsx';
 import {NoticeProvider,useNoticedState} from './NoticeContext.jsx';
@@ -113,23 +114,35 @@ export default function App() {
   }
   const center=useNotifications({user,api,open:drawer,labels:eventLabels,onIncoming:value=>{setToastRaw({...value,key:crypto.randomUUID()});}});
   function setToast(value){if(!value){const key=toast?.key;setToastLeaving(true);clearTimeout(toastExitTimer.current);toastExitTimer.current=setTimeout(()=>{toastExitTimer.current=null;setToastRaw(current=>current?.key===key?null:current);setBellPulse(true);},380);return;}center.record({...value,view});setToastRaw({...value,key:crypto.randomUUID(),source:({inbox:'Inbox',projects:'Cài đặt',library:'Tài liệu',memory:'Bộ nhớ project',connection:'Kết nối'})[view]});}
-  useEffect(()=>{setToastRaw(null);},[user?.name,user?.role]);
+  useEffect(()=>{setToastRaw(null);libraryCache.current.clear();},[user?.name,user?.role]);
   useEffect(()=>{clearTimeout(toastExitTimer.current);toastExitTimer.current=null;setToastPaused(false);},[toast?.key]);
   useLayoutEffect(()=>{const measure=()=>{if(!toast||!toastRef.current||!bellRef.current||toastRef.current.classList.contains('toast-to-bell'))return;const b=bellRef.current.getBoundingClientRect(),t=toastRef.current.getBoundingClientRect();setToastTarget({'--toast-x':(b.left+b.width/2-t.left-t.width/2)+'px','--toast-y':(b.top+b.height/2-t.top-t.height/2)+'px'});};measure();window.addEventListener('resize',measure);return()=>window.removeEventListener('resize',measure);},[toast?.key,center.unread]);
   useEffect(()=>()=>clearTimeout(toastExitTimer.current),[]);
+  const refreshFlight=useRef(null),refreshKey=useRef(null),latestRefresh=useRef(null),libraryCache=useRef(new Map());
+  latestRefresh.current={user,projectId,view};
   async function refresh() {
-    const [r,c,p] = await Promise.all([api("/requests"+(user?.role==='admin'?'?includeArchived=true':'')),api("/config"),api("/projects")]);
-    if(selectedProject.current!==projectId)return;
+    const key=JSON.stringify([user?.name,user?.role,projectId,view]);
+    if(refreshFlight.current){if(refreshKey.current===key)return refreshFlight.current;await refreshFlight.current.catch(()=>{});return refresh();}
+    refreshKey.current=key;
+    const job=refreshWorkspace();refreshFlight.current=job;
+    try{return await job;}finally{if(refreshFlight.current===job)refreshFlight.current=null;}
+  }
+  async function refreshWorkspace() {
+    const [rows,c,p] = await Promise.all([loadRequestIndex(api,user?.role==='admin'),api("/config"),api("/projects")]);
+    if(selectedProject.current!==projectId||latestRefresh.current.user!==user||latestRefresh.current.view!==view)return;
     const nextId=p.projects.some(p=>p.id===projectId)?projectId:(p.projects[0]?.id||'');
-    const l=nextId?await api("/library?projectId="+encodeURIComponent(nextId)):null;
-    if(selectedProject.current!==projectId)return;
+    const version=p.projects.find(p=>p.id===nextId)?.libraryVersionId;
+    let l=libraryCache.current.get(version);
+    if(view==='library'&&nextId&&!l)l=await api('/library?projectId='+encodeURIComponent(nextId));
+    if(selectedProject.current!==projectId||latestRefresh.current.user!==user||latestRefresh.current.view!==view)return;
+    if(l?.id&&view==='library'){libraryCache.current.clear();libraryCache.current.set(l.id,l);}
     setProjects(p.projects);
     if(nextId!==projectId){setProjectId(nextId);localStorage.setItem('lab-project-id',nextId);}
-    setRequests(r.requests); setConfig(c); setLibrary(l); setError("");
+    setRequests(previous=>JSON.stringify(previous)===JSON.stringify(rows)?previous:rows); setConfig(c); if(l)setLibrary(l); setError("");
   }
   useEffect(()=>{ fetch("/api/auth/me").then(async r=>{if(r.ok)setUser((await r.json()).user);}).catch(()=>setError("Không kết nối được server.")).finally(()=>setBoot(false)); },[]);
-  useEffect(()=>{if(!user)return; refresh().catch(e=>setError(e.message)); const t=setInterval(()=>refresh().catch(e=>setError(e.message)),5000); return()=>clearInterval(t);},[user,projectId]);
-  useEffect(()=>{if(!user||!selected){setDetail(null);return;}let cancelled=false;api("/requests/"+selected).then(v=>{if(!cancelled)setDetail(v);}).catch(e=>{if(!cancelled)setError(e.message);});return()=>{cancelled=true;};},[selected,requests,user]);
+  useEffect(()=>{if(!user)return;let alive=true;const polling=startPolling(()=>refresh(),{interval:()=>view==='inbox'?15000:30000,onError:e=>{if(alive)setError(e.message);}});return()=>{alive=false;polling.stop();};},[user,projectId,view]);
+  useEffect(()=>{if(!user||!selected){setDetail(null);return;}let cancelled=false;api("/requests/"+selected).then(v=>{if(!cancelled)setDetail(v);}).catch(e=>{if(!cancelled)setError(e.message);});return()=>{cancelled=true;};},[selected,JSON.stringify(requests.find(r=>r.id===selected)),user]);
   useEffect(()=>{if(toastExitTimer.current)return;setToastLeaving(false);if(!toast||toastPaused)return;const a=setTimeout(()=>setToastLeaving(true),5000),b=setTimeout(()=>{setToastRaw(null);setBellPulse(true);},5380);return()=>{clearTimeout(a);clearTimeout(b);};},[toast?.key,toastPaused]);
   useEffect(()=>{if(!bellPulse)return;const t=setTimeout(()=>setBellPulse(false),650);return()=>clearTimeout(t);},[bellPulse]);
   async function act(key, fn, message) { setBusy(key); try {const r=await fn();await refresh();if(message)setToast({message});return r;}catch(e){await refresh().catch(()=>{});setToast({message:e.message,type:"error"});}finally{setBusy("");} }

@@ -1,3 +1,4 @@
+import {readMonitorQueues,runnerPollDelay} from './queue-polling.js';
 import {runCodexWithRecovery,codexFailureMessage} from './codex-recovery.js';
 import {pollOnboarding} from './onboarding.js';
 import os from 'node:os';
@@ -271,50 +272,62 @@ export async function main(configPath) {
   const stop = () => controller.abort();
   process.once("SIGTERM", stop); process.once("SIGINT", stop);process.once("disconnect",stop);
   const log = text => console.log(new Date().toISOString(), text);
-  let safeIdle=false,wake;
+  let safeIdle=false,wake,connection,monitorPending=false,monitorStarted=false,queueActive=false;
   const ipc=message=>{try{process.send?.(message);}catch{}};
   const onControl=message=>{if(message?.type==='reconnect')wake?.();};process.on('message',onControl);
   let lastTelemetry={deploymentProtocol:'railway-onboarding-v1',publisherEnabled:config.releaseEnabled===true,phase:"polling",requestId:null,contractProtocol:"md-trace-v1",governanceProtocol:"impact-v1",attachmentProtocol:"feedback-images-v1"};
+  let telemetryAt=0,telemetryKey="",telemetryFlight=null;
   const reportStatus = async value => {
     lastTelemetry={...lastTelemetry,...value};
     ipc({type:'runner-state',safeIdle:safeIdle&&!monitor.isBusy()&&!onboardingMonitor.isBusy(),phase:lastTelemetry.phase,at:new Date().toISOString()});
+    const key=JSON.stringify(lastTelemetry);
+    if(telemetryFlight)return telemetryFlight.catch(()=>{});
+    if(key===telemetryKey&&Date.now()-telemetryAt<30000)return;
+    telemetryKey=key;telemetryAt=Date.now();
     // Telemetry failure never grants/releases execution authority. Old backends may return 404.
     try {
-      await fetch(new URL("/runner/status", config.mcpUrl), { method: "POST", signal: AbortSignal.timeout(10000),
+      telemetryFlight=fetch(new URL("/runner/status", config.mcpUrl), { method: "POST", signal: AbortSignal.timeout(10000),
         headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" }, body: JSON.stringify(lastTelemetry) });
-    } catch {}
+      await telemetryFlight;
+    } catch {} finally {telemetryFlight=null;}
   };
   const presence=setInterval(()=>{void reportStatus({});},45000);
   let wasConnected = false,monitorConfigs=[],connectionFailures=0;
   // A separate lane: onboarding never waits in front of feedback or CI/deploy monitoring.
   const onboardingMonitor=startMonitor(()=>pollOnboarding(config,token,command,controller.signal,childEnvironment(process.env)),{intervalMs:30000,onError:()=>log('Onboarding chưa hoàn tất; giữ artifact/claim và kiểm tra tiến trình.'),onState:active=>ipc({type:'runner-state',safeIdle:safeIdle&&!active&&!monitor.isBusy(),at:new Date().toISOString()})});
   const monitor=startMonitor(async()=>{
+    if(!monitorConfigs.length)return;
+    const queues=await readMonitorQueues(config,token,controller.signal);
+    monitorPending=queues.failed||queues.verifications.length+queues.releases.length>0;
+    if(queues.failed)log("Một hàng đợi monitor chưa đọc được; các hàng đợi độc lập tiếp tục.");
     for(const c of monitorConfigs){
       if(controller.signal.aborted)return;
       await pollIndependentWorkers([
-        {name:c.projectId+' / browser CI',run:()=>pollVerifications(c,token,command,controller.signal)},
-        {name:c.projectId+' / release',run:()=>pollReleases(c,token,command,controller.signal)}
+        {name:c.projectId+' / browser CI',run:()=>pollVerifications(c,token,command,controller.signal,undefined,undefined,queues.verifications)},
+        {name:c.projectId+' / release',run:()=>pollReleases(c,token,command,controller.signal,undefined,undefined,queues.releases)}
       ],controller.signal,name=>log('Monitor '+name+' chưa hoàn tất; sẽ kiểm tra lại.'));
     }
-  },{onError:()=>log('Monitor CI/deploy sẽ kiểm tra lại.'),onState:active=>ipc({type:'runner-state',safeIdle:safeIdle&&!active&&!onboardingMonitor.isBusy(),at:new Date().toISOString()})});
+  },{intervalMs:()=>monitorPending?15000:60000,onError:()=>log('Monitor CI/deploy sẽ kiểm tra lại.'),onState:active=>ipc({type:'runner-state',safeIdle:safeIdle&&!active&&!onboardingMonitor.isBusy(),at:new Date().toISOString()})});
   try {
     log("Mac runner started; local-planning-v1; polling approved requests.");
     while (!controller.signal.aborted) {
       safeIdle=false;ipc({type:'runner-state',safeIdle,at:new Date().toISOString()});
-      let connection;
       try {
-        connection = await connect(config, token);
+        connection ??= await connect(config, token);
         const connected = await connectProjects(config, token, command, controller.signal);
-        await reportStatus({phase:"polling",requestId:null,projects:connected.statuses});
+
         ipc({type:'connected'});
-        monitorConfigs=connected.configs;void monitor.tick();
+        monitorConfigs=connected.configs;if(!monitorStarted){monitorStarted=true;void monitor.tick();}
         const workers=[{name:'ci-repair',run:()=>pollCiRepairs(connected.configs,token,command,controller.signal,{prepareDependencies,childEnvironment,changedFiles,checkScope,noSymlinks})},{name:'ci-setup',run:()=>pollCiSetups(connected.configs,token,command,controller.signal)}];
+        let rechecks=[];
+        try{const response=await fetch(new URL('/runner/rechecks?protocol=artifact-recheck-v2',config.mcpUrl),{headers:{Authorization:'Bearer '+token},signal:AbortSignal.timeout(15000)});if(response.ok)rechecks=(await response.json()).requests;else if(response.status!==404)throw Error('Recheck queue HTTP '+response.status);}catch{log('Chưa đọc được hàng đợi recheck; thử lại ở vòng sau.');}
         for(const projectConfig of connected.configs){
-          workers.push({name:projectConfig.projectId+' / recheck',run:()=>pollRechecks(projectConfig,token,command,controller.signal,prepareDependencies,childEnvironment(process.env))});
+          workers.push({name:projectConfig.projectId+' / recheck',run:()=>pollRechecks(projectConfig,token,command,controller.signal,prepareDependencies,childEnvironment(process.env),rechecks)});
         }
         workers.push({name:'planning',run:()=>pollPlanning(connected.configs,token,command,controller.signal,childEnvironment(process.env),reportStatus)});
         await pollIndependentWorkers(workers,controller.signal,name=>log('Worker '+name+' chưa hoàn tất; tiếp tục các hàng đợi độc lập.'));
         const { requests } = await connection.call("list_ready_requests");
+        queueActive=requests.length>0;
         await reportStatus({ phase: "idle", requestId: null, projects:connected.statuses });
         if (!wasConnected) log("Đã kết nối Lab; đang kiểm tra hàng đợi.");
         wasConnected = true;connectionFailures=0;
@@ -328,18 +341,18 @@ export async function main(configPath) {
             log("Reported " + done.requestId + " branch " + done.branch);
           } catch { log("Request " + r.id + " chưa chạy xong; kiểm tra trạng thái Lab và journal cục bộ."); }
         }
-      } catch { connectionFailures++;wasConnected = false; await reportStatus({phase:"error",requestId:null}); log("Không kết nối được Lab. Sẽ thử lại; kiểm tra URL/token/network."); }
-      finally { await connection?.client.close().catch(() => {}); }
+      } catch { await connection?.client.close().catch(()=>{});connection=null;connectionFailures++;wasConnected = false; await reportStatus({phase:"error",requestId:null}); log("Không kết nối được Lab. Sẽ thử lại; kiểm tra URL/token/network."); }
       safeIdle=true;ipc({type:'runner-state',safeIdle:safeIdle&&!monitor.isBusy()&&!onboardingMonitor.isBusy(),at:new Date().toISOString()});
       if (!controller.signal.aborted) await new Promise(resolve => {
         const finish = () => { clearTimeout(timer);wake=null;controller.signal.removeEventListener("abort", finish); resolve(); };wake=finish;
-        const timer = setTimeout(finish, Math.min(60000,Math.max(5000, Number(config.pollIntervalMs) || 15000)*2**Math.min(connectionFailures,3))+Math.floor(Math.random()*1000));
+        const timer = setTimeout(finish, runnerPollDelay(config,{active:queueActive||monitorPending,failures:connectionFailures})+Math.floor(Math.random()*1000));
         controller.signal.addEventListener("abort", finish, { once: true });
       });
     }
   } finally {
     process.removeListener('message',onControl);
     clearInterval(presence);
+    await connection?.client.close().catch(()=>{});
     controller.abort();await Promise.all([monitor.stop(),onboardingMonitor.stop()]);
     await rm(lock, { recursive: true });
     process.removeListener("SIGTERM", stop); process.removeListener("SIGINT", stop);process.removeListener("disconnect",stop);
