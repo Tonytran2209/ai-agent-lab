@@ -103,3 +103,7 @@ Supported browser commands accept a literal grep tag or quoted alternatives, e.g
 ## Thiết lập AI trên Lab
 
 Tab AI cho phép chọn model Main AI Codex (khảo sát và thực thi trên Mac/cloud) và model Sub AI agent phân loại trên Lab. Main AI để trống dùng cấu hình runner hiện tại; lựa chọn trên Lab ưu tiên cho các lượt chạy mới. Cập nhật và khởi động lại runner để nhận cấu hình này. Model Sub AI vẫn cần đạt regression và holdout trước khi kích hoạt. Lab không còn giới hạn số lượt API/project/ngày UTC; cấu hình dailyCalls cũ không còn chặn lời gọi. Giới hạn token, số bước mỗi request và hạn mức nhà cung cấp vẫn áp dụng.
+
+### Independent backend test recovery
+
+A failed `npm --prefix backend test` can be queued for an artifact recheck without calling Codex. The worker installs both pinned lockfiles and executes the exact backend command in an isolated checkout of the reported commit, alongside the full check and whitespace check. Build success alone cannot replace a failed backend suite. All required commands must pass before the original failures move into history and GitHub CI is queued; existing scope, base, approval and release gates remain in force. Other backend command strings and arbitrary shell commands are not accepted.
