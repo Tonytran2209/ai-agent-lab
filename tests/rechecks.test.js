@@ -30,3 +30,18 @@ test('known offline harness retry needs independent exact-commit suite before su
   assert.equal(after.status,'verifying');assert.equal(after.checkHistory[0].command,old);assert.equal(after.checkHistory[0].passed,false);assert.ok(after.result.checks.every(c=>c.passed));assert.equal(after.result.commit,before.result.commit);
  }finally{f.close();}
 });
+
+test('backend tests require their own independent result; build cannot replace them',async()=>{
+ const {canonicalCheck}=await import('../server/recheck-policy.js');
+ assert.equal(canonicalCheck('npm --prefix backend test && echo pass'),null);
+ assert.equal(canonicalCheck('npm --prefix other test'),null);
+ const f=fixture([{command:'npm --prefix backend test',passed:false,output:'listen EPERM'}]);try{
+  const before=f.s.get(f.id);f.s.rechecks.queue(f.id,'Admin',before.resultRevision);let c=f.s.rechecks.claim(f.id,'worker','artifact-recheck-v2');
+  assert.throws(()=>f.s.rechecks.report(f.id,c.recheckToken,{resultRevision:before.resultRevision,checks,note:'build alone'}));
+  let after=f.s.rechecks.report(f.id,c.recheckToken,{resultRevision:before.resultRevision,checks:[...checks,{command:'npm --prefix backend test',passed:false,output:'real assertion failure'}],note:'failed independently'});
+  assert.equal(after.status,'failed');assert.equal(after.checkHistory,undefined);
+  f.s.rechecks.queue(f.id,'Admin',after.resultRevision);c=f.s.rechecks.claim(f.id,'worker','artifact-recheck-v2');
+  after=f.s.rechecks.report(f.id,c.recheckToken,{resultRevision:before.resultRevision,checks:[...checks,{command:'npm --prefix backend test',passed:true,output:'53 tests passed at pinned commit'}],note:'independent suite passed'});
+  assert.equal(after.status,'verifying');assert.equal(after.result.commit,before.result.commit);assert.ok(after.checkHistory.some(x=>x.command==='npm --prefix backend test'&&!x.passed));
+ }finally{f.close();}
+});
