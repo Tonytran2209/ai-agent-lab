@@ -11,7 +11,18 @@ const tokens = new Intl.NumberFormat("vi-VN")
 const usd = new Intl.NumberFormat("en-US", {
   style: "currency", currency: "USD", maximumFractionDigits: 6,
 })
-const levels = 18
+const levels = 20
+const divisions = 4
+
+function usageScale(maximum, isUsd) {
+  if (maximum === 0) return [0]
+  const target = maximum / divisions
+  const magnitude = 10 ** Math.floor(Math.log10(target))
+  const step = [1, 2, 2.5, 5, 10].map((factor) => factor * magnitude)
+    .find((candidate) => candidate >= target)
+  const increment = isUsd ? step : Math.max(1, step)
+  return Array.from({ length: divisions + 1 }, (_, i) => increment * i)
+}
 
 export const usageSources = [
   { id: "ledger", label: "Ghi nhận từ workflow" },
@@ -46,11 +57,9 @@ export default function ProjectUsageTimeline({ report }) {
   const sources = [history, direct]
   const hasCalls = sources.some((periods) => periods.some((period) => period.count > 0))
   const maximum = Math.max(0, ...sources.flat().map((period) => period[metric] ?? 0))
-  const shortNumber = new Intl.NumberFormat("vi-VN", {
-    notation: isUsd ? "standard" : "compact", maximumSignificantDigits: 3,
-  })
-  const scale = maximum > 0 ? [maximum, maximum * 2 / 3, maximum / 3, 0] : [0]
-  const tickStep = Math.ceil(history.length / 6)
+  const scale = usageScale(maximum, isUsd)
+  const limit = scale.at(-1)
+  const tickStep = days === 1 ? 4 : days === 7 ? 4 : 5
   const label = (period) => {
     const first = date.format(period.start)
     const last = date.format(period.end)
@@ -86,8 +95,8 @@ export default function ProjectUsageTimeline({ report }) {
           <div className="rc-project-usage-plot">
             <div className="rc-project-usage-scale" aria-hidden="true">
               {scale.map((tick) => (
-                <span key={tick} style={{ bottom: (maximum ? tick / maximum * 100 : 0) + "%" }}>
-                  {isUsd ? "$" : ""}{shortNumber.format(tick)}
+                <span key={tick} style={{ bottom: (limit ? tick / limit * 100 : 0) + "%" }}>
+                  {format(tick)}
                 </span>
               ))}
             </div>
@@ -98,13 +107,13 @@ export default function ProjectUsageTimeline({ report }) {
                   const amount = sample[metric]
                   return {
                     ...source,
-                    filled: amount > 0 ? Math.max(1, Math.round(amount / maximum * levels)) : 0,
+                    filled: amount > 0 ? Math.max(1, Math.round(amount / limit * levels)) : 0,
                     amount: amountLabel(sample),
                     count: sample.count,
                   }
                 })
                 const tick = days === 1 ? hour.format(period.start) : date.format(period.start)
-                const showTick = days === 7 ? index % 4 === 0 : index % tickStep === 0
+                const showTick = index % tickStep === 0
                 return (
                   <div className="rc-project-usage-column" key={period.start}
                     data-edge={index < history.length / 2 ? "start" : "end"}
@@ -127,6 +136,10 @@ export default function ProjectUsageTimeline({ report }) {
                       ))}
                     </button>
                     {showTick && <span className="rc-project-usage-date" aria-hidden="true">{tick}</span>}
+                    <span className="rc-project-usage-guide" aria-hidden="true" />
+                    <span className="rc-project-usage-active-date" aria-hidden="true">
+                      {bucketHours < 24 ? hour.format(period.start) : tick}
+                    </span>
                     <div className="rc-project-usage-tooltip" aria-hidden="true">
                       <span>{label(period)} UTC</span>
                       {values.map((v) => (
