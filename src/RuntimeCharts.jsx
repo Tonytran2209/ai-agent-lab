@@ -232,7 +232,7 @@ export function RuntimeOverview({ report: r }) {
         </div>
         {h.calls ? <LatencyChart http={h} /> : empty}
         <small className="rc-latency-max">
-          Mẫu cao nhất {ms(h.maxMs)} · trục dọc tự điều chỉnh, bắt đầu từ 0.
+          Mẫu cao nhất {ms(h.maxMs)} · trục độ trễ bắt đầu từ 0.
         </small>
       </article>
     </div>

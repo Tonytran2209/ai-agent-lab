@@ -2,6 +2,7 @@ import test from "node:test"
 import assert from "node:assert/strict"
 import {
   modelSeries,
+  latencyDotPlot,
   hourlySeries,
   responseShare,
   statusTone,
@@ -82,32 +83,12 @@ test("sparse observations retain real hours and response percentage excludes abo
   assert.equal(statusTone("completed"), "good")
 })
 
-test("latency curve stays monotone without overshoot and keeps missing percentiles missing", async () => {
-  const { latencyCurve } = await import("../src/runtime-chart-data.js")
-  const c = latencyCurve({ p50Ms: 20, p95Ms: 1000, p99Ms: 1000 })
-  assert.equal(c.valid, true)
-  assert.equal(c.points[1].y, c.points[2].y)
-  assert.ok(c.points[0].y > c.points[1].y)
-  assert.equal((c.path.match(/ C /g) || []).length, 2)
-  // Horizontal tangent Bezier control values are endpoint values: all interpolated y
-  // are a convex combination, so no synthetic peak/dip can exceed either endpoint.
-  const ys = c.points.map((p) => p.y)
-  for (let i = 1; i < ys.length; i++)
-    for (let j = 0; j <= 20; j++) {
-      const t = j / 20
-      const y =
-        (1 - t) ** 3 * ys[i - 1] +
-        3 * (1 - t) ** 2 * t * ys[i - 1] +
-        3 * (1 - t) * t * t * ys[i] +
-        t ** 3 * ys[i]
-      assert.ok(y <= ys[i - 1] + 1e-9 && y >= ys[i] - 1e-9)
-    }
-  const sparse = latencyCurve({ p50Ms: 20, p95Ms: null, p99Ms: 100 })
-  assert.equal(sparse.points[1].y, null)
-  assert.equal(sparse.path.includes(" C "), false)
-  assert.equal(latencyCurve({ p50Ms: 100, p95Ms: 20, p99Ms: 30 }).valid, false)
-  assert.equal(
-    latencyCurve({ p50Ms: null, p95Ms: null, p99Ms: null }).points.length,
-    0,
-  )
+test("latency plot preserves equal readings, missing percentiles, and zero", () => {
+  const plot = latencyDotPlot({ p50Ms: 0, p95Ms: 1000, p99Ms: 1000 })
+  assert.equal(plot.valid, true)
+  assert.deepEqual(plot.points.map(({ value }) => value), [0, 1000, 1000])
+  assert.ok(plot.limit >= 1000)
+  assert.equal(latencyDotPlot({ p50Ms: 20, p99Ms: 100 }).points[1].value, null)
+  assert.equal(latencyDotPlot({ p50Ms: 100, p95Ms: 20 }).valid, false)
+  assert.equal(latencyDotPlot({}).hasSamples, false)
 })
