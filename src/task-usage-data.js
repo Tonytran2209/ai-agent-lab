@@ -50,14 +50,14 @@ export function rankedTasks(rows, sort = "cost") {
   )
 }
 
-export function taskTimeline(rows, report) {
+export function taskTimeline(rows, report, bucketHours) {
   const day = 86400000
   const end = Date.parse(report.generatedAt)
   const days = report.window?.days ?? report.days
   const start = Math.floor(end / day) * day - (days - 1) * day
   if (!Number.isFinite(start) || days < 1) return []
 
-  const step = day * (days === 1 ? 1 / 6 : Math.ceil(days / 7))
+  const step = bucketHours ? bucketHours * 3600000 : day * (days === 1 ? 1 / 6 : Math.ceil(days / 7))
   const periods = Array.from(
     { length: Math.floor((end - start) / step) + 1 },
     (_, i) => ({
