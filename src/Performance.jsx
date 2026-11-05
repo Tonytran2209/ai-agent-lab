@@ -329,7 +329,6 @@ function RuntimeReport({ target: t, days }) {
             </article>
           </div>
           <AICharts report={r} />
-          <TaskUsage report={r}/>
           <WorkflowStatus inventory={r.inventory} />
           <details className="rc-details">
             <summary>Xem bảng số liệu chi tiết · AI và HTTP</summary>

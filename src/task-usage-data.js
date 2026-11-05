@@ -75,7 +75,7 @@ export function taskTimeline(rows, report) {
     const time = Date.parse(row.startedAt)
     const period = periods[Math.floor((time - start) / step)]
     if (!period || time > end) continue
-    period.count++
+    period.count += row.count ?? 1
     if (row.usageSamples > 0) period.tokens = (period.tokens ?? 0) + row.totalTokens
     if (row.knownCostUsd != null) period.usd = (period.usd ?? 0) + row.knownCostUsd
     period.partialTokens ||= !row.tokenComplete

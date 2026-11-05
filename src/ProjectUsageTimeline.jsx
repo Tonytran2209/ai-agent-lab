@@ -1,0 +1,110 @@
+import React, { useState } from "react"
+import { taskTimeline } from "./task-usage-data.js"
+
+const date = new Intl.DateTimeFormat("vi-VN", {
+  day: "2-digit", month: "2-digit", timeZone: "UTC",
+})
+const hour = new Intl.DateTimeFormat("vi-VN", {
+  hour: "2-digit", minute: "2-digit", timeZone: "UTC",
+})
+const tokens = new Intl.NumberFormat("vi-VN")
+const usd = new Intl.NumberFormat("en-US", {
+  style: "currency", currency: "USD", maximumFractionDigits: 6,
+})
+const levels = 10
+
+export default function ProjectUsageTimeline({ report, source }) {
+  const [metric, setMetric] = useState("tokens")
+  const isUsd = metric === "usd"
+  const format = (isUsd ? usd : tokens).format
+  const points = source === "ledger" ? report.ledger?.timeline : report.timeline
+  const rows = (points ?? []).flatMap((point) => {
+    const calls = source === "ledger" ? point.calls : point.aiCalls
+    if (!calls || !Number.isFinite(point.usageSamples)) return []
+    return [{
+      startedAt: point.hour,
+      count: calls,
+      usageSamples: point.usageSamples,
+      totalTokens: point.totalTokens,
+      knownCostUsd: point.pricedCalls > 0 ? point.knownCostUsd : null,
+      tokenComplete: point.usageSamples === calls,
+      costComplete: point.pricedCalls === calls,
+    }]
+  })
+  const periods = taskTimeline(rows, report)
+  const hasCalls = periods.some((period) => period.count > 0)
+  const maximum = Math.max(0, ...periods.map((period) => period[metric] ?? 0))
+  const hourly = report.window?.days === 1
+  const label = (period) => {
+    const first = date.format(period.start)
+    const last = date.format(period.end)
+    if (hourly) return hour.format(period.start)
+    return first === last ? first : first + "–" + last
+  }
+  const amountLabel = (period) => {
+    const amount = period[metric]
+    if (amount == null) return period.count ? "Chưa rõ" : "—"
+    const partial = isUsd ? period.partialUsd : period.partialTokens
+    return format(amount) + (partial ? "*" : "")
+  }
+
+  return (
+    <figure className="rc-card rc-project-usage" data-metric={metric}>
+      <div className="rc-project-usage-head">
+        <div>
+          <h3>Token & USD theo thời gian</h3>
+          <p>Tổng mức sử dụng đã ghi nhận của dự án trong kỳ · UTC</p>
+        </div>
+        <div className="rc-project-usage-switch" role="group" aria-label="Chỉ số sử dụng AI">
+          <button type="button" aria-pressed={!isUsd} onClick={() => setMetric("tokens")}>Token</button>
+          <button type="button" aria-pressed={isUsd} onClick={() => setMetric("usd")}>USD</button>
+        </div>
+      </div>
+      {hasCalls ? (
+        <>
+          <div className="rc-project-usage-plot" aria-hidden="true">
+            <div className="rc-project-usage-scale">
+              <span>{format(maximum)}</span>
+              <span>{format(0)}</span>
+            </div>
+            <div className="rc-project-usage-columns" style={{ "--periods": periods.length }}>
+              {periods.map((period) => {
+                const amount = period[metric]
+                const filled = amount > 0 ? Math.max(1, Math.round(amount / maximum * levels)) : 0
+                return (
+                  <div className="rc-project-usage-column" key={period.start}>
+                    <span className="rc-project-usage-value">{amountLabel(period)}</span>
+                    <div className="rc-project-usage-dots">
+                      {Array.from({ length: levels }, (_, i) => (
+                        <i key={i} data-filled={i >= levels - filled} />
+                      ))}
+                    </div>
+                    <span className="rc-project-usage-date">{label(period)}</span>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+          <figcaption>— Không có lượt ghi nhận · * Số liệu chưa đầy đủ{isUsd && " · USD là chi phí ước tính"}</figcaption>
+          <details>
+            <summary>Xem số liệu theo thời gian</summary>
+            <dl>
+              {periods.map((period) => (
+                <div key={period.start}>
+                  <dt>{label(period)}</dt>
+                  <dd>{amountLabel(period)} · {tokens.format(period.count)} lượt ghi nhận</dd>
+                </div>
+              ))}
+            </dl>
+          </details>
+        </>
+      ) : (
+        <p className="rc-empty">
+          {Array.isArray(points) && (source === "ledger" || points.every((point) => Number.isFinite(point.usageSamples)))
+            ? "Chưa có lượt dùng AI được ghi nhận trong kỳ."
+            : "Nguồn này chưa cung cấp số liệu token và USD theo thời gian."}
+        </p>
+      )}
+    </figure>
+  )
+}

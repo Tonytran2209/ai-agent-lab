@@ -1,3 +1,4 @@
+import ProjectUsageTimeline from "./ProjectUsageTimeline.jsx"
 import LatencyChart from "./LatencyChart.jsx"
 import React, { useState } from "react"
 import AnimatedValue from "./AnimatedValue.jsx"
@@ -251,7 +252,7 @@ export function AICharts({ report: r }) {
     <section className="rc-ai-section">
       <div className="perf-section-heading">
         <div>
-          <h2>AI usage & chi phí</h2>
+          <h2>Mức sử dụng AI của dự án</h2>
           <p>
             {source === "ledger"
               ? "Ledger workflow trong kỳ · có thể chỉ lưu usage của lần thử cuối"
@@ -268,6 +269,7 @@ export function AICharts({ report: r }) {
           <option value="dispatcher">Bộ đo mới</option>
         </select>
       </div>
+      <ProjectUsageTimeline report={r} source={source} />
       {source === "dispatcher" && (
         <div className="rc-ai-facts">
           <span>
