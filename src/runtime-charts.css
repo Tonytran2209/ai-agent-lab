@@ -10,67 +10,37 @@
 /* Latency quantile curve: categorical percentile checkpoints, not a time series. */
 .rc-card.rc-latency {
   --rc-muted: #c8c8c8;
-  --latency-height: 108px;
+  --latency-height: 74px;
   --latency-accent: #d5fb61;
   background: #242424;
   color: #fafafa;
 }
-.rc-card.rc-latency .rc-latency-summary {
-  color: inherit;
-  margin: 8px 0 0;
-  font-size: clamp(15px, 2vw, 22px);
-  line-height: 1.35;
-}
-.rc-latency-plot {
-  display: grid;
-  grid-template-columns: max-content minmax(0, 1fr);
-  column-gap: 10px;
-  margin: 28px 0 10px;
-  font-variant-numeric: tabular-nums;
-}
-.rc-latency-axis {
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  height: var(--latency-height);
-  text-align: right;
-  font-size: 10px;
-  color: var(--rc-muted);
-  white-space: nowrap;
-}
-.rc-latency-columns {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 4px;
+.rc-latency-title {
   margin: 0;
+  font-size: 15px;
 }
-.rc-latency-column {
-  display: flex;
-  flex-direction: column-reverse;
-  justify-content: flex-end;
-  gap: 8px;
-  text-align: center;
+.rc-card.rc-latency .rc-latency-summary {
+  display: grid;
+  gap: 4px;
+  margin: 10px 0 0;
+  font-size: 13px;
+  line-height: 1.4;
 }
-.rc-latency-column dt, .rc-latency-number {
-  font-size: clamp(10px, 1.3vw, 13px);
-  font-weight: 650;
-}
-.rc-latency-column dt small {
-  display: block;
-  font-size: 10px;
-  font-weight: 400;
+.rc-latency-summary strong {
+  color: #fafafa;
+  font-size: clamp(26px, 4vw, 36px);
+  line-height: 1;
 }
 .rc-latency-graph {
   position: relative;
+  margin: 20px 0 12px;
+  font-variant-numeric: tabular-nums;
 }
 .rc-latency-graph::before {
   content: "";
   position: absolute;
-  inset: 0 0 auto;
-  height: var(--latency-height);
-  border-block: 1px solid #ffffff20;
-  background: linear-gradient(transparent calc(50% - .5px), #ffffff20 calc(50% - .5px), #ffffff20 calc(50% + .5px), transparent calc(50% + .5px));
-  pointer-events: none;
+  inset: var(--latency-height) 0 auto;
+  border-top: 1px solid #ffffff24;
 }
 .rc-latency-curve {
   position: absolute;
@@ -84,17 +54,26 @@
   stroke-linecap: round;
 }
 .rc-latency-columns {
-  position: relative;
-  gap: 0;
-}
-.rc-latency-point {
-  position: relative;
-  height: var(--latency-height);
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   margin: 0;
+}
+.rc-latency-column {
+  position: relative;
+  padding-top: calc(var(--latency-height) + 10px);
+  text-align: center;
+  font-size: 12px;
+}
+.rc-latency-column dt {
+  color: var(--rc-muted);
+}
+.rc-latency-column dd {
+  margin: 3px 0 0;
+  font-weight: 650;
 }
 .rc-latency-marker {
   position: absolute;
-  top: var(--point-y);
+  top: calc(var(--point-y) * var(--latency-height));
   left: 50%;
   translate: -50% -50%;
   width: 8px;
@@ -102,19 +81,12 @@
   border-radius: 50%;
   background: var(--latency-accent);
 }
-.rc-latency-column[data-primary=true] .rc-latency-marker {
-  width: 12px;
-  height: 12px;
-}
-.rc-latency-column[data-primary=true] .rc-latency-number {
+.rc-latency-column[data-primary=true] dd {
   color: var(--latency-accent);
 }
-.rc-latency-number {
-  position: absolute;
-  inset-inline: 0;
-  top: var(--point-y);
-  transform: translateY(calc(-100% - 7px));
-  white-space: nowrap;
+.rc-latency-column[data-primary=true] .rc-latency-marker {
+  width: 11px;
+  height: 11px;
 }
 .rc-latency-note {
   display: block;

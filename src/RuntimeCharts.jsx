@@ -220,11 +220,11 @@ export function RuntimeOverview({ report: r }) {
         )}
       </article>
       <article className="rc-card rc-latency">
-        <Title eyebrow="HTTP" title="Thời gian phản hồi HTTP" />
+        <h3 className="rc-latency-title">Thời gian phản hồi HTTP</h3>
         {h.calls ? <LatencyChart http={h} /> : empty}
         {h.calls > 0 && (
           <small className="rc-latency-note">
-            {n(h.calls)} yêu cầu HTTP trong kỳ · Trung bình {ms(h.averageMs)} · Các mốc phân vị là ước tính.
+            Dựa trên {n(h.calls)} yêu cầu trong kỳ. Các mốc thời gian là ước tính.
           </small>
         )}
       </article>
