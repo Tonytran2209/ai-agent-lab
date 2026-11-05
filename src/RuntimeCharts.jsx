@@ -220,13 +220,7 @@ export function RuntimeOverview({ report: r }) {
         )}
       </article>
       <article className="rc-card rc-latency">
-        <h3 className="rc-latency-title">Thời gian phản hồi HTTP</h3>
-        {h.calls ? <LatencyChart http={h} /> : empty}
-        {h.calls > 0 && (
-          <small className="rc-latency-note">
-            Dựa trên {n(h.calls)} yêu cầu trong kỳ. Các mốc thời gian là ước tính.
-          </small>
-        )}
+        <LatencyChart report={r} />
       </article>
     </div>
   )

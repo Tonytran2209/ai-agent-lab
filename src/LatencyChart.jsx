@@ -1,54 +1,94 @@
-import React from "react"
-import { latencyDotPlot } from "./runtime-chart-data.js"
-const ms = (value) =>
-  value == null
-    ? "—"
-    : new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 1 }).format(
-        value >= 1000 ? value / 1000 : value,
-      ) + (value >= 1000 ? " s" : " ms")
-export default function LatencyChart({ http }) {
-  const { points, valid, hasSamples, limit } = latencyDotPlot(http)
-  if (!valid)
-    return <p className="rc-empty">Các mốc phân vị chưa nhất quán.</p>
-  if (!hasSamples)
-    return <p className="rc-empty">Chưa có mẫu độ trễ trong kỳ này.</p>
+import React, { useState } from "react"
+import { httpLatencyTimeline } from "./runtime-chart-data.js"
 
-  const p95 = points.find(({ label }) => label === "P95").value
-  const positions = points.map(({ value }) => value === null ? null : 100 - value / limit * 100)
-  const curve = positions.map((y, index) => {
+const number = new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 1 })
+const duration = (ms) => ms == null ? "—" : ms >= 1000
+  ? number.format(ms / 1000) + " s"
+  : number.format(ms) + " ms"
+const date = new Intl.DateTimeFormat("vi-VN", { day: "2-digit", month: "2-digit", timeZone: "UTC" })
+const hour = new Intl.DateTimeFormat("vi-VN", { hour: "2-digit", minute: "2-digit", timeZone: "UTC" })
+
+export default function LatencyChart({ report }) {
+  const [selected, setSelected] = useState(null)
+  const [hovered, setHovered] = useState(null)
+  const { http } = report
+  const periods = httpLatencyTimeline(report)
+  const hasPoints = periods.some((point) => point.average !== null)
+  const peak = Math.max(1, ...periods.map((point) => point.average ?? 0))
+  const unit = 10 ** Math.floor(Math.log10(peak))
+  const limit = Math.ceil(peak / unit) * unit
+  const label = (time) => (report.window?.days === 1 ? hour : date).format(time)
+  const points = periods.map((point, index) => ({
+    ...point,
+    x: periods.length === 1 ? 50 : index * 100 / (periods.length - 1),
+    y: point.average === null ? null : 100 - point.average / limit * 100,
+  }))
+  const curve = points.map(({ x, y }, index) => {
     if (y === null) return ""
-    const x = index * 50
-    const previousY = positions[index - 1]
-    if (previousY == null) return `M ${x} ${y}`
-    const middle = x - 25
-    return `C ${middle} ${previousY}, ${middle} ${y}, ${x} ${y}`
+    const previous = points[index - 1]
+    if (previous?.y == null) return `M ${x} ${y}`
+    const middle = (previous.x + x) / 2
+    return `C ${middle} ${previous.y}, ${middle} ${y}, ${x} ${y}`
   }).join(" ")
+  const active = points.find((point) => point.time === (hovered ?? selected) && point.y !== null)
+  const tickStep = Math.max(1, Math.ceil((points.length - 1) / 4))
+
   return (
     <>
-      {p95 !== null && (
+      <header className="rc-latency-head">
+        <h3 className="rc-latency-title">Thời gian phản hồi HTTP</h3>
         <p className="rc-latency-summary">
-          <strong>{ms(p95)}</strong>
-          <span>95% yêu cầu phản hồi trong mốc này hoặc nhanh hơn.</span>
+          <strong>{duration(http.averageMs)}</strong>
+          <span>Trung bình trong kỳ</span>
         </p>
-      )}
-      <div className="rc-latency-graph">
-        <svg className="rc-latency-curve" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-          <path d={curve} vectorEffect="non-scaling-stroke" />
-        </svg>
-        <dl className="rc-latency-columns">
-          {points.map(({ label, value }, index) => (
-            <div className="rc-latency-column" data-primary={label === "P95"} key={label}>
-              <dt>{label.slice(1)}% yêu cầu</dt>
-              <dd>
-                {value === null ? "Chưa có số liệu" : "Trong " + ms(value)}
-                {value !== null && (
-                  <span className="rc-latency-marker" style={{ "--point-y": positions[index] / 100 }} aria-hidden="true" />
-                )}
-              </dd>
+      </header>
+      {hasPoints ? (
+        <>
+          <div className="rc-latency-plot">
+            <div className="rc-latency-scale" aria-hidden="true">
+              {[limit, limit / 2, 0].map((value) => <span key={value}>{duration(value)}</span>)}
             </div>
-          ))}
-        </dl>
-      </div>
+            <div className="rc-latency-graph">
+              <svg className="rc-latency-curve" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+                <path d={curve} vectorEffect="non-scaling-stroke" />
+              </svg>
+              {points.map(({ time, average, calls, x, y }) => y !== null && (
+                <button type="button" className="rc-latency-marker" key={time}
+                  style={{ left: x + "%", top: y + "%" }}
+                  aria-label={`${label(time)} UTC · ${duration(average)} trung bình · ${number.format(calls)} yêu cầu`}
+                  aria-pressed={selected === time}
+                  onPointerEnter={() => setHovered(time)}
+                  onPointerLeave={() => setHovered(null)}
+                  onClick={() => setSelected(selected === time ? null : time)}
+                />
+              ))}
+              <div className="rc-latency-ticks" aria-hidden="true">
+                {points.filter((_, index) => index % tickStep === 0).map(({ time, x }) => (
+                  <span key={time} style={{ left: x + "%" }}>{label(time)}</span>
+                ))}
+              </div>
+            </div>
+          </div>
+          <small className="rc-latency-note">
+            {active
+              ? `${label(active.time)} UTC · ${duration(active.average)} trung bình · ${number.format(active.calls)} yêu cầu`
+              : `${number.format(http.calls)} yêu cầu trong kỳ · Chọn một điểm để xem chi tiết`}
+          </small>
+        </>
+      ) : (
+        <p className="rc-empty">{http.calls ? "Chưa có độ trễ theo thời gian trong kỳ." : "Chưa có yêu cầu HTTP trong kỳ."}</p>
+      )}
+      {http.calls > 0 && (
+        <details className="rc-latency-details">
+          <summary>Chi tiết phân vị</summary>
+          <dl>
+            {[["P50", http.p50Ms], ["P95", http.p95Ms], ["P99", http.p99Ms]].map(([label, value]) => (
+              <div key={label}><dt>{label}</dt><dd>{duration(value)}</dd></div>
+            ))}
+          </dl>
+          <small>Các mốc phân vị là ước tính.</small>
+        </details>
+      )}
     </>
   )
 }

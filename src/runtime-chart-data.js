@@ -82,3 +82,32 @@ export function latencyDotPlot(http) {
   const limit = Math.ceil(max / step) * step
   return { points, valid, hasSamples: known.length > 0, limit }
 }
+
+export function httpLatencyTimeline(report) {
+  const hour = 3600000
+  const day = 24 * hour
+  const days = report.window?.days
+  const end = Date.parse(report.generatedAt)
+  const start = Math.floor(end / day) * day - (days - 1) * day
+  if (![1, 7, 30].includes(days) || !Number.isFinite(start)) return []
+
+  const step = days === 1 ? hour : day
+  const periods = Array.from({ length: Math.floor((end - start) / step) + 1 }, (_, i) => ({
+    time: start + i * step,
+    calls: 0,
+    totalMs: 0,
+    complete: true,
+  }))
+  for (const row of report.timeline ?? []) {
+    const time = Date.parse(row.hour)
+    const period = periods[Math.floor((time - start) / step)]
+    if (!period || time > end || !(row.calls > 0)) continue
+    period.calls += row.calls
+    if (Number.isFinite(row.httpTotalMs) && row.httpTotalMs >= 0)
+      period.totalMs += row.httpTotalMs
+    else period.complete = false
+  }
+  return periods.map(({ time, calls, totalMs, complete }) => ({
+    time, calls, average: calls && complete ? totalMs / calls : null,
+  }))
+}
