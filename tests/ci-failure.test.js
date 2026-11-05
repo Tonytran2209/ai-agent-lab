@@ -25,3 +25,10 @@ test('failure-looking test titles, quoted source, passing or foreign records can
  assert.equal(classifyCiLog('##[group]Run echo "AssertionError"',sha,false),null);
  assert.equal(classifyCiLog('src/App.tsx(12,3): error TS2322: incompatible value',sha,false),'code');
 });
+
+test('package-loader failures before test collection are configuration errors, not unknown or paid coding attempts',()=>{
+ for(const message of ["Error: Cannot find package 'pg' imported from /__w/repo/backend/postgres.ts","Error [ERR_MODULE_NOT_FOUND]: Cannot find package '@electric-sql/pglite' imported from /work/tests/browser/versions.spec.ts","Error: Cannot find module 'pg'","Error [MODULE_NOT_FOUND]: Cannot find module 'pg'"]){
+  for(const browser of [true,false])assert.equal(classifyCiLog('2026-11-05T07:21:11.2439647Z \x1b[31m'+message+'\x1b[0m',sha,browser),'configuration');
+ }
+ for(const source of ["console.log(\"Error: Cannot find package 'pg' imported from backend/postgres.ts\")","##[group]Run echo Error: Cannot find package 'pg'","✓ tests/browser/versions.spec.ts handles Error: Cannot find package 'pg'"]){assert.equal(classifyCiLog(source,sha,true),null);}
+});
