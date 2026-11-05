@@ -32,3 +32,8 @@ test('actual browser timeout outranks an echoed image check that succeeded earli
  const out=await ciInfrastructure(async(p,logs)=>logs?log:({...job,steps:[{name:'Verify CI configuration',status:'completed',conclusion:'success'},{name:'Verify pinned Playwright environment',status:'completed',conclusion:'success'},{name:'Run browser tests',status:'completed',conclusion:'failure'}]}),response,sha);
  assert.equal(out.failureKind,'test');assert.equal(out.jobs[0].failedStep,'Run browser tests');assert.match(out.jobs[0].stage,/Kiểm thử giao diện/);
 });
+
+test('missing backend package during browser collection exposes a safe actionable dependency reason',async()=>{
+ const out=await ciInfrastructure(async(p,logs)=>logs?"2026-11-05T07:21:11.2439647Z Error: Cannot find package 'pg' imported from /private/backend/postgres.ts":({...job,steps:[{name:'Run browser tests',status:'completed',conclusion:'failure'}]}),response,sha);
+ assert.equal(out.failureKind,'configuration');assert.equal(out.jobs[0].configurationReason,'missing-dependency');assert.match(out.jobs[0].stage,/Thiếu dependency/);assert.equal(JSON.stringify(out).includes('/private'),false);assert.equal(out.jobs[0].conclusion,'failure');
+});

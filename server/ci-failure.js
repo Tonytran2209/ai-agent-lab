@@ -1,3 +1,8 @@
+const dependencyLoaderFailure=/^(?:Error(?: \[(?:ERR_MODULE_NOT_FOUND|MODULE_NOT_FOUND)\])?:\s*)(?:Cannot find package ['"][^'"\r\n]+['"](?: imported from |$)|Cannot find module ['"][^'"\r\n]+['"](?: imported from |$))/i;
+export function missingDependencyDiagnostic(log){
+ if(typeof log!=='string'||log.length>2000000)return false;
+ return log.slice(-500000).replace(/\x1b\[[0-9;]*m/g,'').split('\n').some(line=>dependencyLoaderFailure.test(line.replace(/^\d{4}-\d\d-\d\dT[\d:.]+Z\s*/, '').trim().replace(/^##\[error\]\s*/,'')));
+}
 // Persist categories only. Never expose or retain raw GitHub logs in request diagnostics.
 // GitHub prints command source as well as output. Only diagnostic lines are evidence:
 // a quoted throw in a successful preflight is not an actual image mismatch.
@@ -6,6 +11,8 @@ export function classifyCiLog(log,commit,isBrowser){
  const lines=log.slice(-500000).replace(/\x1b\[[0-9;]*m/g,'').split('\n').map(line=>line.replace(/^\d{4}-\d\d-\d\dT[\d:.]+Z\s*/, '').trim()).filter(line=>!/^##\[(?:group|endgroup|command|debug)\]/.test(line));
  const diagnostics=lines.map(line=>line.replace(/^##\[error\]\s*/,''));
  const config=/^(?:(?:Error(?: \[[^\]]+\])?|error):\s*)?(?:(?:Could not find|Cannot find module)\b[^\n]*(?:tests\/agent-lab|lab-ci-tools|playwright[^\n]*config|evidence-reporter)|No tests found\b|Playwright image\/package mismatch:\s*\S|CI contract\b[^\n]*(?:missing|invalid|mismatch|not found|thiếu|không hợp lệ))/i;
+ // Node package-loader failures happen before test registration; they are not browser assertions.
+ if(diagnostics.some(line=>dependencyLoaderFailure.test(line)))return 'configuration';
  if(diagnostics.some(line=>config.test(line)||/^(?:fatal:\s*)?detected dubious ownership\b/i.test(line)))return 'configuration';
  if(diagnostics.some(line=>/^(?:Error:\s*)?(?:browserType\.launch:\s*)?(?:Executable doesn't exist\b|Host system is missing dependencies\b)|^\S+: error while loading shared libraries:|^(?:Error:\s*)?browserType\.launch[^\n]*(?:Permission denied|Operation not permitted)/i.test(line)))return 'infrastructure';
  if(isBrowser){

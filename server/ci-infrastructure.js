@@ -1,4 +1,4 @@
-import {classifyCiLog} from './ci-failure.js';
+import {classifyCiLog,missingDependencyDiagnostic} from './ci-failure.js';
 // Read-only diagnosis of exact-head GitHub jobs. Observation never grants CI success.
 const matrixName=/^browser-tests \((desktop|mobile)\)$/;
 const testStep=/playwright test|Run browser tests|npm run test:browser/;
@@ -32,7 +32,8 @@ export async function ciInfrastructure(api,response,commit){
   let log;try{if(step)log=await api('actions/jobs/'+match[1]+'/logs',true);}catch{}
   const diagnosed=classifyCiLog(log,commit,run.name!=='writer-check');
   const kind=diagnosed||(step?.name==='Verify CI configuration'?'configuration':null)||(step&&setupStep.test(step.name)&&!testsStarted?'infrastructure':'unknown');
-  row.failureKind=kind;row.stage=kind==='configuration'?'Cấu hình CI không tương thích; cần đồng bộ công cụ/fixture':kind==='infrastructure'?'Lỗi chuẩn bị Chromium/môi trường; chưa chạy test':kind==='test'?'Kiểm thử giao diện thất bại':kind==='code'?'Kiểm tra code thất bại':'Chưa xác định nguyên nhân; cần xem bước lỗi';kinds.push(kind);
+  if(kind==='configuration'&&missingDependencyDiagnostic(log))row.configurationReason='missing-dependency';
+  row.failureKind=kind;row.stage=row.configurationReason==='missing-dependency'?'Thiếu dependency khi nạp module/test; chưa chạy kiểm thử':kind==='configuration'?'Cấu hình CI không tương thích; cần đồng bộ công cụ/fixture':kind==='infrastructure'?'Lỗi chuẩn bị Chromium/môi trường; chưa chạy test':kind==='test'?'Kiểm thử giao diện thất bại':kind==='code'?'Kiểm tra code thất bại':'Chưa xác định nguyên nhân; cần xem bước lỗi';kinds.push(kind);
  }
  // Do not hide independent failures or a broken aggregate whose shards all passed.
  const otherFailure=[...latest.values()].some(r=>r.status==='completed'&&!['success','neutral','skipped'].includes(r.conclusion)&&!['writer-check','browser-check'].includes(r.name)&&!matrixName.test(r.name));
