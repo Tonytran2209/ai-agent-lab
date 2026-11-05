@@ -1,4 +1,6 @@
-import React, { useEffect, useRef, useState } from "react"
+import AnimatedValue from "./AnimatedValue.jsx"
+import { RuntimeOverview, AICharts, WorkflowStatus } from "./RuntimeCharts.jsx"
+import React, { useEffect, useState } from "react"
 import {
   Activity,
   ArrowUpRight,
@@ -67,49 +69,6 @@ function PerformanceSelect({ children, ...props }) {
 }
 const count = (value) => number(Math.round(value))
 const percentage = (value) => number(value) + "%"
-function AnimatedValue({ value, format = count }) {
-  const current = useRef(0)
-  const [display, setDisplay] = useState(0)
-  useEffect(() => {
-    const motion = window.matchMedia("(prefers-reduced-motion: reduce)")
-    let frame
-    const finish = () => {
-      cancelAnimationFrame(frame)
-      current.current = value
-      setDisplay(value)
-    }
-    const from = current.current ?? 0
-    if (value == null || motion.matches || from === value) {
-      finish()
-    } else {
-      const started = performance.now()
-      const tick = (now) => {
-        const progress = Math.min(1, (now - started) / 650)
-        const next = from + (value - from) * (1 - Math.pow(1 - progress, 3))
-        current.current = next
-        setDisplay(next)
-        if (progress < 1) frame = requestAnimationFrame(tick)
-      }
-      frame = requestAnimationFrame(tick)
-    }
-    const onMotion = () => {
-      if (motion.matches) finish()
-    }
-    motion.addEventListener("change", onMotion)
-    return () => {
-      cancelAnimationFrame(frame)
-      motion.removeEventListener("change", onMotion)
-    }
-  }, [value])
-  return (
-    <>
-      <span aria-hidden="true">
-        {value == null ? "—" : format(display ?? 0)}
-      </span>
-      <span className="sr-only">{value == null ? "—" : format(value)}</span>
-    </>
-  )
-}
 function Metric({
   icon: Icon,
   label,
@@ -227,7 +186,6 @@ function RuntimeReport({ target: t, days }) {
     http = r?.http,
     ai = r?.ai,
     rt = r?.runtime
-  const observedDays = r?.coverage?.firstMeasuredHour ? Math.max(1,Math.min(days,Math.floor((Date.parse(r.generatedAt.slice(0,10))-Date.parse(r.coverage.firstMeasuredHour.slice(0,10)))/86400000)+1)) : null
   const ledger = r?.ledger?.models || []
   const totals = ledger.reduce(
     (a, v) => {
@@ -245,7 +203,6 @@ function RuntimeReport({ target: t, days }) {
     },
     { cost: 0 },
   )
-  const max = Math.max(1, ...(r?.timeline || []).map((v) => v.calls))
   const tone =
     t.status === "ready"
       ? "success"
@@ -274,45 +231,7 @@ function RuntimeReport({ target: t, days }) {
         </div>
       ) : (
         <>
-          <div className="perf-metrics">
-            <Metric
-              icon={Activity}
-              label="HTTP requests"
-              value={http.calls}
-              surface="blue"
-              note="API ứng dụng · không gồm file tĩnh và monitor"
-            />
-            <Metric
-              icon={Clock}
-              label="Phản hồi HTTP trung bình"
-              value={http.averageMs}
-              format={duration}
-              surface="yellow"
-              note={
-                "P95 " + duration(http.p95Ms) + " · P99 " + duration(http.p99Ms)
-              }
-            />
-            <Metric
-              icon={CheckCircle2}
-              label="Tỉ lệ lỗi máy chủ"
-              value={http.errorRate}
-              format={percentage}
-              surface={http.failed ? "rose" : "lime"}
-              note={
-                number(http.failed) +
-                " lỗi 5xx · " +
-                number(http.clientErrors) +
-                " phản hồi 4xx"
-              }
-            />
-            <Metric
-              icon={GitBranch}
-              label="Tổng bài viết"
-              value={r.articles?.total ?? null}
-              surface="ink"
-              note="Kho hiện tại · loại trùng / phiên bản mới nhất"
-            />
-          </div>
+          <RuntimeOverview report={r} />
           <div className="perf-grid">
             <article className="perf-card perf-system-card">
               <div className="perf-card-heading">
@@ -408,355 +327,176 @@ function RuntimeReport({ target: t, days }) {
               </dl>
             </article>
           </div>
-          <div className="perf-metrics">
-            <Metric
-              icon={Activity}
-              label="AI calls"
-              value={ai.calls}
-              surface="blue"
-              note={
-                ai.failed +
-                " lượt lỗi · " +
-                duration(ai.averageMs) +
-                " trung bình"
-              }
-            />
-            <Metric
-              icon={ArrowUpRight}
-              label="Input / output tokens"
-              value={ai.inputTokens + ai.outputTokens}
-              surface="yellow"
-              note={
-                number(ai.inputTokens) +
-                " input · " +
-                number(ai.outputTokens) +
-                " output · " +
-                ai.usageSamples +
-                "/" +
-                ai.calls +
-                " có usage"
-              }
-            />
-            <Metric
-              icon={CheckCircle2}
-              label="Chi phí AI đã định giá"
-              value={ai.knownCostUsd}
-              format={money}
-              surface="lime"
-              note={
-                ai.pricedCalls + "/" + ai.calls + " lượt có giá · USD ước tính"
-              }
-            />
-            <Metric
-              icon={Clock}
-              label="Chi phí TB / lượt có giá"
-              value={ai.averageKnownCostPerCall}
-              format={money}
-              surface="ink"
-              note={
-                "TB/ngày có quan sát: " +
-                show(
-                  ai.knownCostUsd == null || !observedDays ? null : ai.knownCostUsd / observedDays,
-                  money,
-                )
-              }
-            />
-          </div>
-          <div className="perf-grid">
-            <article className="perf-card perf-trend-card">
+          <AICharts report={r} />
+          <WorkflowStatus inventory={r.inventory} />
+          <details className="rc-details">
+            <summary>Xem bảng số liệu chi tiết · AI và HTTP</summary>
+            <article className="perf-card perf-recent">
               <div className="perf-card-heading">
                 <div>
-                  <h2>Lưu lượng theo giờ</h2>
-                  <p>HTTP requests · UTC · từ khi bắt đầu thu thập</p>
+                  <h2>AI usage theo provider / model</h2>
+                  <p>
+                    Dispatcher đã instrument · cached input nằm trong input ·
+                    không cộng với ledger bên dưới
+                  </p>
                 </div>
               </div>
-              <div
-                className="perf-chart perf-runtime-chart"
-                role="img"
-                aria-label={
-                  (r.timeline || [])
-                    .map(
-                      (v) =>
-                        v.hour +
-                        ": " +
-                        v.calls +
-                        " HTTP, " +
-                        v.errors +
-                        " lỗi, " +
-                        v.aiCalls +
-                        " AI calls",
-                    )
-                    .join("; ") || "Chưa có mẫu lưu lượng"
-                }
-              >
-                {(r.timeline || []).map((v, i) => (
-                  <div className="perf-bar-column" key={v.hour}>
-                    <span className="perf-bar-count">{v.calls}</span>
-                    <div className="perf-bar-track">
-                      <div
-                        className="perf-bar"
-                        style={{
-                          height: (v.calls / max) * 100 + "%",
-                          "--bar-index": Math.min(i, 15),
-                        }}
-                        title={
-                          v.hour +
-                          " · " +
-                          v.calls +
-                          " HTTP · " +
-                          v.errors +
-                          " lỗi"
-                        }
-                      />
-                    </div>
-                    <small>
-                      {v.hour.slice(8, 10) + "/" + v.hour.slice(11, 13) + "h"}
-                    </small>
-                  </div>
-                ))}
+              <div className="perf-table-scroll">
+                <table>
+                  <thead>
+                    <tr>
+                      {[
+                        "Provider : model",
+                        "Calls / lỗi",
+                        "Input",
+                        "Cached input",
+                        "Output",
+                        "Có usage / giá",
+                        "Chi phí ước tính",
+                        "P95",
+                      ].map((v) => (
+                        <th key={v}>{v}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {ai.models.map((m) => (
+                      <tr key={m.model}>
+                        <td>{m.model}</td>
+                        <td>
+                          {m.calls} / {m.failed}
+                        </td>
+                        <td>{number(m.inputTokens)}</td>
+                        <td>{number(m.cachedInputTokens)}</td>
+                        <td>{number(m.outputTokens)}</td>
+                        <td>
+                          {m.usageSamples} / {m.pricedCalls}
+                        </td>
+                        <td>{show(m.knownCostUsd, money)}</td>
+                        <td>{duration(m.p95Ms)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
-            </article>
-            <article className="perf-card">
-              <div className="perf-card-heading">
-                <div>
-                  <h2>Kho nội dung</h2>
-                  <p>Trạng thái hiện tại · độc lập với cửa sổ HTTP/AI</p>
-                </div>
-              </div>
-              <dl className="perf-health">
-                <div>
-                  <dt>Content plans (bảng quan hệ)</dt>
-                  <dd>{show(r.plans?.total)}</dd>
-                </div>
-                {r.articles?.byStatus.map((v) => (
-                  <div key={v.status}>
-                    <dt>{v.status}</dt>
-                    <dd>{number(v.count)}</dd>
-                  </div>
-                ))}
-              </dl>
-              {!r.articles && (
-                <p className="perf-footnote">Chưa đọc được kho bài viết.</p>
+              {!ai.models.length && (
+                <p className="perf-empty">
+                  Chưa có lượt gọi AI được đo trong kỳ.
+                </p>
               )}
             </article>
-          </div>
-          <article className="perf-card perf-recent">
-            <div className="perf-card-heading">
-              <div>
-                <h2>Workflow · hàng đợi · chất lượng</h2>
-                <p>
-                  Snapshot các bảng quan hệ hiện có · không suy diễn trạng thái
-                  worker từ hàng đợi
-                </p>
+            <article className="perf-card perf-recent">
+              <div className="perf-card-heading">
+                <div>
+                  <h2>AI ledger đã lưu của ứng dụng</h2>
+                  <p>
+                    Lịch sử workflow trong kỳ · có thể chỉ bao phủ một phần hoạt
+                    động · không cộng vào dispatcher
+                  </p>
+                </div>
               </div>
-            </div>
-            <div className="perf-table-scroll">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Thành phần</th>
-                    <th>Trạng thái / số lượng</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {Object.entries(r.inventory || {}).map(([name, rows]) => (
-                    <tr key={name}>
-                      <td>
-                        {{
-                          content_plan_items: "Hạng mục content plan",
-                          article_stage_runs: "Lượt chạy từng giai đoạn",
-                          batch_jobs: "Batch jobs",
-                          batch_job_items: "Hạng mục batch",
-                          quality_gate_runs: "Quality gates",
-                          editorial_approvals: "Phê duyệt biên tập",
-                          website_content_inventory: "Kho website",
-                          eb_v2_packages: "EB V2 · Packages",
-                          eb_v2_gate_runs: "EB V2 · Gate runs",
-                          eb_v2_feedback_threads: "EB V2 · Feedback",
-                          eb_v2_library_documents: "EB V2 · Thư viện",
-                          eb_v2_discovery_items: "EB V2 · Discovery",
-                          eb_v2_channel_outputs: "EB V2 · Output mới nhất theo kênh",
-                        }[name] || name}
-                      </td>
-                      <td>
-                        {rows === null
-                          ? "Chưa có bảng dữ liệu"
-                          : rows.length
-                            ? rows
-                                .map((v) => v.status + ": " + number(v.count))
-                                .join(" · ")
-                            : "0 bản ghi"}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </article>
-          <article className="perf-card perf-recent">
-            <div className="perf-card-heading">
-              <div>
-                <h2>AI usage theo provider / model</h2>
-                <p>
-                  Dispatcher đã instrument · cached input nằm trong input ·
-                  không cộng với ledger bên dưới
-                </p>
-              </div>
-            </div>
-            <div className="perf-table-scroll">
-              <table>
-                <thead>
-                  <tr>
-                    {[
-                      "Provider : model",
-                      "Calls / lỗi",
-                      "Input",
-                      "Cached input",
-                      "Output",
-                      "Có usage / giá",
-                      "Chi phí ước tính",
-                      "P95",
-                    ].map((v) => (
-                      <th key={v}>{v}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {ai.models.map((m) => (
-                    <tr key={m.model}>
-                      <td>{m.model}</td>
-                      <td>
-                        {m.calls} / {m.failed}
-                      </td>
-                      <td>{number(m.inputTokens)}</td>
-                      <td>{number(m.cachedInputTokens)}</td>
-                      <td>{number(m.outputTokens)}</td>
-                      <td>
-                        {m.usageSamples} / {m.pricedCalls}
-                      </td>
-                      <td>{show(m.knownCostUsd, money)}</td>
-                      <td>{duration(m.p95Ms)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            {!ai.models.length && (
-              <p className="perf-empty">
-                Chưa có lượt gọi AI được đo trong kỳ.
+              <p className="perf-footnote">
+                {r.ledger
+                  ? number(totals.calls || 0) +
+                    " lượt đã lưu · " +
+                    number(totals.cache_hits || 0) +
+                    " cache hits · " +
+                    number(totals.input_tokens || 0) +
+                    " input / " +
+                    number(totals.output_tokens || 0) +
+                    " output tokens · " +
+                    show(totals.priced_calls ? totals.cost : null, money) +
+                    " đã định giá (" +
+                    (totals.priced_calls || 0) +
+                    " lượt)"
+                  : "Chưa đọc được ledger lịch sử."}
               </p>
-            )}
-          </article>
-          <article className="perf-card perf-recent">
-            <div className="perf-card-heading">
-              <div>
-                <h2>AI ledger đã lưu của ứng dụng</h2>
-                <p>
-                  Lịch sử workflow trong kỳ · có thể chỉ bao phủ một phần hoạt
-                  động · không cộng vào dispatcher
-                </p>
-              </div>
-            </div>
-            <p className="perf-footnote">
-              {r.ledger
-                ? number(totals.calls || 0) +
-                  " lượt đã lưu · " +
-                  number(totals.cache_hits || 0) +
-                  " cache hits · " +
-                  number(totals.input_tokens || 0) +
-                  " input / " +
-                  number(totals.output_tokens || 0) +
-                  " output tokens · " +
-                  show(totals.priced_calls ? totals.cost : null, money) +
-                  " đã định giá (" +
-                  (totals.priced_calls || 0) +
-                  " lượt)"
-                : "Chưa đọc được ledger lịch sử."}
-            </p>
-            <div className="perf-table-scroll">
-              <table>
-                <thead>
-                  <tr>
-                    {[
-                      "Provider / model",
-                      "Bước",
-                      "Lượt đã lưu / cache hits",
-                      "Input / cached / output",
-                      "Có giá",
-                      "USD ước tính",
-                    ].map((v) => (
-                      <th key={v}>{v}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {ledger.map((m, i) => (
-                    <tr key={i}>
-                      <td>
-                        {m.source ? m.source + ' · ' : ''}{m.provider} / {m.model}
-                      </td>
-                      <td>{m.step}</td>
-                      <td>
-                        {m.calls} / {m.cache_hits}
-                      </td>
-                      <td>
-                        {number(m.input_tokens)} /{" "}
-                        {number(m.cached_input_tokens)} /{" "}
-                        {number(m.output_tokens)}
-                      </td>
-                      <td>
-                        {m.priced_calls} / {m.calls}
-                      </td>
-                      <td>{show(m.known_cost_usd, money)}</td>
+              <div className="perf-table-scroll">
+                <table>
+                  <thead>
+                    <tr>
+                      {[
+                        "Provider / model",
+                        "Bước",
+                        "Lượt đã lưu / cache hits",
+                        "Input / cached / output",
+                        "Có giá",
+                        "USD ước tính",
+                      ].map((v) => (
+                        <th key={v}>{v}</th>
+                      ))}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </article>
-          <article className="perf-card perf-recent">
-            <div className="perf-card-heading">
-              <div>
-                <h2>HTTP theo route</h2>
-                <p>Chỉ tên route, không chứa URL người dùng hoặc query</p>
-              </div>
-            </div>
-            <div className="perf-table-scroll">
-              <table>
-                <thead>
-                  <tr>
-                    {[
-                      "Route",
-                      "Requests",
-                      "5xx / 4xx / hủy",
-                      "Trung bình",
-                      "P50 / P95 / P99",
-                      "Cao nhất",
-                    ].map((v) => (
-                      <th key={v}>{v}</th>
+                  </thead>
+                  <tbody>
+                    {ledger.map((m, i) => (
+                      <tr key={i}>
+                        <td>
+                          {m.source ? m.source + " · " : ""}
+                          {m.provider} / {m.model}
+                        </td>
+                        <td>{m.step}</td>
+                        <td>
+                          {m.calls} / {m.cache_hits}
+                        </td>
+                        <td>
+                          {number(m.input_tokens)} /{" "}
+                          {number(m.cached_input_tokens)} /{" "}
+                          {number(m.output_tokens)}
+                        </td>
+                        <td>
+                          {m.priced_calls} / {m.calls}
+                        </td>
+                        <td>{show(m.known_cost_usd, money)}</td>
+                      </tr>
                     ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {http.routes.map((v) => (
-                    <tr key={v.route}>
-                      <td>{v.route}</td>
-                      <td>{v.calls}</td>
-                      <td>
-                        {v.failed} / {v.clientErrors} / {v.aborted}
-                      </td>
-                      <td>{duration(v.averageMs)}</td>
-                      <td>
-                        {duration(v.p50Ms)} / {duration(v.p95Ms)} /{" "}
-                        {duration(v.p99Ms)}
-                      </td>
-                      <td>{duration(v.maxMs)}</td>
+                  </tbody>
+                </table>
+              </div>
+            </article>
+            <article className="perf-card perf-recent">
+              <div className="perf-card-heading">
+                <div>
+                  <h2>HTTP theo route</h2>
+                  <p>Chỉ tên route, không chứa URL người dùng hoặc query</p>
+                </div>
+              </div>
+              <div className="perf-table-scroll">
+                <table>
+                  <thead>
+                    <tr>
+                      {[
+                        "Route",
+                        "Requests",
+                        "5xx / 4xx / hủy",
+                        "Trung bình",
+                        "P50 / P95 / P99",
+                        "Cao nhất",
+                      ].map((v) => (
+                        <th key={v}>{v}</th>
+                      ))}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </article>
+                  </thead>
+                  <tbody>
+                    {http.routes.map((v) => (
+                      <tr key={v.route}>
+                        <td>{v.route}</td>
+                        <td>{v.calls}</td>
+                        <td>
+                          {v.failed} / {v.clientErrors} / {v.aborted}
+                        </td>
+                        <td>{duration(v.averageMs)}</td>
+                        <td>
+                          {duration(v.p50Ms)} / {duration(v.p95Ms)} /{" "}
+                          {duration(v.p99Ms)}
+                        </td>
+                        <td>{duration(v.maxMs)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </article>
+          </details>
           <p className="perf-footnote">
             Cập nhật {timestamp(r.generatedAt)} · bắt đầu có mẫu{" "}
             {timestamp(r.coverage.firstMeasuredHour)} · P50/P95/P99 là cận trên
