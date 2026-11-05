@@ -95,7 +95,7 @@ export function createApp(config, options = {}) {
   const lark=createLark(db,service,config);
   const runnerControl=createRunnerControl(db,service);
   const notificationCenter=createNotificationCenter(db);
-  const performanceReport = createPerformance(db, service);
+  const performanceReport = createPerformance(db, service, config);
   const appMonitoring = createAppMonitoring({targets:()=>monitoringTargets(config.LAB_MONITORING_TARGETS || '[]')});
   const app = express();
   app.use(['/api', '/runner', '/mcp'], performanceReport.middleware);

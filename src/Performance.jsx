@@ -1,3 +1,4 @@
+import TaskUsage from "./TaskUsage.jsx";
 import AnimatedValue from "./AnimatedValue.jsx"
 import { RuntimeOverview, AICharts, WorkflowStatus } from "./RuntimeCharts.jsx"
 import React, { useEffect, useState } from "react"
@@ -328,6 +329,7 @@ function RuntimeReport({ target: t, days }) {
             </article>
           </div>
           <AICharts report={r} />
+          <TaskUsage report={r}/>
           <WorkflowStatus inventory={r.inventory} />
           <details className="rc-details">
             <summary>Xem bảng số liệu chi tiết · AI và HTTP</summary>
@@ -735,6 +737,7 @@ export default function Performance({ api, onRequest }) {
                   }
                 />
               </div>
+              <TaskUsage report={data} lab/>
               <div className="perf-grid">
                 <article className="perf-card perf-trend-card">
                   <div className="perf-card-heading">

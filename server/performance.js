@@ -1,3 +1,4 @@
+import {requestTaskUsage} from './task-performance.js';
 import { performance } from "node:perf_hooks";
 
 const failed = (r) =>
@@ -20,7 +21,7 @@ const percentile = (values) =>
     ? values.sort((a, b) => a - b)[Math.ceil(values.length * 0.95) - 1]
     : null;
 
-export function createPerformance(db, service) {
+export function createPerformance(db, service, config={}) {
   const startedAt = new Date().toISOString();
   let recordingErrors = 0;
   db.exec(`CREATE TABLE IF NOT EXISTS performance_hours (
@@ -181,6 +182,7 @@ export function createPerformance(db, service) {
           active: scoped.filter(active).length,
           running: scoped.filter((r) => active(r) && running(r)).length,
         },
+        taskUsage:requestTaskUsage(db,cohort,config),
         summary: metrics(cohort),
         projects,
         trend,
