@@ -6,7 +6,7 @@ import {
   usageFields,
   estimatedCost,
 } from "../server/task-performance.js"
-import { taskRows, taskSummary, rankedTasks } from "../src/task-usage-data.js"
+import { taskRows, taskSummary, rankedTasks, taskTimeline } from "../src/task-usage-data.js"
 test("task means exclude missing usage/prices and do not combine historical with current counters", () => {
   const report = {
     taskUsage: {
@@ -133,4 +133,25 @@ test("pricing requires configured valid rates and cached tokens are a subset of 
     }),
     0.00037,
   )
+})
+
+test("task timeline uses UTC periods and distinguishes zero, missing and partial totals", () => {
+  const report = { generatedAt: "2026-11-05T14:00:00Z", days: 1 }
+  const periods = taskTimeline([
+    { startedAt: "2026-11-04T23:59:59Z", usageSamples: 1, totalTokens: 90 },
+    { startedAt: "2026-11-05T03:59:59Z", usageSamples: 1, totalTokens: 0, tokenComplete: true },
+    { startedAt: "2026-11-05T04:00:00Z", usageSamples: 1, totalTokens: 200, knownCostUsd: 0.03, tokenComplete: true, costComplete: true },
+    { startedAt: "2026-11-05T04:30:00Z", usageSamples: 0 },
+    { startedAt: "2026-11-05T14:00:01Z", usageSamples: 1, totalTokens: 90 },
+  ], report)
+
+  assert.deepEqual(periods.map(({ count, tokens, usd }) => [count, tokens, usd]), [
+    [1, 0, null],
+    [2, 200, 0.03],
+    [0, null, null],
+    [0, null, null],
+  ])
+  assert.equal(periods[0].partialTokens, false)
+  assert.equal(periods[1].partialTokens, true)
+  assert.equal(periods[1].partialUsd, true)
 })

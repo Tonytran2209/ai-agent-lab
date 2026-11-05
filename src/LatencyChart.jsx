@@ -6,6 +6,12 @@ const ms = (value) =>
     : new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 1 }).format(
         value >= 1000 ? value / 1000 : value,
       ) + (value >= 1000 ? " s" : " ms")
+const names = {
+  P50: "Trung vị",
+  P95: "95% yêu cầu",
+  P99: "99% yêu cầu",
+}
+
 export default function LatencyChart({ http }) {
   const { points, valid, hasSamples, limit } = latencyDotPlot(http)
   if (!valid)
@@ -18,7 +24,9 @@ export default function LatencyChart({ http }) {
       <dl className="rc-latency-lanes">
         {points.map(({ label, value }) => (
           <div className="rc-latency-row" data-primary={label === "P95"} key={label}>
-            <dt>{label}</dt>
+            <dt>
+              {names[label]} <small>{label}</small>
+            </dt>
             <dd className="rc-latency-track" aria-hidden="true">
               {value !== null && (
                 <span
@@ -27,7 +35,9 @@ export default function LatencyChart({ http }) {
                 />
               )}
             </dd>
-            <dd className="rc-latency-number">{ms(value)}</dd>
+            <dd className="rc-latency-number">
+              {value === null ? "—" : "≤ " + ms(value)}
+            </dd>
           </div>
         ))}
       </dl>

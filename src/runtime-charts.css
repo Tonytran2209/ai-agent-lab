@@ -26,3 +26,9 @@
 .rc-latency-max{display:block;font-size:10px;line-height:1.7}
 @media(max-width:420px){.rc-latency-head{flex-wrap:wrap}.rc-latency-summary{max-width:none;text-align:left}.rc-latency-row{column-gap:8px}}
 .rc-latency-axis span:nth-child(2){position:absolute;left:50%;transform:translateX(-50%)}
+
+.rc-latency-row{grid-template-columns:minmax(90px,110px) minmax(0,1fr) minmax(72px,auto)}
+.rc-latency-row dt small{display:block;font-size:10px;font-weight:400}
+.rc-latency-track{height:18px}
+.rc-latency-number{white-space:nowrap}
+.rc-latency-head p{max-width:46ch}

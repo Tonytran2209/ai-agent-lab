@@ -1,6 +1,6 @@
 import React, { useState } from "react"
 import AnimatedValue from "./AnimatedValue.jsx"
-import { taskRows, taskSummary, rankedTasks } from "./task-usage-data.js"
+import { taskRows, taskSummary, rankedTasks, taskTimeline } from "./task-usage-data.js"
 import "./task-usage.css"
 const n = (v) =>
   new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 1 }).format(v)
@@ -18,6 +18,64 @@ const status = {
   unattributed: "Chưa gắn được task",
 }
 const value = (v, f = n) => (v == null ? "—" : f(v))
+const utcDate = new Intl.DateTimeFormat("vi-VN", {
+  day: "2-digit", month: "2-digit", timeZone: "UTC",
+})
+const utcHour = new Intl.DateTimeFormat("vi-VN", {
+  hour: "2-digit", minute: "2-digit", timeZone: "UTC",
+})
+const dots = 16
+
+function TaskTimeline({ rows, report }) {
+  const [metric, setMetric] = useState("tokens")
+  const periods = taskTimeline(rows, report)
+  if (!periods.some((period) => period.count)) return null
+  const tokens = metric === "tokens"
+  const format = tokens ? n : usd
+  const maximum = Math.max(...periods.map((period) => period[metric] ?? 0))
+  const hourly = (report.window?.days ?? report.days) === 1
+
+  return (
+    <figure className="rc-card task-timeline" data-metric={metric}>
+      <div className="task-timeline-heading">
+        <div>
+          <h3>Mức tiêu thụ theo thời gian</h3>
+          <p>Tổng đã ghi nhận, nhóm theo thời điểm task bắt đầu (UTC).</p>
+        </div>
+        <div className="task-timeline-switch" aria-label="Chỉ số tiêu thụ" role="group">
+          <button type="button" aria-pressed={tokens} onClick={() => setMetric("tokens")}>Token</button>
+          <button type="button" aria-pressed={!tokens} onClick={() => setMetric("usd")}>USD</button>
+        </div>
+      </div>
+      <ol className="task-periods">
+        {periods.map((period) => {
+          const amount = period[metric]
+          const filled = amount > 0 ? Math.max(1, Math.round(amount / maximum * dots)) : 0
+          const start = (hourly ? utcHour : utcDate).format(period.start)
+          const end = utcDate.format(period.end)
+          const label = hourly || start === end ? start : start + "–" + end
+          const partial = amount != null && (tokens ? period.partialTokens : period.partialUsd)
+          return (
+            <li key={period.start}>
+              <span className="task-period-value">
+                {amount == null ? (period.count ? "Chưa rõ" : "—") : format(amount)}
+                {partial && <abbr title="Số liệu chưa đầy đủ">*</abbr>}
+              </span>
+              <span className="task-dots" aria-hidden="true">
+                {Array.from({ length: dots }, (_, i) => (
+                  <i key={i} data-filled={i >= dots - filled} />
+                ))}
+              </span>
+              <span>{label}</span>
+            </li>
+          )
+        })}
+      </ol>
+      <figcaption>Chấm đầy tương ứng mốc cao nhất trong kỳ. Dấu — là không có task; * là số liệu chưa đầy đủ.{!tokens && " USD là chi phí ước tính."}</figcaption>
+    </figure>
+  )
+}
+
 export default function TaskUsage({ report, lab = false }) {
   const [source, setSource] = useState(
       report.taskUsage?.rows?.length
@@ -150,6 +208,7 @@ export default function TaskUsage({ report, lab = false }) {
           Mức nhắc chỉ áp dụng trong màn hình hiện tại; chưa gửi thông báo nền.
         </small>
       </div>
+      <TaskTimeline rows={rows} report={report} />
       {!rows.length ? (
         <p className="perf-card perf-empty">
           Chưa có task AI được ghi nhận trong kỳ cho nguồn này.
@@ -166,10 +225,6 @@ export default function TaskUsage({ report, lab = false }) {
                 <span className="task-name">
                   <b>{t.label || t.kind}</b>
                   <small>
-                    {t.id}
-                    {t.entityId ? " · " + t.entityId : ""}
-                  </small>
-                  <small>
                     {status[t.status] || t.status} ·{" "}
                     {new Date(t.startedAt).toLocaleString("vi-VN")}
                   </small>
@@ -180,12 +235,11 @@ export default function TaskUsage({ report, lab = false }) {
                 </span>
                 <span className="task-cost">
                   <b>{value(t.knownCostUsd, usd)}</b>
-                  <small>
-                    {t.costComplete ? "đã đủ giá" : "giá chưa đầy đủ"}
-                  </small>
+                  <small>{t.costComplete ? "USD ước tính" : t.knownCostUsd == null ? "Chưa có giá" : "USD đã biết"}</small>
                 </span>
               </summary>
               <div className="task-detail">
+                <p>{t.id}{t.entityId ? " · " + t.entityId : ""}</p>
                 <dl>
                   <div>
                     <dt>
