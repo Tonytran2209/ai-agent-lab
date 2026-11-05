@@ -65,3 +65,48 @@ export const statusTone = (status) =>
       : /done|complete|approved|pass|ready|active|used/i.test(status)
         ? "good"
         : "other"
+
+// Smooth horizontal-tangent segments cannot overshoot monotone percentile samples.
+// The x axis is categorical (P50/P95/P99), never a timeline or interpolated percentile scale.
+export function latencyCurve(http) {
+  const samples = [
+    ["P50", http.p50Ms],
+    ["P95", http.p95Ms],
+    ["P99", http.p99Ms],
+  ]
+  const known = samples.filter(
+    ([, v]) => typeof v === "number" && Number.isFinite(v) && v >= 0,
+  )
+  if (!known.length) return { points: [], path: "", ticks: [], valid: true }
+  if (known.some(([, v], i) => i > 0 && v < known[i - 1][1]))
+    return { points: [], path: "", ticks: [], valid: false }
+  const max = Math.max(...known.map(([, v]) => v), 1),
+    step = 10 ** Math.floor(Math.log10(max)) / 4
+  const top = Math.ceil((max * 1.15) / step) * step
+  const points = samples.map(([label, value], i) => ({
+    label,
+    value,
+    x: 80 + i * 230,
+    y:
+      typeof value === "number" && Number.isFinite(value) && value >= 0
+        ? 176 - (value / top) * 144
+        : null,
+  }))
+  let path = ""
+  for (let i = 0; i < points.length; i++) {
+    const p = points[i]
+    if (p.y === null) continue
+    const previous = points[i - 1]
+    if (!previous || previous.y === null) path += ` M ${p.x} ${p.y}`
+    else {
+      const dx = (p.x - previous.x) / 3
+      path += ` C ${previous.x + dx} ${previous.y}, ${p.x - dx} ${p.y}, ${p.x} ${p.y}`
+    }
+  }
+  return {
+    points,
+    path,
+    ticks: [0, 0.5, 1].map((f) => ({ value: top * f, y: 176 - 144 * f })),
+    valid: true,
+  }
+}

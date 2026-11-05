@@ -1,3 +1,4 @@
+import LatencyChart from "./LatencyChart.jsx"
 import React, { useState } from "react"
 import AnimatedValue from "./AnimatedValue.jsx"
 import {
@@ -46,12 +47,6 @@ export function RuntimeOverview({ report: r }) {
     max = Math.max(1, ...points.map((v) => v.calls))
   const statuses = r.articles?.byStatus || [],
     total = r.articles?.total
-  const latency = [
-      ["P50", h.p50Ms],
-      ["P95", h.p95Ms],
-      ["P99", h.p99Ms],
-    ],
-    scale = Math.max(1, ...latency.map((v) => v[1] || 0))
   return (
     <div className="rc-bento">
       <article className="rc-card rc-lime rc-success">
@@ -223,37 +218,22 @@ export function RuntimeOverview({ report: r }) {
           empty
         )}
       </article>
-      <article className="rc-card rc-white rc-latency">
-        <Title
-          eyebrow="RESPONSE TIME"
-          title="Phân vị độ trễ HTTP"
-          detail="Cận trên histogram · trục tự điều chỉnh theo dữ liệu"
-        />
-        <div className="rc-latency-summary">
-          <strong>{ms(h.averageMs)}</strong>
-          <small>trung bình · cao nhất {ms(h.maxMs)}</small>
-        </div>
-        {h.calls ? (
-          <div
-            className="rc-lollipops"
-            role="img"
-            aria-label={latency.map(([k, v]) => k + " " + ms(v)).join(", ")}
-          >
-            {latency.map(([label, value]) => (
-              <div className="rc-lollipop" key={label}>
-                <span>{label}</span>
-                <div>
-                  <i style={{ width: ((value ?? 0) / scale) * 100 + "%" }}>
-                    <b />
-                  </i>
-                </div>
-                <strong>{ms(value)}</strong>
-              </div>
-            ))}
+      <article className="rc-card rc-ink rc-latency">
+        <div className="rc-latency-head">
+          <Title
+            eyebrow="RESPONSE TIME"
+            title="Phân vị độ trễ HTTP"
+            detail="Cận trên histogram · kỳ đang chọn"
+          />
+          <div className="rc-latency-summary">
+            <strong>{ms(h.p95Ms)}</strong>
+            <small>P95 · trung bình {ms(h.averageMs)}</small>
           </div>
-        ) : (
-          empty
-        )}
+        </div>
+        {h.calls ? <LatencyChart http={h} /> : empty}
+        <small className="rc-latency-max">
+          Mẫu cao nhất {ms(h.maxMs)} · trục dọc tự điều chỉnh, bắt đầu từ 0.
+        </small>
       </article>
     </div>
   )
