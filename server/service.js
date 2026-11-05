@@ -7,7 +7,7 @@ import {normalizeImages,createFeedbackImages} from './feedback-images.js';
 import {canReconcileDeployment} from './deploy-reconciliation.js';
 import {rejectedScopePaths} from './scope.js';
 import {impactRisk,decideAutomation} from './impact.js';
-import {validateContract,assessContract,contractSatisfied,documentationImpact} from './contracts.js';
+import {validateContract,assessContract,contractSatisfied,documentationImpact,documentationScopeIssues} from './contracts.js';
 import {createRechecks} from './rechecks.js';
 import {createProjectMemory} from './project-memory.js';
 import {createLocalPlanning,intentRisk} from './local-planning.js';
@@ -27,7 +27,7 @@ export function validateDraft(draft, library, requireTraceability=false) {
   const parsed = draftSchema.parse(draft);
   parsed.allowedPaths = [...new Set(parsed.allowedPaths)];
   if(parsed.verificationPlan?.some(v=>v.files.some(p=>!library.sourcePaths.includes(p)&&!parsed.allowedPaths.includes(p))))fail('File kiểm tra cần tồn tại hoặc thuộc phạm vi thực thi.',400);
-  if(parsed.documentationReview?.updatesNeeded&&(!parsed.documentationReview.documents.length||parsed.documentationReview.documents.some(p=>!parsed.allowedPaths.includes(p))))fail('Tài liệu cần cập nhật phải nằm trong allowedPaths.',400);
+  const docIssues=documentationScopeIssues(parsed.documentationReview,parsed.allowedPaths,library);if(docIssues.length)throw Object.assign(new Error(docIssues[0].message),{status:400,code:'DOCUMENT_REVIEW',details:docIssues});
   const rejected=rejectedScopePaths(parsed,library);
   if(rejected.length)throw Object.assign(new Error('Phạm vi file không thuộc layer đã chọn.'),{status:400,code:'SCOPE_POLICY',details:rejected.map(path=>({path,reason:'outside-layer-or-test-policy'}))});
   // New files are allowed within declared layer boundaries; the reviewer must inspect them.
@@ -514,7 +514,7 @@ export function createService(db, options = {}) {
     complete(id, token, input) {
       return transaction(db, () => {
         const r = get(id); verifyLease(r, token); const result = completionSchema.parse(input);
-        if(result.documentationReview?.documents.some(p=>!library(r.libraryVersionId).documents.some(d=>d.path===p)))fail("Tài liệu báo cáo không thuộc library đã ghim.",400);
+        if(result.documentationReview&&[...result.documentationReview.documents,...(result.documentationReview.referenceDocuments||[])].some(p=>!library(r.libraryVersionId).documents.some(d=>d.path===p)))fail("Tài liệu báo cáo không thuộc library đã ghim.",400);
         if (!result.changedPaths.every(p => r.draft.allowedPaths.includes(p))) fail("Diff chứa file ngoài allowedPaths.");
         if (result.artifactUrl) {
         const url = new URL(result.artifactUrl);

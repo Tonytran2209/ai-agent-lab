@@ -1,5 +1,6 @@
 import {runCodexWithRecovery,codexFailureMessage} from './codex-recovery.js';
 import {sourceGuide,validateSourceEvidence} from './source-evidence.js';
+import {documentationScopeIssues} from '../server/contracts.js';
 import {directSurveyPrompt} from './direct-survey.js';
 import {codexEvents} from './codex-events.js';
 import {sharedWorktree} from './shared-worktree.js';
@@ -75,6 +76,8 @@ export async function surveyFeedback({job,config,api,run,signal,environment,imag
   failureReason=job.mode==='report-only'?'artifact':'validation';
   if(await git(['rev-parse','HEAD'],worktree)!==head||(await git(['status','--porcelain','--untracked-files=all'],worktree)))throw new Error('Khảo sát đã thay đổi checkout; không chấp nhận kế hoạch.');
   const plan=JSON.parse(await readFile(outputPath,'utf8'));if(job.mode==='report-only'&&plan.observedBaseCommit!==head)throw new Error('Artifact sai base.');
+  const docIssues=documentationScopeIssues(plan.draft.documentationReview,plan.draft.allowedPaths,claim.library);
+  if(docIssues.length)throw Object.assign(Error(docIssues[0].message),{planningFailureReason:'validation',validationDetails:docIssues.slice(0,12)});
   const checked=await validateSourceEvidence(plan.evidence,{root:worktree,sourcePaths:claim.library.sourcePaths,replay:job.mode==='report-only'});
   plan.evidence=checked.evidence;
   if(checked.repairs.length){await writeFile(outputPath+'-before-repair.json',await readFile(outputPath),{mode:0o600});await writeFile(outputPath+'-repairs.json',JSON.stringify({baseCommit:head,repairs:checked.repairs,at:new Date().toISOString()}),{mode:0o600});}

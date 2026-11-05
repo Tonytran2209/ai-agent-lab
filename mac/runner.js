@@ -8,7 +8,7 @@ import {pollCiRepairs} from './repair.js';
 import {startMonitor} from './monitor.js';
 import {codexModelArgs} from './codex.js';
 import {feedbackImageArgs} from './images.js';
-import {executionContractInstructions} from '../server/contract-json.js';
+import {executionContractInstructions,documentationRoleInstructions} from '../server/contract-json.js';
 import {pollRechecks} from './recheck.js';
 import {pollPlanning} from './planning.js';
 import { pollCiSetups } from "./ci-setup.js";
@@ -186,6 +186,7 @@ export async function executeRequest({ packet, call, config, signal, run = comma
       "Frontend AND backend dependencies are already installed. Run targeted non-browser checks needed for your changes; do not repeat npm run check because the runner runs that full check independently after you finish. Use repository test runners and stable executable command names; do not extract functions into ad-hoc inline harnesses that lose module dependencies. Report failed checks honestly; a check failure alone is not a scope change. Set blocked=true only when implementation requires additional paths or policy changes.",
       "For whitespace checks use git -c core.whitespace=cr-at-eol diff --check against the pinned base; this recognizes CRLF while still rejecting trailing spaces/tabs. Do not use unconfigured git diff --check on CRLF repositories.",
       r.workflowProtocol==='direct-v1'?'Read MD and relevant code, implement feedback, run targeted offline checks and update canonical MD when needed. Return criterionEvidence=[]; no per-criterion proof/tag matrix. Report actual checks and documentationReview. Browser CI runs once on the exact artifact before release. Record useful findings in the summary for verified project memory after deployment.':executionContractInstructions,
+      documentationRoleInstructions,
       "Return JSON matching the supplied schema. Checks must describe commands actually executed.",
       JSON.stringify(codingPacket(claimed.request, claimed.library)),
     ].join("\n");
