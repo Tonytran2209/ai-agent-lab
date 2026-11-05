@@ -14,6 +14,15 @@ export default function LatencyChart({ http }) {
     return <p className="rc-empty">Chưa có mẫu độ trễ trong kỳ này.</p>
 
   const p95 = points.find(({ label }) => label === "P95").value
+  const positions = points.map(({ value }) => value === null ? null : 100 - value / limit * 100)
+  const curve = positions.map((y, index) => {
+    if (y === null) return ""
+    const x = index * 50
+    const previousY = positions[index - 1]
+    if (previousY == null) return `M ${x} ${y}`
+    const middle = x - 25
+    return `C ${middle} ${previousY}, ${middle} ${y}, ${x} ${y}`
+  }).join(" ")
   return (
     <>
       {p95 !== null && (
@@ -27,19 +36,22 @@ export default function LatencyChart({ http }) {
           <span>{ms(limit / 2)}</span>
           <span>0 ms</span>
         </div>
-        <dl className="rc-latency-columns">
-          {points.map(({ label, value }) => (
-            <div className="rc-latency-column" data-primary={label === "P95"} key={label}>
-              <dt>{label.slice(1)}% yêu cầu <small>{label}</small></dt>
-              <dd className="rc-latency-bar" style={{ "--fill": value === null ? "0%" : (value / limit) * 100 + "%" }}>
-                <span className="rc-latency-track" aria-hidden="true">
-                  {value !== null && <span className="rc-latency-fill" />}
-                </span>
-                <span className="rc-latency-number">{value === null ? "—" : "≤ " + ms(value)}</span>
-              </dd>
-            </div>
-          ))}
-        </dl>
+        <div className="rc-latency-graph">
+          <svg className="rc-latency-curve" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+            <path d={curve} vectorEffect="non-scaling-stroke" />
+          </svg>
+          <dl className="rc-latency-columns">
+            {points.map(({ label, value }, index) => (
+              <div className="rc-latency-column" data-primary={label === "P95"} key={label}>
+                <dt>{label.slice(1)}% yêu cầu <small>{label}</small></dt>
+                <dd className="rc-latency-point" style={{ "--point-y": (positions[index] ?? 50) + "%" }}>
+                  <span className="rc-latency-number">{value === null ? "—" : "≤ " + ms(value)}</span>
+                  {value !== null && <span className="rc-latency-marker" aria-hidden="true" />}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        </div>
       </div>
     </>
   )
