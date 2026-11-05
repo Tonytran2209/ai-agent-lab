@@ -107,3 +107,7 @@ Tab AI cho phép chọn model Main AI Codex (khảo sát và thực thi trên Ma
 ### Independent backend test recovery
 
 A failed `npm --prefix backend test` can be queued for an artifact recheck without calling Codex. The worker installs both pinned lockfiles and executes the exact backend command in an isolated checkout of the reported commit, alongside the full check and whitespace check. Build success alone cannot replace a failed backend suite. All required commands must pass before the original failures move into history and GitHub CI is queued; existing scope, base, approval and release gates remain in force. Other backend command strings and arbitrary shell commands are not accepted.
+
+### Documentation update and reference roles
+
+Planning and execution use the same documentation role instructions. `documentationReview.documents` contains the exact MD update targets when `updatesNeeded=true`; all must be in the approved `allowedPaths`. `referenceDocuments` holds pinned read-only MD such as unchanged design rules. References never require a changed file or grant edit permission. Legacy reports without this optional field remain accepted. The Mac validates roles before sending a report and the server validates independently with exact offending document paths. An actual required update outside scope remains blocked; neither side silently broadens scope or converts required work into reference-only work. Saved reports can be corrected and replayed without a model call, preserving their base and hashes.

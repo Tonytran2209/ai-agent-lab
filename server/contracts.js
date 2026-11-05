@@ -3,7 +3,19 @@ import crypto from 'node:crypto';
 import {z} from 'zod';
 const path=z.string().min(1).max(240).regex(/^[a-zA-Z0-9_./-]+$/).refine(p=>!p.includes('..')&&!p.startsWith('/')&&!/(^|\/)(\.env|\.git|node_modules)(\/|\.|$)/.test(p));
 const docPath=path.refine(p=>p.startsWith('.agent-hub/')&&p.endsWith('.md'));
-export const documentationReviewSchema=z.object({updatesNeeded:z.boolean(),documents:z.array(docPath).max(11),reason:z.string().trim().min(20).max(2000)});
+export const documentationReviewSchema=z.object({updatesNeeded:z.boolean(),documents:z.array(docPath).max(11),referenceDocuments:z.array(docPath).max(11).optional(),reason:z.string().trim().min(20).max(2000)});
+// References record reading context, never edit authority or a required MD diff.
+export function documentationScopeIssues(review,allowedPaths,library){
+ if(!review)return [];
+ const issues=[];
+ for(const [field,paths]of [['documents',review.documents],['referenceDocuments',review.referenceDocuments||[]]])for(const [i,p]of paths.entries()){
+  if(library&&!library.documents.some(d=>d.path===p))issues.push({path:`draft.documentationReview.${field}.${i}`,code:'DOCUMENT_LIBRARY',message:'Tài liệu không thuộc library đã ghim: '+p});
+  if(field==='documents'&&review.updatesNeeded&&!allowedPaths.includes(p))issues.push({path:`draft.documentationReview.documents.${i}`,code:'DOCUMENT_SCOPE',message:'Tài liệu cần sửa chưa thuộc allowedPaths: '+p+'. Nếu chỉ tham khảo, chuyển sang referenceDocuments; không tự mở rộng phạm vi.'});
+  if(field==='referenceDocuments'&&review.updatesNeeded&&review.documents.includes(p))issues.push({path:`draft.documentationReview.referenceDocuments.${i}`,code:'DOCUMENT_ROLE',message:'Tài liệu không được vừa cần sửa vừa chỉ tham khảo: '+p});
+ }
+ if(review.updatesNeeded&&!review.documents.length)issues.push({path:'draft.documentationReview.documents',code:'DOCUMENT_SCOPE',message:'Cần ít nhất một tài liệu được phép sửa khi updatesNeeded=true.'});
+ return issues;
+}
 export const ruleReferenceSchema=z.object({path:docPath,startLine:z.number().int().positive(),endLine:z.number().int().positive(),quote:z.string().min(15).max(1500),contentHash:z.string().regex(/^[a-f0-9]{64}$/).optional(),libraryCommit:z.string().optional()});
 export const traceSchema=z.array(z.object({criterionIndex:z.number().int().min(0).max(11),criterion:z.string().min(5).max(1000),rules:z.array(ruleReferenceSchema).min(1).max(3),verification:z.object({method:z.enum(['test','inspection']),command:z.string().max(200),files:z.array(path).min(1).max(5),expected:z.string().min(15).max(1000)})})).min(1).max(12);
 export const criterionEvidenceSchema=z.array(z.object({criterionIndex:z.number().int().min(0).max(11),outcome:z.enum(['passed','failed','pending-ci']),method:z.enum(['test','inspection']),command:z.string().max(200),files:z.array(path).min(1).max(5),detail:z.string().min(30).max(2000)})).max(12);
@@ -18,7 +30,7 @@ export function validateContract(draft,library,required=false){
   const v=row.verification;if(v.method==='test'&&/playwright/i.test(v.command)&&!browserCriterion(v.command))fail('Browser test cần command được hỗ trợ và --grep tag riêng cho tiêu chí; không dùng toàn bộ suite.');if(v.method==='test'&&!v.command.trim()||v.method==='inspection'&&v.command!=='')fail('Test cần command; kiểm tra thủ công không được giả làm command đã chạy.');
   if(v.files.some(p=>!library.sourcePaths.includes(p)&&!draft.allowedPaths.includes(p)))fail('File kiểm tra chưa tồn tại và chưa được duyệt trong scope.');
  }
- if(review.documents.some(p=>!library.documents.some(d=>d.path===p)))fail('Tài liệu cần rà soát không thuộc library.');
+ const issues=documentationScopeIssues(review,draft.allowedPaths,library);if(issues.length)throw Object.assign(new Error(issues[0].message),{status:400,code:'DOCUMENT_REVIEW',details:issues});
  if(review.updatesNeeded&&(!review.documents.length||review.documents.some(p=>!draft.allowedPaths.includes(p))))fail('Tài liệu cần cập nhật phải được đưa vào allowedPaths trước khi duyệt.');
  return {...draft,traceability:rows,documentationReview:review};
 }
