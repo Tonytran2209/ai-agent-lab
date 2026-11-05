@@ -12,16 +12,16 @@
 .rc-latency-summary{text-align:right;flex-shrink:0;max-width:50%;margin:0 0 12px}
 .rc-latency-summary>strong{display:block;font-size:clamp(28px,3vw,40px);font-weight:600;letter-spacing:-.04em;font-variant-numeric:tabular-nums}
 .rc-latency-summary>small{display:block;font-size:10px;margin-top:6px;line-height:1.6}
-.rc-latency-plot{margin:14px 0 16px}
-.rc-latency-lanes{margin:0}
+.rc-card.rc-latency{background:#151517;color:#fafafa;border-radius:28px}
+.rc-latency-plot{margin:16px 0}
+.rc-latency-lanes{display:grid;gap:8px;margin:0}
 .rc-latency-row{display:grid;grid-template-columns:34px minmax(0,1fr) 70px;align-items:center;column-gap:12px;font-variant-numeric:tabular-nums}
 .rc-latency-row dt,.rc-latency-number{font-size:12px;margin:0}
 .rc-latency-number{text-align:right}
-.rc-latency-row[data-primary="true"]{color:#ceff62;font-weight:650}
-.rc-latency-track{position:relative;height:36px;margin:0;background:linear-gradient(#46483f,#46483f) center/100% 1px no-repeat}
-.rc-latency-track::before{content:"";position:absolute;inset:0;border-inline:1px solid #46483f;background:linear-gradient(#46483f,#46483f) center/1px 100% no-repeat}
-.rc-latency-point{position:absolute;top:50%;width:9px;height:9px;background:#ceff62;border-radius:50%;transform:translate(-50%,-50%)}
-.rc-latency-row[data-primary="true"] .rc-latency-point{box-shadow:0 0 0 3px #ceff6233}
+.rc-latency-row[data-primary="true"]{color:#c4b7ff;font-weight:650}
+.rc-latency-track{height:30px;margin:0;overflow:hidden;border-radius:999px;background:#252527}
+.rc-latency-fill{display:block;height:100%;border-radius:inherit;background:#f2f2f4}
+.rc-latency-row[data-primary="true"] .rc-latency-fill{background:linear-gradient(90deg,#695e91,#b8a8ff)}
 .rc-latency-axis{position:relative;grid-column:2;display:flex;justify-content:space-between;gap:4px;margin-top:8px;color:#c1c5b8;font-size:10px;white-space:nowrap}
 .rc-latency-max{display:block;font-size:10px;line-height:1.7}
 @media(max-width:420px){.rc-latency-head{flex-wrap:wrap}.rc-latency-summary{max-width:none;text-align:left}.rc-latency-row{column-gap:8px}}

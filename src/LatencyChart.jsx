@@ -21,7 +21,10 @@ export default function LatencyChart({ http }) {
             <dt>{label}</dt>
             <dd className="rc-latency-track" aria-hidden="true">
               {value !== null && (
-                <span className="rc-latency-point" style={{ left: (value / limit) * 100 + "%" }} />
+                <span
+                  className="rc-latency-fill"
+                  style={{ width: (value / limit) * 100 + "%" }}
+                />
               )}
             </dd>
             <dd className="rc-latency-number">{ms(value)}</dd>
