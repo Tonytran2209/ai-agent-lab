@@ -54,7 +54,11 @@
 .rc-project-usage-tooltip{display:none;position:absolute;z-index:1;top:35%;left:50%;min-width:126px;padding:8px 10px;border:1px solid var(--border);border-radius:10px;background:var(--usage-surface);box-shadow:0 4px 16px #0002;text-align:left;white-space:nowrap;pointer-events:none}
 .rc-project-usage-column[data-edge=end] .rc-project-usage-tooltip{left:auto;right:50%}
 .rc-project-usage-column:is(:hover,:focus-within,[data-selected=true]) .rc-project-usage-tooltip{display:grid;gap:3px}
-.rc-project-usage-columns:has(.rc-project-usage-column:is(:hover,:focus-within)) .rc-project-usage-column[data-selected=true]:not(:hover,:focus-within) .rc-project-usage-tooltip{display:none}
+.rc-project-usage-columns:has(.rc-project-usage-column:focus-within) .rc-project-usage-column[data-selected=true]:not(:focus-within,:hover) .rc-project-usage-tooltip{display:none}
+@media(hover:hover){
+  .rc-project-usage-columns:has(.rc-project-usage-column:hover) .rc-project-usage-column:not(:hover) .rc-project-usage-tooltip{display:none}
+  .rc-project-usage-columns:has(.rc-project-usage-column:hover) .rc-project-usage-column:not(:hover)::before{display:none}
+}
 .rc-project-usage-tooltip span{font-size:11px;color:var(--rc-muted)}
 .rc-project-usage-tooltip strong{font-size:15px}
 .rc-project-usage details{margin-top:12px;font-size:12px}
