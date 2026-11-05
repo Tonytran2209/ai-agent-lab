@@ -1,6 +1,6 @@
-import ProjectUsageTimeline from "./ProjectUsageTimeline.jsx"
+import ProjectUsageTimeline, { usageSources } from "./ProjectUsageTimeline.jsx"
 import LatencyChart from "./LatencyChart.jsx"
-import React, { useState } from "react"
+import React from "react"
 import AnimatedValue from "./AnimatedValue.jsx"
 import {
   modelSeries,
@@ -241,39 +241,19 @@ export function RuntimeOverview({ report: r }) {
   )
 }
 export function AICharts({ report: r }) {
-  const [source, setSource] = useState(r.ai.calls ? "dispatcher" : "ledger")
-  const series = modelSeries(r, source),
-    max = Math.max(1, ...series.map((v) => v.total)),
-    priced = series.filter((v) => v.cost !== null),
-    costMax = Math.max(...priced.map((v) => v.cost), 0),
-    total = series.reduce((s, v) => s + v.total, 0),
-    known = priced.reduce((s, v) => s + v.cost, 0)
   return (
     <section className="rc-ai-section">
       <div className="perf-section-heading">
         <div>
           <h2>Mức sử dụng AI của dự án</h2>
-          <p>
-            {source === "ledger"
-              ? "Ledger workflow trong kỳ · có thể chỉ lưu usage của lần thử cuối"
-              : "Các lượt qua dispatcher kể từ khi triển khai bộ đo"}{" "}
-            · hai nguồn không cộng gộp.
-          </p>
+          <p>Một lượt gọi có thể xuất hiện ở cả hai nguồn. Số liệu được trình bày theo nguồn để tránh tính trùng.</p>
         </div>
-        <select
-          aria-label="Nguồn số liệu biểu đồ AI"
-          value={source}
-          onChange={(e) => setSource(e.target.value)}
-        >
-          <option value="ledger">Lịch sử workflow</option>
-          <option value="dispatcher">Bộ đo mới</option>
-        </select>
       </div>
-      <ProjectUsageTimeline report={r} source={source} />
-      {source === "dispatcher" && (
+      <ProjectUsageTimeline report={r} />
+      {r.ai.calls > 0 && (
         <div className="rc-ai-facts">
           <span>
-            <b>{n(r.ai.calls)}</b> lượt gọi · {n(r.ai.failed)} lỗi
+            Lượt gọi AI trực tiếp <b>{n(r.ai.calls)}</b> · {n(r.ai.failed)} lỗi
           </span>
           <span>
             Phản hồi TB <b>{ms(r.ai.averageMs)}</b> · P95 {ms(r.ai.p95Ms)}
@@ -283,127 +263,145 @@ export function AICharts({ report: r }) {
           </span>
         </div>
       )}
-      <div className="rc-ai-grid">
-        <article className="rc-card rc-ink">
-          <Title eyebrow="TOKEN MIX" title="Token theo model" />
-          <strong className="rc-number">
-            <AnimatedValue value={series.length ? total : null} />
-            <small>input + output tokens</small>
-          </strong>
-          <Legend
-            items={[
-              { label: "Input không cache", color: "#ceff62" },
-              { label: "Cached input", color: "#9ab9ff" },
-              { label: "Output", color: "#ffed87" },
-            ]}
-          />
-          {series.length ? (
-            <div className="rc-models">
-              {series.map((v) => (
-                <div className="rc-model" key={v.id}>
-                  <div>
-                    <span>{v.id}</span>
-                    <small>{n(v.total)} tokens</small>
-                  </div>
-                  <div
-                    className="rc-token-track"
-                    role="img"
-                    aria-label={`${v.id}: ${n(v.input - v.cached)} input không cache, ${n(v.cached)} cached input, ${n(v.output)} output`}
-                  >
-                    <div style={{ width: (v.total / max) * 100 + "%" }}>
-                      {[
-                        [v.input - v.cached, "#ceff62"],
-                        [v.cached, "#9ab9ff"],
-                        [v.output, "#ffed87"],
-                      ].map(([value, color], i) => (
-                        <i
-                          key={i}
-                          style={{ flexGrow: value, background: color }}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                  <small>
-                    {n(v.input)} input · {n(v.cached)} cached (nằm trong input)
-                    · {n(v.output)} output
-                  </small>
-                </div>
-              ))}
-            </div>
-          ) : (
-            empty
-          )}
-        </article>
-        <article className="rc-card rc-blue">
-          <Title
-            eyebrow="COST / USD"
-            title="Chi phí đã định giá"
-            detail="Ước tính theo giá cấu hình · không phải hóa đơn"
-          />
-          <strong className="rc-number">
-            <AnimatedValue value={priced.length ? known : null} format={usd} />
-          </strong>
-          {priced.length > 0 && (
-            <p className="rc-cost-average">
-              {series.reduce((s, v) => s + v.priced, 0) > 0
-                ? "TB / lượt có giá: " +
-                  usd(known / series.reduce((s, v) => s + v.priced, 0))
-                : "Chưa có mẫu tính chi phí trung bình."}
-            </p>
-          )}
-          {priced.length ? (
-            <ol className="rc-costs">
-              {[...priced]
-                .sort((a, b) => b.cost - a.cost)
-                .map((v) => (
-                  <li key={v.id}>
-                    <div>
-                      <span>{v.id}</span>
-                      <strong>{usd(v.cost)}</strong>
-                    </div>
-                    <div className="rc-cost-track">
-                      <span
-                        style={{
-                          width: (costMax ? (v.cost / costMax) * 100 : 0) + "%",
-                        }}
-                      />
-                    </div>
-                    <small>
-                      {n(v.priced)} / {n(v.calls)} lượt đã định giá
-                    </small>
-                  </li>
-                ))}
-            </ol>
-          ) : (
-            <p className="rc-empty">
-              Chưa có chi phí được định giá cho nguồn này.
-            </p>
-          )}
-          {series.some((v) => v.cost === null) && (
-            <p className="rc-price-missing">
-              {series.filter((v) => v.cost === null).length} model chưa có giá ·
-              không coi chi phí thiếu là $0.
-            </p>
-          )}
-        </article>
-      </div>
+      {usageSources.map(({ id, label }) => (
+        <details className="rc-details" key={id}>
+          <summary>{label} · Chi tiết theo model</summary>
+          <AIModelCharts report={r} source={id} />
+        </details>
+      ))}
     </section>
   )
 }
+
+function AIModelCharts({ report, source }) {
+  const series = modelSeries(report, source)
+  const max = Math.max(1, ...series.map((v) => v.total))
+  const priced = series.filter((v) => v.cost !== null)
+  const costMax = Math.max(...priced.map((v) => v.cost), 0)
+  const total = series.reduce((s, v) => s + v.total, 0)
+  const known = priced.reduce((s, v) => s + v.cost, 0)
+  return (
+    <div className="rc-ai-grid">
+      <article className="rc-card rc-ink">
+        <Title eyebrow="TOKEN MIX" title="Token theo model" />
+        <strong className="rc-number">
+          <AnimatedValue value={series.length ? total : null} />
+          <small>input + output tokens</small>
+        </strong>
+        <Legend
+          items={[
+            { label: "Input không cache", color: "#ceff62" },
+            { label: "Cached input", color: "#9ab9ff" },
+            { label: "Output", color: "#ffed87" },
+          ]}
+        />
+        {series.length ? (
+          <div className="rc-models">
+            {series.map((v) => (
+              <div className="rc-model" key={v.id}>
+                <div>
+                  <span>{v.id}</span>
+                  <small>{n(v.total)} tokens</small>
+                </div>
+                <div
+                  className="rc-token-track"
+                  role="img"
+                  aria-label={`${v.id}: ${n(v.input - v.cached)} input không cache, ${n(v.cached)} cached input, ${n(v.output)} output`}
+                >
+                  <div style={{ width: (v.total / max) * 100 + "%" }}>
+                    {[
+                      [v.input - v.cached, "#ceff62"],
+                      [v.cached, "#9ab9ff"],
+                      [v.output, "#ffed87"],
+                    ].map(([value, color], i) => (
+                      <i
+                        key={i}
+                        style={{ flexGrow: value, background: color }}
+                      />
+                    ))}
+                  </div>
+                </div>
+                <small>
+                  {n(v.input)} input · {n(v.cached)} cached (nằm trong input)
+                  · {n(v.output)} output
+                </small>
+              </div>
+            ))}
+          </div>
+        ) : (
+          empty
+        )}
+      </article>
+      <article className="rc-card rc-blue">
+        <Title
+          eyebrow="COST / USD"
+          title="Chi phí đã định giá"
+          detail="Ước tính theo giá cấu hình · không phải hóa đơn"
+        />
+        <strong className="rc-number">
+          <AnimatedValue value={priced.length ? known : null} format={usd} />
+        </strong>
+        {priced.length > 0 && (
+          <p className="rc-cost-average">
+            {series.reduce((s, v) => s + v.priced, 0) > 0
+              ? "TB / lượt có giá: " +
+                usd(known / series.reduce((s, v) => s + v.priced, 0))
+              : "Chưa có mẫu tính chi phí trung bình."}
+          </p>
+        )}
+        {priced.length ? (
+          <ol className="rc-costs">
+            {[...priced]
+              .sort((a, b) => b.cost - a.cost)
+              .map((v) => (
+                <li key={v.id}>
+                  <div>
+                    <span>{v.id}</span>
+                    <strong>{usd(v.cost)}</strong>
+                  </div>
+                  <div className="rc-cost-track">
+                    <span
+                      style={{
+                        width: (costMax ? (v.cost / costMax) * 100 : 0) + "%",
+                      }}
+                    />
+                  </div>
+                  <small>
+                    {n(v.priced)} / {n(v.calls)} lượt đã định giá
+                  </small>
+                </li>
+              ))}
+          </ol>
+        ) : (
+          <p className="rc-empty">
+            Chưa có chi phí được định giá cho nguồn này.
+          </p>
+        )}
+        {series.some((v) => v.cost === null) && (
+          <p className="rc-price-missing">
+            {series.filter((v) => v.cost === null).length} model chưa có giá ·
+            không coi chi phí thiếu là $0.
+          </p>
+        )}
+      </article>
+    </div>
+
+)
+}
 const names = {
-  content_plan_items: "Hạng mục content plan",
-  article_stage_runs: "Lượt chạy từng giai đoạn",
-  batch_jobs: "Batch jobs",
-  batch_job_items: "Hạng mục batch",
-  quality_gate_runs: "Quality gates",
-  editorial_approvals: "Phê duyệt biên tập",
-  website_content_inventory: "Kho website",
-  eb_v2_packages: "EB V2 · Packages",
-  eb_v2_gate_runs: "EB V2 · Gate runs",
-  eb_v2_feedback_threads: "EB V2 · Feedback",
-  eb_v2_library_documents: "EB V2 · Thư viện",
-  eb_v2_discovery_items: "EB V2 · Discovery",
-  eb_v2_channel_outputs: "EB V2 · Output mới nhất theo kênh",
+content_plan_items: "Hạng mục content plan",
+article_stage_runs: "Lượt chạy từng giai đoạn",
+batch_jobs: "Batch jobs",
+batch_job_items: "Hạng mục batch",
+quality_gate_runs: "Quality gates",
+editorial_approvals: "Phê duyệt biên tập",
+website_content_inventory: "Kho website",
+eb_v2_packages: "EB V2 · Packages",
+eb_v2_gate_runs: "EB V2 · Gate runs",
+eb_v2_feedback_threads: "EB V2 · Feedback",
+eb_v2_library_documents: "EB V2 · Thư viện",
+eb_v2_discovery_items: "EB V2 · Discovery",
+eb_v2_channel_outputs: "EB V2 · Output mới nhất theo kênh",
 }
 export function WorkflowStatus({ inventory }) {
   return (

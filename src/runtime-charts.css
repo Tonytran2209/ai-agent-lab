@@ -64,3 +64,13 @@
 .rc-project-usage details{margin-top:12px;font-size:12px}
 .rc-project-usage details dl{max-width:360px;margin-bottom:0}
 .rc-project-usage details dl div{display:flex;justify-content:space-between;gap:10px;padding:4px 0}
+.rc-project-usage-legend{display:flex;flex-wrap:wrap;gap:8px 16px;list-style:none;margin:12px 0 0;padding:0;font-size:12px;color:var(--rc-muted)}
+.rc-project-usage-legend li{display:flex;align-items:center;gap:6px}
+.rc-project-usage-legend i{width:9px;height:9px;border-radius:2px;background:var(--usage-series)}
+.rc-project-usage [data-source=ledger]{--usage-series:var(--usage-accent)}
+.rc-project-usage [data-source=dispatcher]{--usage-series:#7864d4}
+[data-theme=dark] .rc-project-usage [data-source=dispatcher]{--usage-series:#af9dfc}
+.rc-project-usage-dots{grid-template:1fr / repeat(2,minmax(0,1fr))}
+.rc-project-usage-series{width:100%;height:100%;display:grid;grid-template-rows:repeat(var(--levels),1fr);place-items:center}
+.rc-project-usage-series i[data-filled=true]{background:var(--usage-series)}
+.rc-project-usage details dd div{display:block}

@@ -13,14 +13,14 @@ const usd = new Intl.NumberFormat("en-US", {
 })
 const levels = 18
 
-export default function ProjectUsageTimeline({ report, source }) {
-  const [metric, setMetric] = useState("tokens")
-  const [selected, setSelected] = useState(null)
-  const isUsd = metric === "usd"
-  const format = (isUsd ? usd : tokens).format
-  const points = source === "ledger" ? report.ledger?.timeline : report.timeline
-  const rows = (points ?? []).flatMap((point) => {
-    const calls = source === "ledger" ? point.calls : point.aiCalls
+export const usageSources = [
+  { id: "ledger", label: "Ghi nhận từ workflow" },
+  { id: "dispatcher", label: "Lượt gọi AI trực tiếp" },
+]
+
+function usageRows(points, callField) {
+  return (points ?? []).flatMap((point) => {
+    const calls = point[callField]
     if (!calls || !Number.isFinite(point.usageSamples)) return []
     return [{
       startedAt: point.hour,
@@ -32,16 +32,25 @@ export default function ProjectUsageTimeline({ report, source }) {
       costComplete: point.pricedCalls === calls,
     }]
   })
+}
+
+export default function ProjectUsageTimeline({ report }) {
+  const [metric, setMetric] = useState("tokens")
+  const [selected, setSelected] = useState(null)
+  const isUsd = metric === "usd"
+  const format = (isUsd ? usd : tokens).format
   const days = report.window?.days
   const bucketHours = days === 1 ? 1 : days === 7 ? 6 : 24
-  const periods = taskTimeline(rows, report, bucketHours)
-  const hasCalls = periods.some((period) => period.count > 0)
-  const maximum = Math.max(0, ...periods.map((period) => period[metric] ?? 0))
+  const history = taskTimeline(usageRows(report.ledger?.timeline, "calls"), report, bucketHours)
+  const direct = taskTimeline(usageRows(report.timeline, "aiCalls"), report, bucketHours)
+  const sources = [history, direct]
+  const hasCalls = sources.some((periods) => periods.some((period) => period.count > 0))
+  const maximum = Math.max(0, ...sources.flat().map((period) => period[metric] ?? 0))
   const shortNumber = new Intl.NumberFormat("vi-VN", {
     notation: isUsd ? "standard" : "compact", maximumSignificantDigits: 3,
   })
   const scale = maximum > 0 ? [maximum, maximum * 2 / 3, maximum / 3, 0] : [0]
-  const tickStep = Math.ceil(periods.length / 6)
+  const tickStep = Math.ceil(history.length / 6)
   const label = (period) => {
     const first = date.format(period.start)
     const last = date.format(period.end)
@@ -60,13 +69,18 @@ export default function ProjectUsageTimeline({ report, source }) {
       <div className="rc-project-usage-head">
         <div>
           <h3>Token & USD theo thời gian</h3>
-          <p>Tổng mức sử dụng đã ghi nhận của dự án trong kỳ · UTC</p>
+          <p>Mức sử dụng theo nguồn ghi nhận trong kỳ · UTC</p>
         </div>
         <div className="rc-project-usage-switch" role="group" aria-label="Chỉ số sử dụng AI">
           <button type="button" aria-pressed={!isUsd} onClick={() => setMetric("tokens")}>Token</button>
           <button type="button" aria-pressed={isUsd} onClick={() => setMetric("usd")}>USD</button>
         </div>
       </div>
+      <ul className="rc-project-usage-legend">
+        {usageSources.map(({ id, label }) => (
+          <li key={id} data-source={id}><i aria-hidden="true" />{label}</li>
+        ))}
+      </ul>
       {hasCalls ? (
         <>
           <div className="rc-project-usage-plot">
@@ -77,19 +91,26 @@ export default function ProjectUsageTimeline({ report, source }) {
                 </span>
               ))}
             </div>
-            <div className="rc-project-usage-columns" style={{ "--periods": periods.length, "--levels": levels }}>
-              {periods.map((period, index) => {
-                const amount = period[metric]
-                const filled = amount > 0 ? Math.max(1, Math.round(amount / maximum * levels)) : 0
-                const amountText = amountLabel(period)
+            <div className="rc-project-usage-columns" style={{ "--periods": history.length, "--levels": levels }}>
+              {history.map((period, index) => {
+                const values = usageSources.map((source, i) => {
+                  const sample = sources[i][index]
+                  const amount = sample[metric]
+                  return {
+                    ...source,
+                    filled: amount > 0 ? Math.max(1, Math.round(amount / maximum * levels)) : 0,
+                    amount: amountLabel(sample),
+                    count: sample.count,
+                  }
+                })
                 const tick = days === 1 ? hour.format(period.start) : date.format(period.start)
                 const showTick = days === 7 ? index % 4 === 0 : index % tickStep === 0
                 return (
                   <div className="rc-project-usage-column" key={period.start}
-                    data-edge={index < periods.length / 2 ? "start" : "end"}
+                    data-edge={index < history.length / 2 ? "start" : "end"}
                     data-selected={selected === period.start}>
                     <button type="button" className="rc-project-usage-dots"
-                      aria-label={label(period) + ", " + amountText + (amount != null && !isUsd ? " token" : "")}
+                      aria-label={[label(period), ...values.map((v) => v.label + " " + v.amount)].join(", ")}
                       onClick={() => setSelected(selected === period.start ? null : period.start)}
                       onKeyDown={(event) => {
                         if (event.key === "Escape") {
@@ -97,15 +118,23 @@ export default function ProjectUsageTimeline({ report, source }) {
                           event.currentTarget.blur()
                         }
                       }}>
-                      {Array.from({ length: levels }, (_, i) => (
-                        <i key={i} data-filled={i >= levels - filled} aria-hidden="true" />
+                      {values.map(({ id, filled }) => (
+                        <span className="rc-project-usage-series" data-source={id} key={id} aria-hidden="true">
+                          {Array.from({ length: levels }, (_, i) => (
+                            <i key={i} data-filled={i >= levels - filled} />
+                          ))}
+                        </span>
                       ))}
                     </button>
                     {showTick && <span className="rc-project-usage-date" aria-hidden="true">{tick}</span>}
                     <div className="rc-project-usage-tooltip" aria-hidden="true">
                       <span>{label(period)} UTC</span>
-                      <strong>{amountText}{amount != null && !isUsd ? " token" : ""}</strong>
-                      <span>{tokens.format(period.count)} lượt ghi nhận</span>
+                      {values.map((v) => (
+                        <React.Fragment key={v.id}>
+                          <span>{v.label}</span>
+                          <strong>{v.amount} · {tokens.format(v.count)} lượt</strong>
+                        </React.Fragment>
+                      ))}
                     </div>
                   </div>
                 )
@@ -116,10 +145,13 @@ export default function ProjectUsageTimeline({ report, source }) {
           <details>
             <summary>Xem số liệu theo thời gian</summary>
             <dl>
-              {periods.map((period) => (
+              {history.map((period, index) => (
                 <div key={period.start}>
                   <dt>{label(period)}</dt>
-                  <dd>{amountLabel(period)} · {tokens.format(period.count)} lượt ghi nhận</dd>
+                  <dd>{usageSources.map(({ id, label }, i) => {
+                    const sample = sources[i][index]
+                    return <div key={id}>{label} · {amountLabel(sample)} · {tokens.format(sample.count)} lượt</div>
+                  })}</dd>
                 </div>
               ))}
             </dl>
@@ -127,9 +159,7 @@ export default function ProjectUsageTimeline({ report, source }) {
         </>
       ) : (
         <p className="rc-empty">
-          {Array.isArray(points) && (source === "ledger" || points.every((point) => Number.isFinite(point.usageSamples)))
-            ? "Chưa có lượt dùng AI được ghi nhận trong kỳ."
-            : "Nguồn này chưa cung cấp số liệu token và USD theo thời gian."}
+          Chưa có dữ liệu sử dụng AI theo thời gian trong kỳ.
         </p>
       )}
     </figure>
