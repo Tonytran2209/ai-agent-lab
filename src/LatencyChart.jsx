@@ -6,12 +6,6 @@ const ms = (value) =>
     : new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 1 }).format(
         value >= 1000 ? value / 1000 : value,
       ) + (value >= 1000 ? " s" : " ms")
-const names = {
-  P50: "Trung vị",
-  P95: "95% yêu cầu",
-  P99: "99% yêu cầu",
-}
-
 export default function LatencyChart({ http }) {
   const { points, valid, hasSamples, limit } = latencyDotPlot(http)
   if (!valid)
@@ -19,35 +13,34 @@ export default function LatencyChart({ http }) {
   if (!hasSamples)
     return <p className="rc-empty">Chưa có mẫu độ trễ trong kỳ này.</p>
 
+  const p95 = points.find(({ label }) => label === "P95").value
   return (
-    <div className="rc-latency-plot">
-      <dl className="rc-latency-lanes">
-        {points.map(({ label, value }) => (
-          <div className="rc-latency-row" data-primary={label === "P95"} key={label}>
-            <dt>
-              {names[label]} <small>{label}</small>
-            </dt>
-            <dd className="rc-latency-track" aria-hidden="true">
-              {value !== null && (
-                <span
-                  className="rc-latency-fill"
-                  style={{ width: (value / limit) * 100 + "%" }}
-                />
-              )}
-            </dd>
-            <dd className="rc-latency-number">
-              {value === null ? "—" : "≤ " + ms(value)}
-            </dd>
-          </div>
-        ))}
-      </dl>
-      <div className="rc-latency-row" aria-hidden="true">
-        <div className="rc-latency-axis">
-          <span>0 ms</span>
-          <span>{ms(limit / 2)}</span>
+    <>
+      {p95 !== null && (
+        <p className="rc-latency-summary">
+          <strong>95% yêu cầu</strong> phản hồi trong khoảng <strong>{ms(p95)}</strong> trở xuống.
+        </p>
+      )}
+      <div className="rc-latency-plot">
+        <div className="rc-latency-axis" aria-hidden="true">
           <span>{ms(limit)}</span>
+          <span>{ms(limit / 2)}</span>
+          <span>0 ms</span>
         </div>
+        <dl className="rc-latency-columns">
+          {points.map(({ label, value }) => (
+            <div className="rc-latency-column" data-primary={label === "P95"} key={label}>
+              <dt>{label.slice(1)}% yêu cầu <small>{label}</small></dt>
+              <dd className="rc-latency-bar" style={{ "--fill": value === null ? "0%" : (value / limit) * 100 + "%" }}>
+                <span className="rc-latency-track" aria-hidden="true">
+                  {value !== null && <span className="rc-latency-fill" />}
+                </span>
+                <span className="rc-latency-number">{value === null ? "—" : "≤ " + ms(value)}</span>
+              </dd>
+            </div>
+          ))}
+        </dl>
       </div>
-    </div>
+    </>
   )
 }

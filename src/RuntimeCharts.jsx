@@ -219,23 +219,14 @@ export function RuntimeOverview({ report: r }) {
           empty
         )}
       </article>
-      <article className="rc-card rc-ink rc-latency">
-        <div className="rc-latency-head">
-          <Title
-            eyebrow="HTTP"
-            title="Phân vị độ trễ HTTP"
-            detail="Trong kỳ đã chọn, một nửa số yêu cầu phản hồi trong mốc P50, 95% trong mốc P95 và 99% trong mốc P99."
-          />
-          <div className="rc-latency-summary">
-            <strong>{ms(h.averageMs)}</strong>
-            <small>Phản hồi trung bình</small>
-          </div>
-        </div>
+      <article className="rc-card rc-latency">
+        <Title eyebrow="HTTP" title="Thời gian phản hồi HTTP" />
         {h.calls ? <LatencyChart http={h} /> : empty}
-        <small className="rc-latency-max">
-          {h.calls ? "Chậm nhất " + ms(h.maxMs) + " · " : ""}
-          Các mốc phân vị được ước tính theo nhóm độ trễ.
-        </small>
+        {h.calls > 0 && (
+          <small className="rc-latency-note">
+            {n(h.calls)} yêu cầu HTTP trong kỳ · Trung bình {ms(h.averageMs)} · Các mốc phân vị là ước tính.
+          </small>
+        )}
       </article>
     </div>
   )

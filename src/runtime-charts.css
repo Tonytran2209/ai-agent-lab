@@ -8,30 +8,91 @@
 @keyframes rc-gauge-reveal{from{stroke-dasharray:0 100}}.rc-gauge-fill{animation:rc-gauge-reveal 750ms ease both}@media(prefers-reduced-motion:reduce){.rc-card *{animation:none!important;transition:none!important}}
 
 /* Latency quantile curve: categorical percentile checkpoints, not a time series. */
-.rc-latency-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}
-.rc-latency-summary{text-align:right;flex-shrink:0;max-width:50%;margin:0 0 12px}
-.rc-latency-summary>strong{display:block;font-size:clamp(28px,3vw,40px);font-weight:600;letter-spacing:-.04em;font-variant-numeric:tabular-nums}
-.rc-latency-summary>small{display:block;font-size:10px;margin-top:6px;line-height:1.6}
-.rc-card.rc-latency{background:#151517;color:#fafafa;border-radius:28px}
-.rc-latency-plot{margin:16px 0}
-.rc-latency-lanes{display:grid;gap:8px;margin:0}
-.rc-latency-row{display:grid;grid-template-columns:34px minmax(0,1fr) 70px;align-items:center;column-gap:12px;font-variant-numeric:tabular-nums}
-.rc-latency-row dt,.rc-latency-number{font-size:12px;margin:0}
-.rc-latency-number{text-align:right}
-.rc-latency-row[data-primary="true"]{color:#c4b7ff;font-weight:650}
-.rc-latency-track{height:30px;margin:0;overflow:hidden;border-radius:999px;background:#252527}
-.rc-latency-fill{display:block;height:100%;border-radius:inherit;background:#f2f2f4}
-.rc-latency-row[data-primary="true"] .rc-latency-fill{background:linear-gradient(90deg,#695e91,#b8a8ff)}
-.rc-latency-axis{position:relative;grid-column:2;display:flex;justify-content:space-between;gap:4px;margin-top:8px;color:#c1c5b8;font-size:10px;white-space:nowrap}
-.rc-latency-max{display:block;font-size:10px;line-height:1.7}
-@media(max-width:420px){.rc-latency-head{flex-wrap:wrap}.rc-latency-summary{max-width:none;text-align:left}.rc-latency-row{column-gap:8px}}
-.rc-latency-axis span:nth-child(2){position:absolute;left:50%;transform:translateX(-50%)}
-
-.rc-latency-row{grid-template-columns:minmax(90px,110px) minmax(0,1fr) minmax(72px,auto)}
-.rc-latency-row dt small{display:block;font-size:10px;font-weight:400}
-.rc-latency-track{height:18px}
-.rc-latency-number{white-space:nowrap}
-.rc-latency-head p{max-width:46ch}
+.rc-card.rc-latency {
+  --rc-muted: #50270f;
+  --latency-height: 108px;
+  background: #ff9055;
+  color: #29180f;
+}
+.rc-card.rc-latency .rc-latency-summary {
+  color: inherit;
+  margin: 8px 0 0;
+  font-size: clamp(15px, 2vw, 22px);
+  line-height: 1.35;
+}
+.rc-latency-plot {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  column-gap: 10px;
+  margin: 28px 0 10px;
+  font-variant-numeric: tabular-nums;
+}
+.rc-latency-axis {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  height: var(--latency-height);
+  text-align: right;
+  font-size: 10px;
+  color: var(--rc-muted);
+  white-space: nowrap;
+}
+.rc-latency-columns {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  margin: 0;
+}
+.rc-latency-column {
+  display: flex;
+  flex-direction: column-reverse;
+  justify-content: flex-end;
+  gap: 8px;
+  text-align: center;
+}
+.rc-latency-column dt, .rc-latency-number {
+  font-size: clamp(10px, 1.3vw, 13px);
+  font-weight: 650;
+}
+.rc-latency-column dt small {
+  display: block;
+  font-size: 10px;
+  font-weight: 400;
+}
+.rc-latency-bar {
+  position: relative;
+  height: var(--latency-height);
+  margin: 0;
+}
+.rc-latency-track, .rc-latency-fill {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+}
+.rc-latency-track {
+  margin-inline: auto;
+  width: min(42%, 30px);
+  background: #d87644;
+}
+.rc-latency-fill {
+  top: auto;
+  height: var(--fill);
+  background: #6e361e;
+}
+.rc-latency-column[data-primary=true] .rc-latency-fill {
+  background: #29180f;
+}
+.rc-latency-number {
+  position: absolute;
+  inset-inline: 0;
+  bottom: calc(var(--fill) + 3px);
+  white-space: nowrap;
+}
+.rc-latency-note {
+  display: block;
+  font-size: 11px;
+  line-height: 1.55;
+}
 
 .rc-card.rc-project-usage{--rc-muted:var(--secondary);--usage-accent:#e65d13;--usage-cell:#e7e7e9;--usage-surface:#fff;--usage-guide:#777;--usage-height:216px;margin:0 0 16px;background:var(--usage-surface);color:#222;border:1px solid var(--border)}
 [data-theme="dark"] .rc-card.rc-project-usage{--usage-surface:#1c1c1e;--usage-cell:#39393c;--usage-accent:#ff782e;--usage-guide:#aaa;color:#fafafa}
