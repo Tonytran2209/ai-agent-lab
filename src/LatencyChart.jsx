@@ -20,23 +20,18 @@ export default function LatencyChart({ report }) {
   const label = (time) => (report.window?.days === 1 ? hour : date).format(time)
   const points = periods.map((point, index) => ({
     ...point,
-    x: periods.length === 1 ? 50 : index * 100 / (periods.length - 1),
-    y: point.average === null ? null : 100 - point.average / limit * 100,
+    x: (index + 0.5) * 100 / periods.length,
   }))
-  const curve = points.map(({ x, y }, index) => {
-    if (y === null) return ""
-    const previous = points[index - 1]
-    if (previous?.y == null) return `M ${x} ${y}`
-    const middle = (previous.x + x) / 2
-    return `C ${middle} ${previous.y}, ${middle} ${y}, ${x} ${y}`
-  }).join(" ")
-  const active = points.find((point) => point.time === (hovered ?? selected) && point.y !== null)
+  const active = points.find((point) => point.time === (hovered ?? selected) && point.average !== null)
   const tickStep = Math.max(1, Math.ceil((points.length - 1) / 4))
 
   return (
     <>
       <header className="rc-latency-head">
-        <h3 className="rc-latency-title">Thời gian phản hồi HTTP</h3>
+        <div>
+          <h3 className="rc-latency-title">Thời gian phản hồi HTTP</h3>
+          <small className="rc-latency-count">{number.format(http.calls)} yêu cầu trong kỳ</small>
+        </div>
         <p className="rc-latency-summary">
           <strong>{duration(http.averageMs)}</strong>
           <span>Trung bình trong kỳ</span>
@@ -49,12 +44,9 @@ export default function LatencyChart({ report }) {
               {[limit, limit / 2, 0].map((value) => <span key={value}>{duration(value)}</span>)}
             </div>
             <div className="rc-latency-graph">
-              <svg className="rc-latency-curve" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-                <path d={curve} vectorEffect="non-scaling-stroke" />
-              </svg>
-              {points.map(({ time, average, calls, x, y }) => y !== null && (
-                <button type="button" className="rc-latency-marker" key={time}
-                  style={{ left: x + "%", top: y + "%" }}
+              {points.map(({ time, average, calls, x }) => average !== null && (
+                <button type="button" className="rc-latency-bar" key={time}
+                  style={{ left: x + "%", height: average / limit * 100 + "%", width: Math.min(65 / points.length, 9) + "%" }}
                   aria-label={`${label(time)} UTC · ${duration(average)} trung bình · ${number.format(calls)} yêu cầu`}
                   aria-pressed={selected === time}
                   onPointerEnter={() => setHovered(time)}
@@ -72,7 +64,7 @@ export default function LatencyChart({ report }) {
           <small className="rc-latency-note">
             {active
               ? `${label(active.time)} UTC · ${duration(active.average)} trung bình · ${number.format(active.calls)} yêu cầu`
-              : `${number.format(http.calls)} yêu cầu trong kỳ · Chọn một điểm để xem chi tiết`}
+              : "Chọn một cột để xem thời gian trung bình và số yêu cầu."}
           </small>
         </>
       ) : (
