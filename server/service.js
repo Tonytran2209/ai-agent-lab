@@ -691,7 +691,7 @@ export function createService(db, options = {}) {
       });
     },
     beginDeploymentObservation(id,expectedRevision,at=Date.now()){return transaction(db,()=>{
-      const r=get(id);if(r.updatedAt!==expectedRevision||!canReconcileDeployment(r)||service.localPlanning.get(id)?.lease||queueState(r)?.blocked||!/^(?:Railway deploy lỗi|Chưa có xác nhận Railway)/.test(r.release.note||'')||(r.release.observationNextAt||0)>at)return false;
+      const r=get(id);if(r.updatedAt!==expectedRevision||!canReconcileDeployment(r)||service.localPlanning.get(id)?.lease||queueState(r)?.blocked||(r.release.phase==='deploying'?!(Date.parse(r.release.phaseStartedAt||r.release.updatedAt)<=at-60000):!/^(?:Railway deploy lỗi|Chưa có xác nhận Railway)/.test(r.release.note||''))||(r.release.observationNextAt||0)>at)return false;
       deliveryAuthority(r);
       r.release.observationAttempts=(r.release.observationAttempts||0)+1;
       r.release.observationNextAt=at+Math.min(1800000,60000*2**Math.min(r.release.observationAttempts-1,5));
@@ -700,11 +700,11 @@ export function createService(db, options = {}) {
     reconcileDeployment(id,proof,actor,expectedRevision,{automatic=false}={}){return transaction(db,()=>{
       const r=get(id),rel=r.release,p=projects.get(r.projectId);assertOpen(r);if(automatic)deliveryAuthority(r);
       if(p.repository!==r.repository||p.branch!==r.branch||proof.environment!==(r.delivery?.environment||p.releaseEnvironment))fail('Project/environment đã đổi trong lúc đối chiếu.',409);
-      if(r.updatedAt!==expectedRevision||r.status!=='completed'||rel?.phase!=='failed'||r.lease||rel.lease||r.ciRepair?.lease||r.verification?.lease||r.recheck?.lease||service.localPlanning.get(id)?.lease||proof.protocol!=='deployment-reconciliation-v1'||proof.originalMergeCommit!==rel.mergeCommit)fail('Request hoặc worker đã đổi trong lúc đối chiếu; đọc lại trạng thái.',409);
+      if(r.updatedAt!==expectedRevision||r.status!=='completed'||!canReconcileDeployment(r)||r.lease||rel.lease||r.ciRepair?.lease||r.verification?.lease||r.recheck?.lease||service.localPlanning.get(id)?.lease||proof.protocol!=='deployment-reconciliation-v1'||proof.originalMergeCommit!==rel.mergeCommit)fail('Request hoặc worker đã đổi trong lúc đối chiếu; đọc lại trạng thái.',409);
       const previous={phase:rel.phase,note:rel.note,deploymentUrl:rel.deploymentUrl,at:rel.updatedAt};
       rel.deploymentRecovery={...proof,actor,previous};rel.phase='deployed';rel.deploymentUrl=proof.deploymentUrl;rel.updatedAt=now();rel.deployedAt=rel.deployedAt||rel.updatedAt;rel.deployedAtSource=rel.deployedAtSource||'lab-confirmation';rel.librarySync='pending';rel.syncNextAt=null;
       if(proof.postDeployCheck)rel.postDeployCheck=proof.postDeployCheck;
-      rel.note='Đã xác minh Railway phục hồi tại commit '+proof.deployedCommit.slice(0,12)+', bao gồm merge gốc '+rel.mergeCommit.slice(0,12)+'. Giữ nguyên lịch sử lỗi, kế hoạch và quyền đã duyệt.';
+      rel.note='Đã xác minh Railway tại commit '+proof.deployedCommit.slice(0,12)+', bao gồm merge gốc '+rel.mergeCommit.slice(0,12)+'. Giữ nguyên lịch sử lỗi, kế hoạch và quyền đã duyệt.';
       return changed(r,'release_deployment_reconciled',actor,rel.note);
     });},
     recoverPublication(id){return transaction(db,()=>{const r=get(id),rel=r.release;if(r.stopControl||r.archivedAt)return false;if(r.status!=='completed'||rel?.phase!=='failed'||rel.lease||(rel.recoveryAttempts||0)>=3||!r.delivery?.approvalHash)return false;deliveryAuthority(r);if(!/GitHub API thất bại|Hết thời gian chờ CI|Chưa có xác nhận Railway|timeout|kết nối/i.test(rel.note||''))return false;if((rel.recoveryNextAt||0)>Date.now())return false;const attempts=(rel.recoveryAttempts||0)+1;queueRelease(r,rel.authorizedBy,{confirmHighRisk:r.delivery.highRiskConfirmed});r.release.recoveryAttempts=attempts;r.release.recoveryNextAt=Date.now()+60000*2**attempts;changed(r,'release_recovery_queued','Recovery','Theo dõi lại PR/deploy theo quyền đã duyệt; không tạo bản sửa mới.');return true;});},

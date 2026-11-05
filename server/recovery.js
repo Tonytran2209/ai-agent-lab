@@ -5,7 +5,7 @@ export function createRecovery(service,config,{sync=syncLibrary,verify=verifyRec
  let active,timer;
  async function recover(){const observed=new Set();for(let r of service.list()){
   if(r.status==='awaiting-approval'){try{service.recoverSupplementalChecks(r.id);}catch{}continue;}
-  if(r.release?.phase==='failed'){
+  if(['deploying','failed'].includes(r.release?.phase)){
    // Read-only reconciliation of an already successful deploy, never a deployment retry.
    // One request per project per tick; durable exponential backoff survives server restarts.
    if(config.GITHUB_TOKEN&&canReconcileDeployment(r)&&!r.projectQueue?.blocked&&!observed.has(r.projectId)){

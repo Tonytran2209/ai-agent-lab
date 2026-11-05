@@ -84,3 +84,30 @@ test('automatic observation rejects revoked consent, workers, stopped/archived r
  }
  const f=automaticFixture();try{assert.equal(f.s.beginDeploymentObservation(f.id,'stale',1000),false);const r=f.s.get(f.id);assert.equal(f.s.beginDeploymentObservation(f.id,r.updatedAt,1000),true);const proof=await fixture().verify();f.s.updateProject('writer-studio',{releaseEnvironment:'different / production'});assert.throws(()=>f.s.reconcileDeployment(f.id,proof,'observer',r.updatedAt,{automatic:true}));assert.equal(f.s.get(f.id).release.phase,'failed');}finally{f.close();}
 });
+
+test('pending merge reconciles after an independently verified successor preserves the request files',async()=>{
+ const f=fixture(),delta=f.rows['compare/'+old+'...'+head];
+ f.request.release.phase='deploying';
+ f.request.result.changedPaths=['src/components/workspace/Step4Draft.tsx'];
+ f.rows['commits/'+old+'/status'].statuses[0].state='pending';
+ delta.files=[{filename:'backend/monitoring.ts'}];
+ assert.equal((await f.verify()).supersededPending,true);
+ delta.files.push({filename:'src/renamed.tsx',previous_filename:f.request.result.changedPaths[0]});
+ await assert.rejects(f.verify(),/phạm vi request/);
+});
+
+test('automatic observation records a superseding deploy while the original merge is still deploying',async()=>{
+ const {createRecovery}=await import('../server/recovery.js'),f=automaticFixture(),remote=fixture();
+ try{
+  f.patch(r=>Object.assign(r.release,{phase:'deploying',phaseStartedAt:new Date(0).toISOString()}));
+  remote.request.release.phase='deploying';
+  let reads=0;
+  const observer=createRecovery(f.s,{GITHUB_TOKEN:'test'},{clock:()=>60001,verify:async()=>{reads++;return remote.verify();},sync:async()=>{}});
+  await observer.tick();
+  const done=f.s.get(f.id);
+  assert.equal(reads,1);
+  assert.equal(done.release.phase,'deployed');
+  assert.equal(done.release.deploymentRecovery.previous.phase,'deploying');
+  assert.equal(done.release.librarySync,'synced');
+ }finally{f.close();}
+});
