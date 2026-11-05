@@ -17,7 +17,7 @@
 .rc-latency-grid text{fill:#c1c5b8;font-size:12px;font-variant-numeric:tabular-nums}
 .rc-latency-line{fill:none;stroke:#ceff62;stroke-width:5;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:1;animation:rc-latency-draw 800ms ease both}
 .rc-latency-point{fill:#ceff62;stroke:#ceff62;stroke-width:3;animation:perf-enter 450ms 300ms ease both}
-.rc-latency-values{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));margin:0 5% 16px 9%;gap:10px;text-align:center;font-variant-numeric:tabular-nums}
+.rc-latency-values{display:block;position:relative;height:44px;margin:0 0 16px;text-align:center;font-variant-numeric:tabular-nums}.rc-latency-values>div{position:absolute;top:0;left:13.333333%;width:20%;transform:translateX(-50%)}.rc-latency-values>div:nth-child(2){left:51.666667%}.rc-latency-values>div:nth-child(3){left:90%}
 .rc-latency-values dt{font-size:11px;color:#c1c5b8}.rc-latency-values dd{font-size:13px;font-weight:550;margin:6px 0 0}
 .rc-latency-note{font-size:10px;line-height:1.7;margin:0 0 8px}.rc-latency-max{display:block;font-size:10px;line-height:1.7}
 @keyframes rc-latency-draw{from{stroke-dashoffset:1}to{stroke-dashoffset:0}}
