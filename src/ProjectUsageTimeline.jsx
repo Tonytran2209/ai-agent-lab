@@ -46,15 +46,28 @@ function usageRows(points, callField) {
 }
 
 export default function ProjectUsageTimeline({ report }) {
+  const [ledger, dispatcher] = usageSources
+  const series = [
+    { ...ledger, rows: usageRows(report.ledger?.timeline, "calls") },
+    { ...dispatcher, rows: usageRows(report.timeline, "aiCalls") },
+  ]
+  return <UsageTimeline report={report} series={series} />
+}
+
+export function UsageTimeline({
+  report,
+  series,
+  description = "Mức sử dụng theo nguồn ghi nhận trong kỳ · UTC",
+  countLabel = "lượt",
+}) {
   const [metric, setMetric] = useState("tokens")
   const [selected, setSelected] = useState(null)
   const isUsd = metric === "usd"
   const format = (isUsd ? usd : tokens).format
-  const days = report.window?.days
+  const days = report.window?.days ?? report.days
   const bucketHours = days === 1 ? 1 : days === 7 ? 6 : 24
-  const history = taskTimeline(usageRows(report.ledger?.timeline, "calls"), report, bucketHours)
-  const direct = taskTimeline(usageRows(report.timeline, "aiCalls"), report, bucketHours)
-  const sources = [history, direct]
+  const sources = series.map(({ rows }) => taskTimeline(rows, report, bucketHours))
+  const periods = sources[0]
   const hasCalls = sources.some((periods) => periods.some((period) => period.count > 0))
   const maximum = Math.max(0, ...sources.flat().map((period) => period[metric] ?? 0))
   const scale = usageScale(maximum, isUsd)
@@ -74,11 +87,11 @@ export default function ProjectUsageTimeline({ report }) {
   }
 
   return (
-    <figure className="rc-card rc-project-usage" data-metric={metric}>
+    <figure className="rc-card rc-project-usage" data-metric={metric} data-series-count={series.length}>
       <div className="rc-project-usage-head">
         <div>
           <h3>Token & USD theo thời gian</h3>
-          <p>Mức sử dụng theo nguồn ghi nhận trong kỳ · UTC</p>
+          <p>{description}</p>
         </div>
         <div className="rc-project-usage-switch" role="group" aria-label="Chỉ số sử dụng AI">
           <button type="button" aria-pressed={!isUsd} onClick={() => setMetric("tokens")}>Token</button>
@@ -86,7 +99,7 @@ export default function ProjectUsageTimeline({ report }) {
         </div>
       </div>
       <ul className="rc-project-usage-legend">
-        {usageSources.map(({ id, label }) => (
+        {series.map(({ id, label }) => (
           <li key={id} data-source={id}><i aria-hidden="true" />{label}</li>
         ))}
       </ul>
@@ -100,13 +113,14 @@ export default function ProjectUsageTimeline({ report }) {
                 </span>
               ))}
             </div>
-            <div className="rc-project-usage-columns" style={{ "--periods": history.length, "--levels": levels }}>
-              {history.map((period, index) => {
-                const values = usageSources.map((source, i) => {
+            <div className="rc-project-usage-columns" style={{ "--periods": periods.length, "--levels": levels }}>
+              {periods.map((period, index) => {
+                const values = series.map(({ id, label }, i) => {
                   const sample = sources[i][index]
                   const amount = sample[metric]
                   return {
-                    ...source,
+                    id,
+                    label,
                     filled: amount > 0 ? Math.max(1, Math.round(amount / limit * levels)) : 0,
                     amount: amountLabel(sample),
                     count: sample.count,
@@ -116,7 +130,7 @@ export default function ProjectUsageTimeline({ report }) {
                 const showTick = index % tickStep === 0
                 return (
                   <div className="rc-project-usage-column" key={period.start}
-                    data-edge={index < history.length / 2 ? "start" : "end"}
+                    data-edge={index < periods.length / 2 ? "start" : "end"}
                     data-selected={selected === period.start}>
                     <button type="button" className="rc-project-usage-dots"
                       aria-label={[label(period), ...values.map((v) => v.label + " " + v.amount)].join(", ")}
@@ -145,7 +159,7 @@ export default function ProjectUsageTimeline({ report }) {
                       {values.map((v) => (
                         <React.Fragment key={v.id}>
                           <span>{v.label}</span>
-                          <strong>{v.amount} · {tokens.format(v.count)} lượt</strong>
+                          <strong>{v.amount} · {tokens.format(v.count)} {countLabel}</strong>
                         </React.Fragment>
                       ))}
                     </div>
@@ -158,12 +172,12 @@ export default function ProjectUsageTimeline({ report }) {
           <details>
             <summary>Xem số liệu theo thời gian</summary>
             <dl>
-              {history.map((period, index) => (
+              {periods.map((period, index) => (
                 <div key={period.start}>
                   <dt>{label(period)}</dt>
-                  <dd>{usageSources.map(({ id, label }, i) => {
+                  <dd>{series.map(({ id, label }, i) => {
                     const sample = sources[i][index]
-                    return <div key={id}>{label} · {amountLabel(sample)} · {tokens.format(sample.count)} lượt</div>
+                    return <div key={id}>{label} · {amountLabel(sample)} · {tokens.format(sample.count)} {countLabel}</div>
                   })}</dd>
                 </div>
               ))}
