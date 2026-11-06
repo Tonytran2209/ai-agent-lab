@@ -786,3 +786,156 @@
     animation: none;
   }
 }
+
+.perf-runtime-chart{overflow-x:auto;justify-content:flex-start;gap:12px}.perf-runtime-chart .perf-bar-column{flex:1 0 42px;max-width:72px}.perf-project-report+.perf-project-report{margin-top:32px}.perf-health dd{overflow-wrap:anywhere}
+
+.perf-topology {
+  margin: var(--space-6) 0;
+}
+.perf-topology-canvas {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  color: var(--text);
+  background: radial-gradient(circle, var(--border) 1px, transparent 1px)
+    var(--surface-soft) 7px 7px / 24px 24px;
+}
+.perf-topology-viewport {
+  height: clamp(500px, 65vh, 700px);
+  overflow: auto;
+  scrollbar-color: var(--border) var(--surface-soft);
+}
+.perf-topology-stage {
+  position: relative;
+  margin-inline: auto;
+}
+.perf-topology-projects {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.perf-topology-wires {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.perf-topology-wires path {
+  fill: none;
+  stroke: var(--control-border);
+  stroke-width: 1.5;
+  stroke-dasharray: 5 5;
+}
+.perf-topology-wires polygon {
+  fill: var(--control-border);
+}
+.perf-topology-node {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 12px;
+  width: var(--map-node-width);
+  height: var(--map-node-height);
+  padding: var(--space-6);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--card);
+  color: var(--text);
+  text-align: left;
+}
+@media (hover: hover) and (pointer: fine) {
+  .perf-topology-node:hover {
+    background: var(--surface-hover);
+  }
+}
+.perf-topology-node[aria-pressed="true"] {
+  border-color: var(--control-border);
+  background: var(--surface-selected);
+}
+.perf-topology-canvas button:focus-visible {
+  outline: 2px solid var(--link);
+  outline-offset: 3px;
+}
+.perf-topology-node-heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.perf-topology-node-heading svg {
+  flex-shrink: 0;
+}
+.perf-topology-node-heading > span {
+  min-width: 0;
+}
+.perf-topology-node-heading strong,
+.perf-topology-node-heading small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.perf-topology-node-heading strong {
+  font-size: 14px;
+  font-weight: 600;
+}
+.perf-topology-node-heading small,
+.perf-topology-node-heading svg {
+  color: var(--secondary);
+}
+.perf-topology-empty {
+  position: absolute;
+  width: 100%;
+  text-align: center;
+  color: var(--muted);
+}
+.perf-topology-tools {
+  position: absolute;
+  bottom: var(--space-4);
+  left: var(--space-4);
+  display: flex;
+  gap: var(--space-1);
+  padding: var(--space-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--card);
+}
+.perf-topology-details {
+  position: absolute;
+  inset: var(--space-4) var(--space-4) auto auto;
+  width: min(360px, calc(100% - 2 * var(--space-4)));
+  max-height: calc(100% - 2 * var(--space-4));
+  overflow: auto;
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--card);
+  box-shadow: var(--shadow);
+}
+.perf-topology-details header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+.perf-topology-details header button {
+  flex-shrink: 0;
+}
+.perf-topology-details h3 {
+  margin: 4px 0 8px;
+  font-size: 16px;
+  overflow-wrap: anywhere;
+}
+.perf-topology-details .perf-health > div:last-child {
+  border-bottom: 0;
+}
+@media (max-width: 600px) {
+  .perf-topology {
+    padding: var(--space-4);
+  }
+  .perf-topology-details {
+    top: auto;
+    bottom: 80px;
+    max-height: calc(100% - 80px - var(--space-4));
+  }
+}

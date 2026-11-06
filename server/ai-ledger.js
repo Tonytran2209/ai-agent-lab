@@ -1,3 +1,4 @@
+import {usageFields,estimatedCost} from './task-performance.js';
 import crypto from 'node:crypto';
 import { transaction } from './db.js';
 export function aiLimits(config = {}) {
@@ -22,12 +23,12 @@ export function createAiLedger(db) {
         db.prepare('INSERT INTO ai_attempts VALUES (?,?,?,?)').run(entry.id,requestId,day,JSON.stringify(entry)); return entry.id;
       });
     },
-    finish(id, status, usage) {
+    finish(id, status, usage, config={}) {
       const row = db.prepare('SELECT data FROM ai_attempts WHERE id=?').get(id);
       if (!row) return;
       const r = JSON.parse(row.data);
       const cleanUsage = usage && Number.isSafeInteger(usage.input_tokens) && usage.input_tokens >= 0 && Number.isSafeInteger(usage.output_tokens) && usage.output_tokens >= 0 && Number.isSafeInteger(usage.total_tokens) && usage.total_tokens >= 0 ? {input_tokens:usage.input_tokens,output_tokens:usage.output_tokens,total_tokens:usage.total_tokens,cached_tokens:usage.input_tokens_details?.cached_tokens ?? 0} : null;
-      db.prepare('UPDATE ai_attempts SET data=? WHERE id=?').run(JSON.stringify({...r,status,usage:cleanUsage,finishedAt:new Date().toISOString()}),id);
+      db.prepare('UPDATE ai_attempts SET data=? WHERE id=?').run(JSON.stringify({...r,status,usage:cleanUsage,costUsd:estimatedCost(r.model,usageFields(usage),config),finishedAt:new Date().toISOString()}),id);
     },
     summary(config) {
       const day = new Date().toISOString().slice(0,10), today = rows().filter(r => r.day === day);
