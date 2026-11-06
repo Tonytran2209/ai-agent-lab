@@ -8,6 +8,7 @@ import {
   statusTone,
   projectPerformanceMetrics,
   projectJobHistoryMetrics,
+  jobCompletionTarget,
 } from "../src/runtime-chart-data.js"
 test("chart series combines workflow steps but never mixes historical and new usage or double-counts cache", () => {
   const report = {
@@ -101,21 +102,18 @@ test("project targets keep missing user and job measurements separate from HTTP 
     taskUsage: { rows: [{ kind: "gate", status: "completed", startedAt: "2026-11-05", finishedAt: "2026-11-06" }] },
   }
   assert.deepEqual(projectPerformanceMetrics(report), {
-    httpP95Ms: 120, responseMs: null, clickMs: null, completion: [],
+    httpP95Ms: 120, responseMs: null, clickMs: null,
     executed: null, errorRate: null, successRate: null,
   })
 
-  const job = { job: "Gate", workload: "10 items", p95Ms: 1500, samples: 20 }
   const performanceKpis = {
     responseTime: { p95Ms: 2300, samples: 20 },
     clickLatency: { p95Ms: 0, samples: 0 },
-    jobCompletion: [job, { ...job, workload: "", samples: 0 }],
     jobs: { executed: 20, technicalErrors: 0, validCompletions: 19 },
   }
   const measured = projectPerformanceMetrics({ ...report, performanceKpis })
   assert.equal(measured.responseMs, 2300)
   assert.equal(measured.clickMs, null)
-  assert.deepEqual(measured.completion, [job])
   assert.equal(measured.errorRate, 0)
   assert.equal(measured.successRate, 95)
   assert.equal(projectPerformanceMetrics({ performanceKpis: {
@@ -124,15 +122,23 @@ test("project targets keep missing user and job measurements separate from HTTP 
 })
 
 test("job history rates use the project's terminal outcomes and preserve ambiguity", () => {
-  const job = { job: "Gate", workload: "1 item", p95Ms: 100, samples: 10 }
+  const job = { job: "Gate", workload: "1 item", durationMs: 100 }
   const history = {
     executed: 10, failed: 2, technicalErrors: 1, unclassifiedFailures: 1,
-    validCompletions: 7, unverifiedCompletions: 1, complete: true, completion: [job],
+    validCompletions: 7, unverifiedCompletions: 1, complete: true, latestJob: job,
   }
   const measured = projectJobHistoryMetrics(history)
   assert.deepEqual(measured.errorRange, [10, 20])
   assert.deepEqual(measured.successRange, [70, 80])
-  assert.deepEqual(measured.completion, [job])
   assert.equal(projectJobHistoryMetrics(null), null)
   assert.equal(projectJobHistoryMetrics({ ...history, executed: 9 }), null)
+})
+
+test("latest job targets are fixed for known project and job pairs", () => {
+  assert.equal(jobCompletionTarget("writer-studio", "Writer batch article"), 60)
+  assert.equal(jobCompletionTarget("intercom", "EB V2 brief"), 0.25)
+  assert.equal(jobCompletionTarget("intercom", "EB V2 article"), 0.25)
+  assert.equal(jobCompletionTarget("intercom", "EB V2 adapt"), 0.5)
+  assert.equal(jobCompletionTarget("intercom", "EB V2 review"), 0.5)
+  assert.equal(jobCompletionTarget("intercom", "Writer batch article"), null)
 })

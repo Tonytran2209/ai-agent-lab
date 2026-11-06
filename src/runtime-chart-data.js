@@ -123,18 +123,11 @@ export function projectPerformanceMetrics(report) {
     count(jobs?.executed) && jobs.executed > 0 && count(numerator) && numerator <= jobs.executed
       ? 100 * numerator / jobs.executed
       : null
-  const completion = Array.isArray(kpis?.jobCompletion)
-    ? kpis.jobCompletion.filter((row) =>
-        typeof row?.job === "string" && row.job.trim() &&
-        typeof row.workload === "string" && row.workload.trim() && p95(row) !== null,
-      )
-    : []
 
   return {
     responseMs: p95(kpis?.responseTime),
     clickMs: p95(kpis?.clickLatency),
     httpP95Ms: report.http?.calls > 0 ? duration(report.http.p95Ms) : null,
-    completion,
     executed: count(jobs?.executed) ? jobs.executed : null,
     errorRate: rate(jobs?.technicalErrors),
     successRate: rate(jobs?.validCompletions),
@@ -152,8 +145,19 @@ export function projectJobHistoryMetrics(history) {
   return {
     executed, technicalErrors, unclassifiedFailures, validCompletions, unverifiedCompletions,
     complete: history.complete === true,
-    completion: projectPerformanceMetrics({ performanceKpis: { jobCompletion: history.completion } }).completion,
+    latestJob: typeof history.latestJob?.job === "string" && Number.isFinite(history.latestJob.durationMs) &&
+      history.latestJob.durationMs >= 0 ? history.latestJob : null,
     errorRange: range(technicalErrors, unclassifiedFailures),
     successRange: range(validCompletions, unverifiedCompletions),
   }
+}
+
+const jobTargetsMinutes = {
+  "writer-studio": { "Writer batch article": 60 },
+  intercom: { "EB V2 brief": 0.25, "EB V2 article": 0.25, "EB V2 adapt": 0.5, "EB V2 review": 0.5 },
+}
+
+export function jobCompletionTarget(appId, job) {
+  const targets = jobTargetsMinutes[appId]
+  return targets && Object.hasOwn(targets, job) ? targets[job] : null
 }
