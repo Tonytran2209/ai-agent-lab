@@ -7,6 +7,7 @@ import {
   responseShare,
   statusTone,
   projectPerformanceMetrics,
+  combinedProjectJobMetrics,
 } from "../src/runtime-chart-data.js"
 test("chart series combines workflow steps but never mixes historical and new usage or double-counts cache", () => {
   const report = {
@@ -120,4 +121,24 @@ test("project targets keep missing user and job measurements separate from HTTP 
   assert.equal(projectPerformanceMetrics({ performanceKpis: {
     jobs: { executed: 0, technicalErrors: 0, validCompletions: 0 },
   } }).errorRate, null)
+})
+
+test("combined job targets weight terminal outcomes and preserve independent duration groups", () => {
+  const cohort = (name, executed, failed, technicalErrors, unclassifiedFailures) => ({
+    name,
+    report: { jobHistory: {
+      executed, failed, technicalErrors, unclassifiedFailures,
+      validCompletions: executed - failed, unverifiedCompletions: 0, complete: true,
+      completion: [{ job: "Gate", workload: "1 item", p95Ms: 100, samples: executed }],
+    } },
+  })
+  const writer = cohort("Writer", 10, 2, 1, 1)
+  const intercom = cohort("Intercom", 90, 0, 0, 0)
+  const both = combinedProjectJobMetrics([writer, intercom])
+  assert.equal(both.executed, 100)
+  assert.deepEqual(both.errorRange, [1, 2])
+  assert.deepEqual(both.successRange, [98, 98])
+  assert.deepEqual(both.completion.map((row) => row.job), ["Writer · Gate", "Intercom · Gate"])
+  assert.equal(combinedProjectJobMetrics([writer, { name: "Intercom" }]).complete, false)
+  assert.equal(combinedProjectJobMetrics([{ name: "Writer" }]).errorRange, null)
 })

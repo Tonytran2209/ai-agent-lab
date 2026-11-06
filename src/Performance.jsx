@@ -2,7 +2,7 @@ import {startPolling} from './polling.js';
 import TaskUsage from "./TaskUsage.jsx";
 import AnimatedValue from "./AnimatedValue.jsx"
 import { RuntimeOverview, AICharts, WorkflowStatus } from "./RuntimeCharts.jsx"
-import { projectPerformanceMetrics } from "./runtime-chart-data.js"
+import { combinedProjectJobMetrics, projectPerformanceMetrics } from "./runtime-chart-data.js"
 import React, { useEffect, useRef, useState } from "react"
 import {
   Activity,
@@ -396,6 +396,9 @@ function ProjectRuntime({ api, days, refresh }) {
           Chưa cấu hình kết nối monitoring chỉ đọc.
         </p>
       )}
+      {selected === "all" && data?.targets.length > 0 && (
+        <ProjectPerformanceTargets targets={data.targets} />
+      )}
       {data?.targets
         .filter((t) => selected === "all" || selected === t.id)
         .map((t) => <RuntimeReport key={t.id} target={t} days={days} />)}
@@ -411,8 +414,12 @@ const money = (v) =>
 const bytes = (v) => number(v / 1048576) + " MB"
 const show = (value, format = number) =>
   value == null ? "Chưa có dữ liệu" : format(value)
-function ProjectPerformanceTargets({ report }) {
-  const metrics = projectPerformanceMetrics(report)
+function ProjectPerformanceTargets({ report, targets }) {
+  const combined = targets
+    ? combinedProjectJobMetrics(targets)
+    : report.jobHistory ? combinedProjectJobMetrics([{ name: "", report }]) : null
+  const metrics = { ...projectPerformanceMetrics(report || {}), ...combined }
+  const range = ([low, high]) => low === high ? rate(low) : rate(low) + "–" + rate(high)
   const rate = (value) =>
     value > 0 && value < 0.01
       ? "< 0,01%"
@@ -420,7 +427,7 @@ function ProjectPerformanceTargets({ report }) {
   const sampleCount = (metric) => number(report.performanceKpis[metric].samples) + " mẫu"
   const samples = metrics.executed === null ? "" : " · " + number(metrics.executed) + " job đã thực hiện"
   const rows = [
-    {
+    ...(!targets ? [{
       name: "Response Time",
       definition: "Từ lúc gửi yêu cầu đến phản hồi có ý nghĩa đầu tiên · P95",
       value: metrics.responseMs,
@@ -440,7 +447,7 @@ function ProjectPerformanceTargets({ report }) {
       target: "≤ 200 ms",
       meets: metrics.clickMs <= 200,
       note: metrics.clickMs === null ? null : sampleCount("clickLatency"),
-    },
+    }] : []),
     {
       name: "Job Completion Time",
       definition: "Từ sự kiện bắt đầu đến sự kiện kết thúc của job · P95",
@@ -457,21 +464,29 @@ function ProjectPerformanceTargets({ report }) {
     {
       name: "Error Rate",
       definition: "Job lỗi kỹ thuật / tổng job thực hiện" + samples,
-      value: metrics.errorRate,
-      format: rate,
+      value: combined ? combined.errorRange : metrics.errorRate,
+      format: combined ? range : rate,
       target: "0%",
-      meets: metrics.errorRate === 0,
-      note: metrics.executed > 0 && metrics.errorRate === null
-        ? "Có job chưa xác định được loại lỗi."
-        : null,
+      meets: combined
+        ? combined.complete && combined.errorRange && (combined.technicalErrors > 0 || !combined.unclassifiedFailures)
+          ? combined.technicalErrors === 0 : undefined
+        : metrics.errorRate === 0,
+      note: combined
+        ? number(combined.technicalErrors) + " lỗi kỹ thuật xác định được · " + number(combined.unclassifiedFailures) + " lỗi chưa phân loại"
+        : metrics.executed > 0 && metrics.errorRate === null ? "Có job chưa xác định được loại lỗi." : null,
     },
     {
       name: "Job Success Rate",
       definition: "Job hoàn thành hợp lệ / tổng job thực hiện" + samples,
-      value: metrics.successRate,
-      format: rate,
+      value: combined ? combined.successRange : metrics.successRate,
+      format: combined ? range : rate,
       target: "≥ 95% (đề xuất)",
-      meets: metrics.successRate >= 95,
+      meets: combined
+        ? combined.complete && combined.successRange && !combined.unverifiedCompletions
+          ? combined.successRange[0] >= 95 : undefined
+        : metrics.successRate >= 95,
+      note: combined ? number(combined.validCompletions) + " kết quả đã xác minh" +
+        (combined.unverifiedCompletions ? " · " + number(combined.unverifiedCompletions) + " kết quả chưa đủ bằng chứng" : "") : null,
     },
   ]
 
@@ -479,8 +494,16 @@ function ProjectPerformanceTargets({ report }) {
     <article className="perf-card perf-project-targets">
       <div className="perf-card-heading">
         <div>
-          <h3>Mục tiêu hiệu năng</h3>
-          <p>Chỉ số theo kỳ báo cáo · P95 là cận trên của khoảng chứa mẫu phân vị 95%.</p>
+          <h3>{targets ? "Mục tiêu hiệu năng · Job toàn bộ project" : "Mục tiêu hiệu năng"}</h3>
+          {targets ? (
+            <p>
+              Lịch sử theo kỳ UTC · {combined.coverage}/{targets.length} project có nguồn dữ liệu.
+              {!combined.complete && " Phạm vi chưa đầy đủ."}
+              {" "}Writer dùng trạng thái cuối của mỗi bài batch, Intercom dùng từng lượt EB V2 gate.
+            </p>
+          ) : combined
+            ? <p>Chỉ số theo kỳ UTC · Ba chỉ số job dùng bản ghi đã lưu.{!combined.complete && " Phạm vi chưa đầy đủ."}</p>
+            : <p>Chỉ số theo kỳ báo cáo · P95 là cận trên của khoảng chứa mẫu phân vị 95%.</p>}
         </div>
         <Activity size={18} aria-hidden="true" />
       </div>
