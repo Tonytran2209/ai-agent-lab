@@ -1,8 +1,8 @@
 ---
-version: "1.1"
+version: "1.2"
 name: "ChatGPT-desktop-inspired-design-guide"
 description: "Giao diện desktop tập trung vào nội dung: canvas trung tính, sidebar gọn, typography hệ thống, primary CTA tương phản, light/dark theme và panel theo ngữ cảnh. Token triển khai đề xuất, không phải design system nội bộ OpenAI."
-updated: "2026-10-29"
+updated: "2026-11-06"
 sourcesVerified: "2026-10-28"
 status: "implementation-spec-not-official"
 colors:
@@ -16,9 +16,11 @@ colors:
   hairline: "#dedede"
   control-border: "#808080"
   canvas: "#ffffff"
+  app-background: "#eef0f3"
   sidebar: "#f7f7f8"
   surface: "#ffffff"
   surface-soft: "#f2f2f2"
+  track: "#f2f3f5"
   surface-hover: "#eaeaea"
   surface-selected: "#e3e3e3"
   on-primary: "#ffffff"
@@ -118,6 +120,7 @@ layout:
   gutter-mobile: "16px"
 elevation:
   flat: "none"
+  card: "0 1px 2px rgb(16 24 40 / 4%), 0 2px 8px rgb(16 24 40 / 4%)"
   popover: "0 8px 32px rgb(0 0 0 / 12%)"
 motion:
   fast: "120ms"
@@ -621,12 +624,24 @@ Khoảng trắng làm rõ nhóm và thứ tự thao tác. Cột đọc giới h�
 
 | Level | Treatment | Use |
 |---|---|---|
-| Flat | `{elevation.flat}` | Main canvas, sidebar, nội dung đọc |
+| Flat | `{elevation.flat}` | Main canvas, nội dung đọc |
 | Hairline | 1px `{colors.hairline}` | Divider, ranh giới vùng |
+| Card | `{elevation.card}` | Card/panel trắng trên `{colors.app-background}` |
 | Soft surface | `{colors.surface-soft}` | Composer, code block, nhóm phụ |
 | Floating | `{elevation.popover}` | Menu, dialog, toast |
 
-Không shadow từng hàng/card. Dark theme dùng override shadow riêng. Translucency không phải yêu cầu bắt buộc; ưu tiên nền ổn định, rõ chữ.
+Không shadow từng hàng trong card. Dark theme dùng override shadow riêng.
+
+### Clean card theme (v1.2)
+
+Triển khai trong `src/app-theme.css` (nạp sau `design-system.css`):
+
+- Nền app (`body`, `main`, topbar) dùng `{colors.app-background}`; sidebar dùng surface trắng, ngăn cách bằng hairline thay vì viền đậm.
+- Card, panel, dialog, settings list: surface trắng, không viền, `{elevation.card}`, bo `16px`.
+- Nav item, button, settings tab, chip/badge trạng thái: dạng pill (`{rounded.pill}`); badge chỉ dùng nền nhạt, không viền.
+- Header bảng là dải nền `{colors.track}` bo góc thay cho đường kẻ; hàng vẫn ngăn bằng hairline.
+- Input/select/textarea giữ `{colors.control-border}` để viền field đạt tương phản 3:1.
+- Biểu đồ khối lượng dùng một màu nhấn xanh lá trên track nhạt; breakdown dùng bảng màu nhỏ xanh lá/tím/vàng/hồng (xem `src/performance-theme.css`). Translucency không phải yêu cầu bắt buộc; ưu tiên nền ổn định, rõ chữ.
 
 ## Shapes
 
@@ -638,8 +653,8 @@ Không shadow từng hàng/card. Dark theme dùng override shadow riêng. Transl
 | `{rounded.xs}` | 4px | Chi tiết nhỏ |
 | `{rounded.sm}` | 6px | Control compact |
 | `{rounded.md}` | 10px | Button, input, menu |
-| `{rounded.lg}` | 14px | Card, dialog, bubble |
-| `{rounded.xl}` | 16px | Container đặc biệt khi cần |
+| `{rounded.lg}` | 14px | Bubble, code block |
+| `{rounded.xl}` | 16px | Card, panel, dialog (clean card theme) |
 | `{rounded.composer}` | 24px | Composer |
 | `{rounded.pill}` | 9999px | Chip, segmented wrapper |
 | `{rounded.full}` | 9999px | Avatar/icon button có hai chiều bằng nhau |

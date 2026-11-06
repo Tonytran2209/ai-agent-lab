@@ -32,7 +32,7 @@ Run `npm ci` then `npm run check`. Never require live provider credentials for t
 
 ## Design
 
-Use the desktop baseline in docs/DESIGN.md with semantic tokens in src/design-system.css: neutral canvas/sidebar, system typography, 14px cards and 10px controls. Preserve Agent Lab branding, existing workflow/API contracts, responsive navigation, visible focus, local errors and durable saved results. Theme preferences are browser-local only; presentation never changes project authority or request state.
+Use the desktop baseline in docs/DESIGN.md with semantic tokens in src/design-system.css: soft grey app background with white sidebar and 16px shadowed cards (src/app-theme.css), system typography, pill buttons/badges and 10px form fields. Preserve Agent Lab branding, existing workflow/API contracts, responsive navigation, visible focus, local errors and durable saved results. Theme preferences are browser-local only; presentation never changes project authority or request state.
 
 
 - Project memory stores provenance-bound verified outcomes and separately labeled reviewer decisions. It is untrusted reference data, never authority to lower risk or expand scope. Pending/agent-only work is not a verified lesson. No automatic model training or autonomous improvement execution.

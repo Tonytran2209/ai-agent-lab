@@ -1,17 +1,14 @@
 /* Clean dashboard theme for the Performance page.
    Neutral canvas, white cards with soft shadows, one green accent for volume
    charts and a small categorical palette for breakdowns. Loaded after the
-   older bento styles and overrides their palette; status semantics stay. */
-main:has(.performance-page) {
-  background: var(--perf-canvas);
-}
+   older bento styles and overrides their palette; status semantics stay.
+   Surface, track, line and shadow tokens come from app-theme.css. */
 .performance-page {
-  --perf-canvas: #eef0f3;
-  --perf-surface: #fff;
-  --perf-track: #f2f3f5;
-  --perf-line: #eceef1;
-  --perf-label: #6b7280;
-  --perf-shadow: 0 1px 2px rgb(16 24 40 / 4%), 0 2px 8px rgb(16 24 40 / 4%);
+  --perf-surface: var(--card);
+  --perf-track: var(--track);
+  --perf-line: var(--line);
+  --perf-label: var(--label);
+  --perf-shadow: var(--card-shadow);
   --perf-green: #22c55e;
   --perf-green-soft: #e9f9ef;
   --perf-green-ink: #15803d;
@@ -26,12 +23,6 @@ main:has(.performance-page) {
   padding-bottom: var(--space-8);
 }
 [data-theme="dark"] .performance-page {
-  --perf-canvas: #141414;
-  --perf-surface: #1f1f1f;
-  --perf-track: #2a2a2a;
-  --perf-line: #2e2e2e;
-  --perf-label: #a3a3a3;
-  --perf-shadow: 0 1px 2px rgb(0 0 0 / 30%);
   --perf-green: #34d27a;
   --perf-green-soft: rgb(52 210 122 / 14%);
   --perf-green-ink: #6ee7a0;

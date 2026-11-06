@@ -1,0 +1,138 @@
+/* App-wide clean card theme (loaded last).
+   Soft grey app background, white sidebar and cards with a light shadow
+   instead of hard borders, pill-shaped navigation, buttons and badges.
+   Inputs keep --control-border so field edges stay visible (3:1 contrast). */
+:root {
+  --app-bg: #eef0f3;
+  --track: #f2f3f5;
+  --line: #eceef1;
+  --label: #6b7280;
+  --border: #e4e6ea;
+  --card-shadow: 0 1px 2px rgb(16 24 40 / 4%), 0 2px 8px rgb(16 24 40 / 4%);
+  --radius-card: 16px;
+  --radius-pill: 999px;
+}
+[data-theme="dark"] {
+  --app-bg: #141414;
+  --card: #1f1f1f;
+  --track: #2a2a2a;
+  --line: #2e2e2e;
+  --label: #a3a3a3;
+  --border: #333;
+  --card-shadow: 0 1px 2px rgb(0 0 0 / 30%);
+}
+
+/* Shell */
+body,
+main,
+.streamlined .topbar {
+  background: var(--app-bg);
+}
+.streamlined .topbar {
+  border-bottom: 0;
+}
+.sidebar,
+.streamlined .sidebar {
+  background: var(--card);
+  border-right: 0;
+  box-shadow: 1px 0 0 var(--line);
+}
+.nav-item {
+  border-radius: var(--radius-pill);
+}
+.nav-item:hover:not(.active) {
+  background: var(--track);
+}
+.nav-item.active {
+  background: var(--track);
+  font-weight: 550;
+}
+
+/* Cards: white surface, soft shadow, no hard border */
+.panel,
+.settings-list,
+.settings-surface,
+.agent-settings,
+.modal,
+.overview,
+.analysis-card,
+.version-card,
+.project-popover,
+.documents-workspace,
+.progress-card .progress-overview,
+.request-stop-form,
+.contract-grid > div {
+  background: var(--card);
+  border-color: transparent;
+  border-radius: var(--radius-card);
+  box-shadow: var(--card-shadow);
+}
+.panel-heading,
+.request-row,
+.settings-row,
+.notification-row {
+  border-color: var(--line);
+}
+.progress-card .progress-activity,
+.alert {
+  border-color: transparent;
+  border-radius: 12px;
+  background: var(--track);
+}
+.alert.warning {
+  background: color-mix(in srgb, var(--warning) 10%, var(--card));
+}
+.empty-icon {
+  border-color: transparent;
+  background: var(--track);
+}
+
+/* Controls */
+.button,
+.settings-page .button,
+.text-button,
+.settings-nav button,
+.project-filters > button,
+.appearance-switch {
+  border-radius: var(--radius-pill);
+}
+.settings-nav button.active,
+.settings-nav button[aria-current="page"] {
+  background: var(--card);
+  box-shadow: var(--card-shadow);
+}
+.search-field {
+  border-radius: var(--radius-pill);
+}
+
+/* Badges and status chips: filled pills */
+.badge,
+.risk,
+.focused-workspace .risk,
+.inbox-state,
+.connection-state,
+.settings-page .connection-state,
+.progress-stage,
+.progress-stage[data-tone] {
+  border-color: transparent;
+  border-radius: var(--radius-pill);
+}
+
+/* Tables: light header band instead of rules */
+table thead th {
+  background: var(--track);
+  border-bottom: 0;
+  color: var(--label);
+  font-weight: 500;
+}
+table thead th:first-child {
+  border-radius: 8px 0 0 8px;
+}
+table thead th:last-child {
+  border-radius: 0 8px 8px 0;
+}
+pre {
+  border-color: transparent;
+  border-radius: 12px;
+  background: var(--track);
+}
