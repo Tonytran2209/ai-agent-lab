@@ -135,7 +135,7 @@ test("job history rates use the project's terminal outcomes and preserve ambigui
 })
 
 test("latest job targets are fixed for known project and job pairs", () => {
-  assert.equal(jobCompletionTarget("writer-studio", "Writer batch article"), 60)
+  assert.equal(jobCompletionTarget("writer-studio", "Writer batch article"), 10)
   assert.equal(jobCompletionTarget("intercom", "EB V2 brief"), 0.25)
   assert.equal(jobCompletionTarget("intercom", "EB V2 article"), 0.25)
   assert.equal(jobCompletionTarget("intercom", "EB V2 adapt"), 0.5)

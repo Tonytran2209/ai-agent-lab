@@ -153,7 +153,7 @@ export function projectJobHistoryMetrics(history) {
 }
 
 const jobTargetsMinutes = {
-  "writer-studio": { "Writer batch article": 60 },
+  "writer-studio": { "Writer batch article": 10 },
   intercom: { "EB V2 brief": 0.25, "EB V2 article": 0.25, "EB V2 adapt": 0.5, "EB V2 review": 0.5 },
 }
 
