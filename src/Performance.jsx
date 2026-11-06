@@ -2,7 +2,7 @@ import {startPolling} from './polling.js';
 import TaskUsage from "./TaskUsage.jsx";
 import AnimatedValue from "./AnimatedValue.jsx"
 import { RuntimeOverview, AICharts, WorkflowStatus } from "./RuntimeCharts.jsx"
-import { projectJobHistoryMetrics, projectPerformanceMetrics } from "./runtime-chart-data.js"
+import { jobCompletionTarget, projectJobHistoryMetrics, projectPerformanceMetrics } from "./runtime-chart-data.js"
 import React, { useEffect, useRef, useState } from "react"
 import {
   Activity,
@@ -415,6 +415,9 @@ function ProjectPerformanceTargets({ report }) {
   const [historyScope, setHistoryScope] = useState(report.jobHistoryAllTime ? "all" : "period")
   const history = projectJobHistoryMetrics(historyScope === "all" ? report.jobHistoryAllTime : report.jobHistory)
   const metrics = { ...projectPerformanceMetrics(report), ...history }
+  const latestJob = history?.latestJob
+  const targetMinutes = latestJob ? jobCompletionTarget(report.appId, latestJob.job) : null
+  const minutes = (value) => new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 2 }).format(value) + " phút"
   const range = ([low, high]) => low === high ? rate(low) : rate(low) + "–" + rate(high)
   const rate = (value) =>
     value > 0 && value < 0.01
@@ -446,16 +449,11 @@ function ProjectPerformanceTargets({ report }) {
     },
     {
       name: "Job Completion Time",
-      definition: "Từ sự kiện bắt đầu đến sự kiện kết thúc của job · P95",
-      value: metrics.completion.length ? metrics.completion : null,
-      format: (groups) => (
-        <ul className="perf-target-groups">
-          {groups.map(({ job, workload, p95Ms, samples }, index) => (
-            <li key={index}>{job} · {workload} · {duration(p95Ms)} ({number(samples)} mẫu)</li>
-          ))}
-        </ul>
-      ),
-      target: "Theo job và workload",
+      definition: "Start Event → End Event gần nhất" + (latestJob ? " · " + latestJob.job : ""),
+      value: latestJob ? latestJob.durationMs / 60000 : null,
+      format: minutes,
+      target: targetMinutes === null ? "Chưa có ngưỡng áp dụng" : "≤ " + minutes(targetMinutes),
+      meets: targetMinutes === null ? undefined : latestJob.durationMs <= targetMinutes * 60000,
     },
     {
       name: "Error Rate",
@@ -534,59 +532,66 @@ function ProjectPerformanceTargets({ report }) {
 const workloadLabels = {
   "seo-batch": {
     title: "Batch bài viết SEO",
-    workflow: "Đọc content plan → tạo từng bài → hoàn thành batch.",
+    steps: ["Đọc content plan", "Tạo từng bài", "Hoàn thành batch"],
     articles: "Bài SEO đã hoàn thành",
   },
   "eb-v2": {
     title: "Nội dung truyền thông · EB V2",
-    workflow: "Tiếp nhận brief → tạo bài → chuyển thể theo kênh → duyệt.",
+    steps: ["Tiếp nhận brief", "Tạo bài", "Chuyển thể theo kênh", "Duyệt"],
     articles: "Bài EB V2 đã có nội dung",
   },
 }
 const formatLabels = { facebook: "Facebook", linkedin: "LinkedIn", threads: "Threads" }
 
-function ContentWorkload({ workload }) {
+function MainJob({ workload }) {
   const labels = workloadLabels[workload?.kind]
-  if (!labels) return null
-
   return (
-    <article className="perf-card perf-project-targets">
+    <article className="perf-card perf-main-job">
       <div className="perf-card-heading">
         <div>
-          <h3>{labels.title}</h3>
-          <p>{labels.workflow} Số liệu từ nội dung đã lưu, độ dài tính theo từ phân tách bằng khoảng trắng.</p>
+          <h2>Main job</h2>
+          <p>{labels?.title || "Chưa có thông tin về quy trình chính."}</p>
         </div>
+        <GitBranch size={18} aria-hidden="true" />
       </div>
-      <dl className="perf-health">
-        <div><dt>{labels.articles}</dt><dd>{number(workload.articles)}</dd></div>
-        <div>
-          <dt>Độ dài trung bình</dt>
-          <dd>{show(workload.averageWords, (value) => number(value) + " từ")}</dd>
-        </div>
-        {workload.lengthSamples > 0 && (
+      {!labels ? <p className="perf-footnote">Chưa có dữ liệu khối lượng công việc từ ứng dụng.</p> : <>
+        <ol className="perf-main-job-steps" aria-label="Các bước thực hiện">
+          {labels.steps.map((step, index) => (
+            <li key={step}><span aria-hidden="true">{index + 1}</span>{step}</li>
+          ))}
+        </ol>
+        <dl className="perf-main-job-metrics">
+          <div><dt>{labels.articles}</dt><dd>{number(workload.articles)}</dd></div>
           <div>
-            <dt>Khoảng độ dài · {number(workload.lengthSamples)} mẫu</dt>
-            <dd>{number(workload.minWords)}–{number(workload.maxWords)} từ</dd>
+            <dt>Độ dài trung bình</dt>
+            <dd>{show(workload.averageWords, (value) => number(value) + " từ")}</dd>
+          </div>
+          {workload.lengthSamples > 0 && (
+            <div>
+              <dt>Khoảng độ dài · {number(workload.lengthSamples)} mẫu</dt>
+              <dd>{number(workload.minWords)}–{number(workload.maxWords)} từ</dd>
+            </div>
+          )}
+        </dl>
+        {Array.isArray(workload.formats) && (
+          <div className="perf-table-scroll">
+            <table>
+              <thead><tr><th scope="col">Format / kênh</th><th scope="col">Số nội dung</th><th scope="col">Độ dài trung bình</th><th scope="col">Khoảng độ dài</th></tr></thead>
+              <tbody>
+                {workload.formats.length ? workload.formats.map((row) => (
+                  <tr key={row.format}>
+                    <th scope="row">{formatLabels[row.format] || row.format}</th>
+                    <td>{number(row.outputs)}</td>
+                    <td>{number(row.averageWords)} từ</td>
+                    <td>{number(row.minWords)}–{number(row.maxWords)} từ</td>
+                  </tr>
+                )) : <tr><td colSpan={4}>Chưa có nội dung theo kênh.</td></tr>}
+              </tbody>
+            </table>
           </div>
         )}
-      </dl>
-      {Array.isArray(workload.formats) && (
-        <div className="perf-table-scroll">
-          <table>
-            <thead><tr><th scope="col">Format / kênh</th><th scope="col">Số nội dung</th><th scope="col">Độ dài trung bình</th><th scope="col">Khoảng độ dài</th></tr></thead>
-            <tbody>
-              {workload.formats.length ? workload.formats.map((row) => (
-                <tr key={row.format}>
-                  <th scope="row">{formatLabels[row.format] || row.format}</th>
-                  <td>{number(row.outputs)}</td>
-                  <td>{number(row.averageWords)} từ</td>
-                  <td>{number(row.minWords)}–{number(row.maxWords)} từ</td>
-                </tr>
-              )) : <tr><td colSpan={4}>Chưa có nội dung theo kênh.</td></tr>}
-            </tbody>
-          </table>
-        </div>
-      )}
+        <p className="perf-footnote">Số liệu từ nội dung đã lưu. Độ dài tính theo từ phân tách bằng khoảng trắng.</p>
+      </>}
     </article>
   )
 }
@@ -642,71 +647,9 @@ function RuntimeReport({ target: t, days }) {
       ) : (
         <>
           <ProjectPerformanceTargets report={r} />
-          <ContentWorkload workload={r.contentWorkload} />
           <RuntimeOverview report={r} />
           <div className="perf-grid">
-            <article className="perf-card perf-system-card">
-              <div className="perf-card-heading">
-                <div>
-                  <h2>Sơ đồ kết nối</h2>
-                  <p>Trạng thái từng tầng tại thời điểm đọc báo cáo</p>
-                </div>
-              </div>
-              <ol
-                className="perf-connection-flow"
-                aria-label="Ứng dụng tới database và AI provider"
-              >
-                <li>
-                  <Server size={20} />
-                  <strong>{t.name}</strong>
-                  <Signal tone="success">Đang phản hồi</Signal>
-                </li>
-                <li>
-                  <Activity size={20} />
-                  <strong>Database</strong>
-                  <Signal
-                    tone={
-                      r.database?.status === "ready" ? "success" : "warning"
-                    }
-                  >
-                    {r.database?.status === "ready"
-                      ? "Truy vấn thành công"
-                      : "Chưa xác minh"}
-                  </Signal>
-                </li>
-                <li>
-                  <GitBranch size={20} />
-                  <strong>AI providers</strong>
-                  <Signal tone={ai.failed ? "warning" : "neutral"}>
-                    {ai.calls
-                      ? number(ai.calls) + " lượt gọi đã ghi nhận"
-                      : "Chưa có mẫu trong kỳ"}
-                  </Signal>
-                </li>
-              </ol>
-              <p className="perf-footnote">
-                AI phản ánh kết quả gọi đã ghi nhận; không thực hiện thêm lượt
-                gọi AI để kiểm tra online.
-              </p>
-              <dl className="perf-health">
-                <div>
-                  <dt>Database round trip</dt>
-                  <dd>{show(r.database?.responseMs, duration)}</dd>
-                </div>
-                <div>
-                  <dt>Pool tổng / rảnh / chờ</dt>
-                  <dd>
-                    {r.database?.poolTotal ?? "—"} /{" "}
-                    {r.database?.poolIdle ?? "—"} /{" "}
-                    {r.database?.poolWaiting ?? "—"}
-                  </dd>
-                </div>
-                <div>
-                  <dt>App → Lab</dt>
-                  <dd>{duration(t.fetchMs)} · gồm truy vấn monitoring</dd>
-                </div>
-              </dl>
-            </article>
+            <MainJob workload={r.contentWorkload} />
             <article className="perf-card perf-system-card">
               <div className="perf-card-heading">
                 <div>
@@ -730,6 +673,9 @@ function RuntimeReport({ target: t, days }) {
                   ["Node.js", rt.nodeVersion],
                   ["Commit", rt.commit?.slice(0, 12) || "Chưa xác định"],
                   ["Tiến trình bắt đầu", timestamp(rt.startedAt)],
+                  ["Database round trip", show(r.database?.responseMs, duration)],
+                  ["Pool tổng / rảnh / chờ", [r.database?.poolTotal, r.database?.poolIdle, r.database?.poolWaiting].map((value) => value ?? "—").join(" / ")],
+                  ["App → Lab", duration(t.fetchMs) + " · gồm truy vấn monitoring"],
                 ].map(([label, value]) => (
                   <div key={label}>
                     <dt>{label}</dt>
