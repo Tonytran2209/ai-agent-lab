@@ -245,13 +245,13 @@ function ConnectionMap({ projects, runner }) {
           </div>
         </div>
         <div className="perf-topology-tools" role="group" aria-label="Thu phóng sơ đồ">
-          <button type="button" aria-label="Phóng to" title="Phóng to" disabled={zoom >= 1.5} onClick={() => setZoom(Math.min(1.5, zoom + 0.2))}>
+          <button className="icon-button" type="button" aria-label="Phóng to" title="Phóng to" disabled={zoom >= 1.5} onClick={() => setZoom(Math.min(1.5, zoom + 0.2))}>
             <Plus size={16} aria-hidden="true" />
           </button>
-          <button type="button" aria-label="Thu nhỏ" title="Thu nhỏ" disabled={zoom <= 0.4} onClick={() => setZoom(Math.max(0.4, zoom - 0.2))}>
+          <button className="icon-button" type="button" aria-label="Thu nhỏ" title="Thu nhỏ" disabled={zoom <= 0.4} onClick={() => setZoom(Math.max(0.4, zoom - 0.2))}>
             <Minus size={16} aria-hidden="true" />
           </button>
-          <button type="button" aria-label="Vừa khung" title="Vừa khung" onClick={fitCanvas}>
+          <button className="icon-button" type="button" aria-label="Vừa khung" title="Vừa khung" onClick={fitCanvas}>
             <Maximize size={15} aria-hidden="true" />
           </button>
         </div>
@@ -263,10 +263,10 @@ function ConnectionMap({ projects, runner }) {
           >
             <header>
               <div>
-                <small>CHI TIẾT KẾT NỐI</small>
+                <small className="eyebrow">CHI TIẾT KẾT NỐI</small>
                 <h3 id="perf-connection-details-title">{project?.name || "AI Agent Lab"}</h3>
               </div>
-              <button type="button" ref={closeRef} aria-label="Đóng chi tiết kết nối" onClick={closeDetails}>
+              <button className="icon-button" type="button" ref={closeRef} aria-label="Đóng chi tiết kết nối" onClick={closeDetails}>
                 <X size={17} aria-hidden="true" />
               </button>
             </header>
