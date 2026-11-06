@@ -29,3 +29,13 @@ AI Agent Lab groups its `agent_usage` and legacy `ai_attempts` records by reques
 The USD/task threshold control is a session-only dashboard reminder, calculated from known cost; it sends no background or external notification and does not grant spending/retry authority. AI generation and provider exceptions must remain unchanged if telemetry pricing/storage fails.
 
 HTTP latency uses separate lanes for P50, P95, and P99 on a shared horizontal scale that starts at zero. Equal readings have equal bar lengths and P95 has a purple gradient. Missing values show a dash with no fill, and inconsistent percentile values suppress the plot.
+
+## Project performance targets
+
+The dashboard shows the configured targets and reads an optional `performanceKpis` object from the same authenticated app report. All values must describe the requested UTC reporting window:
+
+- `responseTime` and `clickLatency` are `{p95Ms, samples}` for user actions. Measure request submission to the first meaningful result, and click to the first visible UI response, respectively.
+- `jobCompletion` contains `{job, workload, p95Ms, samples}` groups measured from a job's start event to its end event.
+- `jobs` contains `{executed, technicalErrors, validCompletions}` for the same set of job executions. Report technical errors and validated completions from explicit outcomes. Supply a count of zero only when the outcome was measured and did not occur.
+
+Existing app reports omit this object. HTTP P95 is displayed as a separate reference and never scored against the user-response target. The AI task ledger starts when the first tracked AI call runs, and its status alone cannot identify technical errors or validate final job output. Missing data stays unmeasured in the dashboard.

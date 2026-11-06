@@ -939,3 +939,33 @@
     max-height: calc(100% - 80px - var(--space-4));
   }
 }
+
+.perf-project-targets {
+  margin-bottom: var(--space-6);
+}
+.perf-project-targets table {
+  width: 100%;
+  min-width: 480px;
+  border-collapse: collapse;
+  text-align: left;
+}
+.perf-project-targets th,
+.perf-project-targets td {
+  padding: 10px 12px;
+  vertical-align: top;
+  border-bottom: 1px solid var(--border);
+}
+.perf-project-targets thead th {
+  color: var(--secondary);
+  font-size: 12px;
+}
+.perf-project-targets small {
+  display: block;
+  margin-top: 4px;
+  color: var(--secondary);
+  font-weight: 400;
+}
+.perf-target-groups {
+  margin: 0;
+  padding-left: 16px;
+}

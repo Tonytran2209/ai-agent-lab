@@ -2,6 +2,7 @@ import {startPolling} from './polling.js';
 import TaskUsage from "./TaskUsage.jsx";
 import AnimatedValue from "./AnimatedValue.jsx"
 import { RuntimeOverview, AICharts, WorkflowStatus } from "./RuntimeCharts.jsx"
+import { projectPerformanceMetrics } from "./runtime-chart-data.js"
 import React, { useEffect, useRef, useState } from "react"
 import {
   Activity,
@@ -410,6 +411,98 @@ const money = (v) =>
 const bytes = (v) => number(v / 1048576) + " MB"
 const show = (value, format = number) =>
   value == null ? "Chưa có dữ liệu" : format(value)
+function ProjectPerformanceTargets({ report }) {
+  const metrics = projectPerformanceMetrics(report)
+  const rate = (value) =>
+    value > 0 && value < 0.01
+      ? "< 0,01%"
+      : new Intl.NumberFormat("vi-VN", { style: "percent", maximumFractionDigits: 2 }).format(value / 100)
+  const samples = metrics.executed === null ? "" : " · " + number(metrics.executed) + " job đã thực hiện"
+  const rows = [
+    {
+      name: "Response Time",
+      definition: "Từ lúc gửi yêu cầu đến phản hồi có ý nghĩa đầu tiên · P95",
+      value: metrics.responseMs,
+      format: duration,
+      target: "≤ 2,5 giây",
+      meets: metrics.responseMs <= 2500,
+      note: metrics.httpP95Ms === null ? null : "Tham chiếu HTTP P95 · " + duration(metrics.httpP95Ms),
+    },
+    {
+      name: "Click Latency",
+      definition: "Từ lúc bấm đến phản hồi hiển thị trên UI · P95",
+      value: metrics.clickMs,
+      format: duration,
+      target: "≤ 200 ms",
+      meets: metrics.clickMs <= 200,
+    },
+    {
+      name: "Job Completion Time",
+      definition: "Từ sự kiện bắt đầu đến sự kiện kết thúc của job · P95",
+      value: metrics.completion.length ? metrics.completion : null,
+      format: (groups) => (
+        <ul className="perf-target-groups">
+          {groups.map(({ job, workload, p95Ms, samples }, index) => (
+            <li key={index}>{job} · {workload} · {duration(p95Ms)} ({number(samples)} mẫu)</li>
+          ))}
+        </ul>
+      ),
+      target: "Theo job và workload",
+    },
+    {
+      name: "Error Rate",
+      definition: "Job lỗi kỹ thuật / tổng job thực hiện" + samples,
+      value: metrics.errorRate,
+      format: rate,
+      target: "0%",
+      meets: metrics.errorRate === 0,
+    },
+    {
+      name: "Job Success Rate",
+      definition: "Job hoàn thành hợp lệ / tổng job thực hiện" + samples,
+      value: metrics.successRate,
+      format: rate,
+      target: "≥ 95% (đề xuất)",
+      meets: metrics.successRate >= 95,
+    },
+  ]
+
+  return (
+    <article className="perf-card perf-project-targets">
+      <div className="perf-card-heading">
+        <div>
+          <h3>Mục tiêu hiệu năng</h3>
+          <p>Chỉ số theo kỳ báo cáo · P95 là mức mà 95% mẫu nằm ở mức đó hoặc thấp hơn.</p>
+        </div>
+        <Activity size={18} aria-hidden="true" />
+      </div>
+      <div className="perf-table-scroll">
+        <table>
+          <thead>
+            <tr><th scope="col">Chỉ số</th><th scope="col">Đo lường</th><th scope="col">Mục tiêu</th></tr>
+          </thead>
+          <tbody>
+            {rows.map(({ name, definition, value, format, target, meets, note }) => (
+              <tr key={name}>
+                <th scope="row">{name}<small>{definition}</small></th>
+                <td>
+                  {value === null ? <Signal>Chưa có dữ liệu đo</Signal> : format(value)}
+                  {note && <small>{note}</small>}
+                </td>
+                <td>
+                  {value === null || meets === undefined
+                    ? target
+                    : <Signal tone={meets ? "success" : "warning"}>{target} · {meets ? "Đạt" : "Chưa đạt"}</Signal>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </article>
+  )
+}
+
 function RuntimeReport({ target: t, days }) {
   const r = t.report,
     http = r?.http,
@@ -460,6 +553,7 @@ function RuntimeReport({ target: t, days }) {
         </div>
       ) : (
         <>
+          <ProjectPerformanceTargets report={r} />
           <RuntimeOverview report={r} />
           <div className="perf-grid">
             <article className="perf-card perf-system-card">
