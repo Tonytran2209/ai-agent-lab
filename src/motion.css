@@ -1,0 +1,69 @@
+/* Styles for Motion-driven effects (src/motion.jsx). Loaded after app-theme.css. */
+
+/* Sliding highlight: the active item paints nothing itself; the pill paints it. */
+.motion-pill {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: var(--card);
+  box-shadow: var(--card-shadow);
+  pointer-events: none;
+}
+.nav-item,
+.settings-nav button,
+.perf-switch button,
+.rc-project-usage-switch button,
+.appearance-choice {
+  position: relative;
+  isolation: isolate;
+}
+.nav-item.active,
+.settings-nav button.active,
+.settings-nav button[aria-current="page"],
+.performance-page .perf-switch button[aria-pressed="true"],
+.performance-page .rc-project-usage-switch button[aria-pressed="true"],
+.rc-project-usage-switch button[aria-pressed="true"] {
+  background: transparent;
+  box-shadow: none;
+}
+.nav-pill {
+  background: var(--track);
+  box-shadow: none;
+}
+.performance-page .perf-switch .motion-pill {
+  background: var(--track);
+  box-shadow: none;
+}
+.appearance-choice .appearance-pill {
+  border-radius: 50%;
+  background: var(--surface-selected);
+  box-shadow: none;
+}
+.appearance-choice input:checked + span {
+  background: transparent;
+}
+
+/* Toggle: Motion animates the thumb between the two ends (layout animation). */
+.settings-switch {
+  justify-content: flex-start;
+}
+.settings-switch[aria-checked="true"] {
+  justify-content: flex-end;
+}
+.settings-switch span,
+.settings-switch[aria-checked="true"] span {
+  transform: none;
+  transition: none;
+}
+
+/* Motion owns the drawer entrance now. */
+.notification-drawer {
+  animation: none;
+}
+.view-transition {
+  min-width: 0;
+}
+.project-popover {
+  transform-origin: top left;
+}

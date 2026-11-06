@@ -1,3 +1,4 @@
+import { ActivePill, usePillGroup } from "./motion.jsx"
 import React, { useState } from "react"
 import { taskTimeline } from "./task-usage-data.js"
 
@@ -61,6 +62,7 @@ export function UsageTimeline({
   countLabel = "lượt",
 }) {
   const [metric, setMetric] = useState("tokens")
+  const pillGroup = usePillGroup("usage-metric")
   const [selected, setSelected] = useState(null)
   const isUsd = metric === "usd"
   const format = (isUsd ? usd : tokens).format
@@ -94,8 +96,8 @@ export function UsageTimeline({
           <p>{description}</p>
         </div>
         <div className="rc-project-usage-switch" role="group" aria-label="Chỉ số sử dụng AI">
-          <button type="button" aria-pressed={!isUsd} onClick={() => setMetric("tokens")}>Token</button>
-          <button type="button" aria-pressed={isUsd} onClick={() => setMetric("usd")}>USD</button>
+          <button type="button" aria-pressed={!isUsd} onClick={() => setMetric("tokens")}>{!isUsd && <ActivePill group={pillGroup} />}Token</button>
+          <button type="button" aria-pressed={isUsd} onClick={() => setMetric("usd")}>{isUsd && <ActivePill group={pillGroup} />}USD</button>
         </div>
       </div>
       <ul className="rc-project-usage-legend">

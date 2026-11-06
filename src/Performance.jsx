@@ -1,3 +1,4 @@
+import { ActivePill } from "./motion.jsx"
 import {startPolling} from './polling.js';
 import TaskUsage from "./TaskUsage.jsx";
 import AnimatedValue from "./AnimatedValue.jsx"
@@ -969,6 +970,7 @@ export default function Performance({ api, onRequest }) {
             aria-pressed={scope === "lab"}
             onClick={() => setScope("lab")}
           >
+            {scope === "lab" && <ActivePill group="perf-scope" />}
             <Server size={15} />
             AI Agent Lab
           </button>
@@ -976,6 +978,7 @@ export default function Performance({ api, onRequest }) {
             aria-pressed={scope === "projects"}
             onClick={() => setScope("projects")}
           >
+            {scope === "projects" && <ActivePill group="perf-scope" />}
             <GitBranch size={15} />
             Projects
           </button>

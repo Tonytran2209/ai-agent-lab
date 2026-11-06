@@ -211,7 +211,7 @@ pre{overflow:auto;max-width:100%;background:var(--surface-soft);line-height:1.6}
 .document-library,.documents-toolbar strong,.documents-reader-heading h2,.documents-outline summary{color:var(--text)}
 /* Page-level project navigation must keep its own header spacing; the generic
    project-filter margin reset above also serves filters inside page content. */
-.streamlined .main>.library-projects{max-width:1440px;margin:24px auto 20px}
+.streamlined .main .view-transition>.library-projects{max-width:1440px;margin:24px auto 20px}
 
 /* One chevron and text clearance for every native dropdown in the app. */
 :root {

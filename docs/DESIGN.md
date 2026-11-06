@@ -643,6 +643,15 @@ Triển khai trong `src/app-theme.css` (nạp sau `design-system.css`):
 - Input/select/textarea giữ `{colors.control-border}` để viền field đạt tương phản 3:1.
 - Biểu đồ khối lượng dùng một màu nhấn xanh lá trên track nhạt; breakdown dùng bảng màu nhỏ xanh lá/tím/vàng/hồng (xem `src/performance-theme.css`). Translucency không phải yêu cầu bắt buộc; ưu tiên nền ổn định, rõ chữ.
 
+### Motion (v1.2)
+
+Hiệu ứng dùng thư viện `motion` (`src/motion.jsx`, `src/motion.css`), theo phong cách Animate UI nhưng không dùng Tailwind/Radix:
+
+- Pill trượt (spring, `layoutId`) cho mục đang chọn ở sidebar, tab cài đặt, nút chuyển Lab/Projects, Token/USD và chọn giao diện.
+- Drawer thông báo trượt vào/ra kèm backdrop mờ dần; popover chọn project bật nhẹ (scale + fade).
+- Nội dung trang fade + trượt lên khi đổi trang; công tắc bật/tắt dùng spring; số liệu dùng bộ đếm spring.
+- `MotionConfig reducedMotion="user"` tắt chuyển động transform/layout khi hệ điều hành bật giảm chuyển động; bộ đếm hiện ngay giá trị cuối.
+
 ## Shapes
 
 ### Border Radius Scale

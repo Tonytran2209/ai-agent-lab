@@ -1,3 +1,4 @@
+import {ActivePill,usePillGroup} from './motion.jsx';
 import {useEffect,useId,useState} from 'react';
 import {MonitorSmartphone,Sun,MoonStar} from 'lucide-react';
 
@@ -15,10 +16,10 @@ export function useAppearance(){
   return {theme,setTheme};
 }
 export function Appearance({theme,setTheme}){
-  const name=useId();
+  const name=useId(),pill=usePillGroup("appearance");
   return <fieldset className="appearance-control"><legend className="sr-only">Giao diện</legend><div className="appearance-switch">{[
     {value:'system',label:'Hệ thống',Icon:MonitorSmartphone},
     {value:'light',label:'Sáng',Icon:Sun},
     {value:'dark',label:'Tối',Icon:MoonStar}
-  ].map(({value,label,Icon})=><label className="appearance-choice" key={value} title={label}><input className="sr-only" type="radio" name={name} value={value} aria-label={label} checked={theme===value} onChange={()=>setTheme(value)}/><span><Icon size={19} strokeWidth={1.8} aria-hidden="true"/></span></label>)}</div></fieldset>;
+  ].map(({value,label,Icon})=><label className="appearance-choice" key={value} title={label}><input className="sr-only" type="radio" name={name} value={value} aria-label={label} checked={theme===value} onChange={()=>setTheme(value)}/><span><Icon size={19} strokeWidth={1.8} aria-hidden="true"/></span>{theme===value&&<ActivePill group={pill} className="appearance-pill"/>}</label>)}</div></fieldset>;
 }
