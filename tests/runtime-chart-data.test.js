@@ -7,7 +7,7 @@ import {
   responseShare,
   statusTone,
   projectPerformanceMetrics,
-  combinedProjectJobMetrics,
+  projectJobHistoryMetrics,
 } from "../src/runtime-chart-data.js"
 test("chart series combines workflow steps but never mixes historical and new usage or double-counts cache", () => {
   const report = {
@@ -123,22 +123,16 @@ test("project targets keep missing user and job measurements separate from HTTP 
   } }).errorRate, null)
 })
 
-test("combined job targets weight terminal outcomes and preserve independent duration groups", () => {
-  const cohort = (name, executed, failed, technicalErrors, unclassifiedFailures) => ({
-    name,
-    report: { jobHistory: {
-      executed, failed, technicalErrors, unclassifiedFailures,
-      validCompletions: executed - failed, unverifiedCompletions: 0, complete: true,
-      completion: [{ job: "Gate", workload: "1 item", p95Ms: 100, samples: executed }],
-    } },
-  })
-  const writer = cohort("Writer", 10, 2, 1, 1)
-  const intercom = cohort("Intercom", 90, 0, 0, 0)
-  const both = combinedProjectJobMetrics([writer, intercom])
-  assert.equal(both.executed, 100)
-  assert.deepEqual(both.errorRange, [1, 2])
-  assert.deepEqual(both.successRange, [98, 98])
-  assert.deepEqual(both.completion.map((row) => row.job), ["Writer · Gate", "Intercom · Gate"])
-  assert.equal(combinedProjectJobMetrics([writer, { name: "Intercom" }]).complete, false)
-  assert.equal(combinedProjectJobMetrics([{ name: "Writer" }]).errorRange, null)
+test("job history rates use the project's terminal outcomes and preserve ambiguity", () => {
+  const job = { job: "Gate", workload: "1 item", p95Ms: 100, samples: 10 }
+  const history = {
+    executed: 10, failed: 2, technicalErrors: 1, unclassifiedFailures: 1,
+    validCompletions: 7, unverifiedCompletions: 1, complete: true, completion: [job],
+  }
+  const measured = projectJobHistoryMetrics(history)
+  assert.deepEqual(measured.errorRange, [10, 20])
+  assert.deepEqual(measured.successRange, [70, 80])
+  assert.deepEqual(measured.completion, [job])
+  assert.equal(projectJobHistoryMetrics(null), null)
+  assert.equal(projectJobHistoryMetrics({ ...history, executed: 9 }), null)
 })

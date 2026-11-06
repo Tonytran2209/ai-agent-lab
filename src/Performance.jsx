@@ -2,7 +2,7 @@ import {startPolling} from './polling.js';
 import TaskUsage from "./TaskUsage.jsx";
 import AnimatedValue from "./AnimatedValue.jsx"
 import { RuntimeOverview, AICharts, WorkflowStatus } from "./RuntimeCharts.jsx"
-import { combinedProjectJobMetrics, projectPerformanceMetrics } from "./runtime-chart-data.js"
+import { projectJobHistoryMetrics, projectPerformanceMetrics } from "./runtime-chart-data.js"
 import React, { useEffect, useRef, useState } from "react"
 import {
   Activity,
@@ -396,9 +396,6 @@ function ProjectRuntime({ api, days, refresh }) {
           Chưa cấu hình kết nối monitoring chỉ đọc.
         </p>
       )}
-      {selected === "all" && data?.targets.length > 0 && (
-        <ProjectPerformanceTargets targets={data.targets} />
-      )}
       {data?.targets
         .filter((t) => selected === "all" || selected === t.id)
         .map((t) => <RuntimeReport key={t.id} target={t} days={days} />)}
@@ -414,12 +411,10 @@ const money = (v) =>
 const bytes = (v) => number(v / 1048576) + " MB"
 const show = (value, format = number) =>
   value == null ? "Chưa có dữ liệu" : format(value)
-function ProjectPerformanceTargets({ report, targets }) {
-  const [historyScope, setHistoryScope] = useState("all")
-  const combined = targets
-    ? combinedProjectJobMetrics(targets, historyScope === "all" ? "jobHistoryAllTime" : "jobHistory")
-    : report.jobHistory ? combinedProjectJobMetrics([{ name: "", report }]) : null
-  const metrics = { ...projectPerformanceMetrics(report || {}), ...combined }
+function ProjectPerformanceTargets({ report }) {
+  const [historyScope, setHistoryScope] = useState(report.jobHistoryAllTime ? "all" : "period")
+  const history = projectJobHistoryMetrics(historyScope === "all" ? report.jobHistoryAllTime : report.jobHistory)
+  const metrics = { ...projectPerformanceMetrics(report), ...history }
   const range = ([low, high]) => low === high ? rate(low) : rate(low) + "–" + rate(high)
   const rate = (value) =>
     value > 0 && value < 0.01
@@ -428,7 +423,7 @@ function ProjectPerformanceTargets({ report, targets }) {
   const sampleCount = (metric) => number(report.performanceKpis[metric].samples) + " mẫu"
   const samples = metrics.executed === null ? "" : " · " + number(metrics.executed) + " job đã thực hiện"
   const rows = [
-    ...(!targets ? [{
+    {
       name: "Response Time",
       definition: "Từ lúc gửi yêu cầu đến phản hồi có ý nghĩa đầu tiên · P95",
       value: metrics.responseMs,
@@ -448,7 +443,7 @@ function ProjectPerformanceTargets({ report, targets }) {
       target: "≤ 200 ms",
       meets: metrics.clickMs <= 200,
       note: metrics.clickMs === null ? null : sampleCount("clickLatency"),
-    }] : []),
+    },
     {
       name: "Job Completion Time",
       definition: "Từ sự kiện bắt đầu đến sự kiện kết thúc của job · P95",
@@ -465,29 +460,29 @@ function ProjectPerformanceTargets({ report, targets }) {
     {
       name: "Error Rate",
       definition: "Job lỗi kỹ thuật / tổng job thực hiện" + samples,
-      value: combined ? combined.errorRange : metrics.errorRate,
-      format: combined ? range : rate,
+      value: history ? history.errorRange : metrics.errorRate,
+      format: history ? range : rate,
       target: "0%",
-      meets: combined
-        ? combined.complete && combined.errorRange && (combined.technicalErrors > 0 || !combined.unclassifiedFailures)
-          ? combined.technicalErrors === 0 : undefined
+      meets: history
+        ? history.complete && history.errorRange && (history.technicalErrors > 0 || !history.unclassifiedFailures)
+          ? history.technicalErrors === 0 : undefined
         : metrics.errorRate === 0,
-      note: combined
-        ? number(combined.technicalErrors) + " lỗi kỹ thuật xác định được · " + number(combined.unclassifiedFailures) + " lỗi chưa phân loại"
+      note: history
+        ? number(history.technicalErrors) + " lỗi kỹ thuật xác định được · " + number(history.unclassifiedFailures) + " lỗi chưa phân loại"
         : metrics.executed > 0 && metrics.errorRate === null ? "Có job chưa xác định được loại lỗi." : null,
     },
     {
       name: "Job Success Rate",
       definition: "Job hoàn thành hợp lệ / tổng job thực hiện" + samples,
-      value: combined ? combined.successRange : metrics.successRate,
-      format: combined ? range : rate,
+      value: history ? history.successRange : metrics.successRate,
+      format: history ? range : rate,
       target: "≥ 95% (đề xuất)",
-      meets: combined
-        ? combined.complete && combined.successRange && !combined.unverifiedCompletions
-          ? combined.successRange[0] >= 95 : undefined
+      meets: history
+        ? history.complete && history.successRange && !history.unverifiedCompletions
+          ? history.successRange[0] >= 95 : undefined
         : metrics.successRate >= 95,
-      note: combined ? number(combined.validCompletions) + " kết quả đã xác minh" +
-        (combined.unverifiedCompletions ? " · " + number(combined.unverifiedCompletions) + " kết quả chưa đủ bằng chứng" : "") : null,
+      note: history ? number(history.validCompletions) + " kết quả đã xác minh" +
+        (history.unverifiedCompletions ? " · " + number(history.unverifiedCompletions) + " kết quả chưa đủ bằng chứng" : "") : null,
     },
   ]
 
@@ -495,18 +490,14 @@ function ProjectPerformanceTargets({ report, targets }) {
     <article className="perf-card perf-project-targets">
       <div className="perf-card-heading">
         <div>
-          <h3>{targets ? "Mục tiêu hiệu năng · Job toàn bộ project" : "Mục tiêu hiệu năng"}</h3>
-          {targets ? (
-            <p>
-              {historyScope === "all" ? "Toàn bộ lịch sử đã lưu" : "Lịch sử theo kỳ UTC"} · {combined.coverage}/{targets.length} project có nguồn dữ liệu.
-              {!combined.complete && " Phạm vi chưa đầy đủ."}
-              {" "}Writer dùng từng hạng mục batch, Intercom dùng từng lượt EB V2 gate.
-            </p>
-          ) : combined
-            ? <p>Chỉ số theo kỳ UTC · Ba chỉ số job dùng bản ghi đã lưu.{!combined.complete && " Phạm vi chưa đầy đủ."}</p>
-            : <p>Chỉ số theo kỳ báo cáo · P95 là cận trên của khoảng chứa mẫu phân vị 95%.</p>}
+          <h3>Mục tiêu hiệu năng</h3>
+          <p>
+            Response Time và Click Latency theo kỳ UTC.
+            {history && (historyScope === "all" ? " Chỉ số job dùng toàn bộ lịch sử đã lưu." : " Chỉ số job theo kỳ UTC.")}
+            {history && !history.complete && " Phạm vi lịch sử chưa đầy đủ."}
+          </p>
         </div>
-        {targets ? (
+        {report.jobHistoryAllTime ? (
           <PerformanceSelect aria-label="Phạm vi lịch sử job" value={historyScope} onChange={(event) => setHistoryScope(event.target.value)}>
             <option value="all">Toàn bộ lịch sử job</option>
             <option value="period">Theo kỳ báo cáo</option>
@@ -536,6 +527,66 @@ function ProjectPerformanceTargets({ report, targets }) {
           </tbody>
         </table>
       </div>
+    </article>
+  )
+}
+
+const workloadLabels = {
+  "seo-batch": {
+    title: "Batch bài viết SEO",
+    workflow: "Đọc content plan → tạo từng bài → hoàn thành batch.",
+    articles: "Bài SEO đã hoàn thành",
+  },
+  "eb-v2": {
+    title: "Nội dung truyền thông · EB V2",
+    workflow: "Tiếp nhận brief → tạo bài → chuyển thể theo kênh → duyệt.",
+    articles: "Bài EB V2 đã có nội dung",
+  },
+}
+const formatLabels = { facebook: "Facebook", linkedin: "LinkedIn", threads: "Threads" }
+
+function ContentWorkload({ workload }) {
+  const labels = workloadLabels[workload?.kind]
+  if (!labels) return null
+
+  return (
+    <article className="perf-card perf-project-targets">
+      <div className="perf-card-heading">
+        <div>
+          <h3>{labels.title}</h3>
+          <p>{labels.workflow} Số liệu từ nội dung đã lưu, độ dài tính theo từ phân tách bằng khoảng trắng.</p>
+        </div>
+      </div>
+      <dl className="perf-health">
+        <div><dt>{labels.articles}</dt><dd>{number(workload.articles)}</dd></div>
+        <div>
+          <dt>Độ dài trung bình</dt>
+          <dd>{show(workload.averageWords, (value) => number(value) + " từ")}</dd>
+        </div>
+        {workload.lengthSamples > 0 && (
+          <div>
+            <dt>Khoảng độ dài · {number(workload.lengthSamples)} mẫu</dt>
+            <dd>{number(workload.minWords)}–{number(workload.maxWords)} từ</dd>
+          </div>
+        )}
+      </dl>
+      {Array.isArray(workload.formats) && (
+        <div className="perf-table-scroll">
+          <table>
+            <thead><tr><th scope="col">Format / kênh</th><th scope="col">Số nội dung</th><th scope="col">Độ dài trung bình</th><th scope="col">Khoảng độ dài</th></tr></thead>
+            <tbody>
+              {workload.formats.length ? workload.formats.map((row) => (
+                <tr key={row.format}>
+                  <th scope="row">{formatLabels[row.format] || row.format}</th>
+                  <td>{number(row.outputs)}</td>
+                  <td>{number(row.averageWords)} từ</td>
+                  <td>{number(row.minWords)}–{number(row.maxWords)} từ</td>
+                </tr>
+              )) : <tr><td colSpan={4}>Chưa có nội dung theo kênh.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      )}
     </article>
   )
 }
@@ -591,6 +642,7 @@ function RuntimeReport({ target: t, days }) {
       ) : (
         <>
           <ProjectPerformanceTargets report={r} />
+          <ContentWorkload workload={r.contentWorkload} />
           <RuntimeOverview report={r} />
           <div className="perf-grid">
             <article className="perf-card perf-system-card">

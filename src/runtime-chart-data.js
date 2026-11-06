@@ -141,33 +141,19 @@ export function projectPerformanceMetrics(report) {
   }
 }
 
-export function combinedProjectJobMetrics(targets, field = "jobHistory") {
+export function projectJobHistoryMetrics(history) {
+  if (!history) return null
+  const { executed, failed, technicalErrors, unclassifiedFailures, validCompletions, unverifiedCompletions } = history
   const count = (value) => Number.isSafeInteger(value) && value >= 0
-  const cohorts = targets.flatMap(({ name, report }) => {
-    const history = report?.[field]
-    if (!history) return []
-    const { executed, failed, technicalErrors, unclassifiedFailures, validCompletions, unverifiedCompletions } = history
-    if (![executed, failed, technicalErrors, unclassifiedFailures, validCompletions, unverifiedCompletions].every(count) ||
-        technicalErrors + unclassifiedFailures > failed ||
-        failed + validCompletions + unverifiedCompletions !== executed) return []
-    return [{ name, ...history }]
-  })
-  const totals = cohorts.reduce((sum, row) => {
-    for (const key of Object.keys(sum)) sum[key] += row[key]
-    return sum
-  }, { executed: 0, failed: 0, technicalErrors: 0, unclassifiedFailures: 0, validCompletions: 0, unverifiedCompletions: 0 })
-  const rate = (low, unknown) => totals.executed
-    ? [100 * low / totals.executed, 100 * (low + unknown) / totals.executed]
-    : null
+  if (![executed, failed, technicalErrors, unclassifiedFailures, validCompletions, unverifiedCompletions].every(count) ||
+      technicalErrors + unclassifiedFailures > failed ||
+      failed + validCompletions + unverifiedCompletions !== executed) return null
+  const range = (low, unknown) => executed ? [100 * low / executed, 100 * (low + unknown) / executed] : null
   return {
-    ...totals,
-    coverage: cohorts.length,
-    complete: cohorts.length === targets.length && cohorts.every((row) => row.complete === true),
-    completion: cohorts.flatMap(({ name, completion }) =>
-      projectPerformanceMetrics({ performanceKpis: { jobCompletion: completion } })
-        .completion.map((row) => ({ ...row, job: name ? name + " · " + row.job : row.job })),
-    ),
-    errorRange: rate(totals.technicalErrors, totals.unclassifiedFailures),
-    successRange: rate(totals.validCompletions, totals.unverifiedCompletions),
+    executed, technicalErrors, unclassifiedFailures, validCompletions, unverifiedCompletions,
+    complete: history.complete === true,
+    completion: projectPerformanceMetrics({ performanceKpis: { jobCompletion: history.completion } }).completion,
+    errorRange: range(technicalErrors, unclassifiedFailures),
+    successRange: range(validCompletions, unverifiedCompletions),
   }
 }
