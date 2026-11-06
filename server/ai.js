@@ -82,10 +82,10 @@ export async function analyzeFeedback(service, id, actor, config) {
   catch { fail("AI trả về request không hợp lệ; chưa có thay đổi nào được duyệt.", 502); }
   const saved = service.saveAnalysis(id, draft, { model, source:'provider', learningSources: learning.map(v => ({ requestId: v.requestId, outcome: v.outcome })), at: new Date().toISOString(), usage }, actor, fingerprint);
   service.aiLedger.cache(key, draft);
-  service.aiLedger.finish(attempt, 'completed', usage);
+  service.aiLedger.finish(attempt, 'completed', usage, config);
   return saved;
   } catch (error) {
-    service.aiLedger.finish(attempt, 'failed', usage);
+    service.aiLedger.finish(attempt, 'failed', usage, config);
     if (error.name === 'TimeoutError' || error.name === 'AbortError') {
       const safe = new Error('Kết nối AI tạm gián đoạn. Feedback vẫn được giữ.'); safe.status=502; safe.retryable=true; throw safe;
     }

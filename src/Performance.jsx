@@ -1,5 +1,8 @@
 import {startPolling} from './polling.js';
-import React, { useEffect, useRef, useState } from "react";
+import TaskUsage from "./TaskUsage.jsx";
+import AnimatedValue from "./AnimatedValue.jsx"
+import { RuntimeOverview, AICharts, WorkflowStatus } from "./RuntimeCharts.jsx"
+import React, { useEffect, useRef, useState } from "react"
 import {
   Activity,
   ArrowUpRight,
@@ -9,13 +12,20 @@ import {
   GitBranch,
   Clock,
   CheckCircle2,
-} from "lucide-react";
-import "./performance.css";
+  FlaskConical,
+  Github,
+  Maximize,
+  Minus,
+  Network,
+  Plus,
+  X,
+} from "lucide-react"
+import "./performance.css"
 
 const number = (value) =>
-  new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 1 }).format(value);
+  new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 1 }).format(value)
 const timestamp = (value) =>
-  value ? new Date(value).toLocaleString("vi-VN") : "Chưa có tín hiệu";
+  value ? new Date(value).toLocaleString("vi-VN") : "Chưa có tín hiệu"
 const duration = (ms) =>
   ms == null
     ? "—"
@@ -23,15 +33,15 @@ const duration = (ms) =>
       ? number(ms) + " ms"
       : ms < 60000
         ? number(ms / 1000) + " giây"
-        : number(ms / 60000) + " phút";
-const connectionLabels = {
-  ready: "Sẵn sàng",
-  stale: "Tín hiệu quá hạn",
-  error: "Lỗi checkout",
-  unknown: "Chưa có tín hiệu",
-  paused: "Đã tạm dừng",
-  disabled: "Runner chưa bật",
-};
+        : number(ms / 60000) + " phút"
+const connectionSignals = {
+  ready: { label: "Sẵn sàng", tone: "success" },
+  stale: { label: "Tín hiệu quá hạn", tone: "warning" },
+  error: { label: "Lỗi checkout", tone: "error" },
+  unknown: { label: "Chưa có tín hiệu", tone: "neutral" },
+  paused: { label: "Đã tạm dừng", tone: "neutral" },
+  disabled: { label: "Runner chưa bật", tone: "neutral" },
+}
 const statusLabels = {
   completed: "Đã nghiệm thu",
   rejected: "Đã dừng",
@@ -50,67 +60,244 @@ const statusLabels = {
   queued: "Đang chờ",
   ci: "Đang kiểm tra CI",
   deploying: "Đang deploy",
-};
+}
 function Signal({ tone = "neutral", children }) {
   return (
     <span className={"perf-signal " + tone}>
       <span aria-hidden="true" />
       {children}
     </span>
-  );
+  )
 }
+function ConnectionNode({ icon: Icon, name, subtitle, signal, selected, onSelect, x, y }) {
+  return (
+    <button
+      type="button"
+      className="perf-topology-node"
+      style={{ left: x, top: y }}
+      aria-pressed={selected}
+      aria-controls={selected ? "perf-connection-details" : undefined}
+      onClick={onSelect}
+    >
+      <span className="perf-topology-node-heading">
+        <Icon size={22} aria-hidden="true" />
+        <span>
+          <strong title={name}>{name}</strong>
+          <small title={subtitle}>{subtitle}</small>
+        </span>
+      </span>
+      <Signal tone={signal.tone}>{signal.label}</Signal>
+    </button>
+  )
+}
+
+const nodeHeight = 136
+const columnGap = 72
+const rowGap = 96
+const canvasGutter = 24
+
+function ConnectionMap({ projects, runner }) {
+  const [selection, setSelection] = useState(null)
+  const [zoom, setZoom] = useState(1)
+  const [viewportWidth, setViewportWidth] = useState(0)
+  const viewportRef = useRef(null)
+  const openerRef = useRef(null)
+  const closeRef = useRef(null)
+  useEffect(() => {
+    const viewport = viewportRef.current
+    const observer = new ResizeObserver(() => setViewportWidth(viewport.clientWidth))
+    observer.observe(viewport)
+    return () => observer.disconnect()
+  }, [])
+
+  const nodeWidth = viewportWidth ? Math.min(264, Math.max(180, viewportWidth - canvasGutter * 2)) : 264
+  const columns = Math.max(1, Math.min(
+    3,
+    projects.length,
+    Math.floor((viewportWidth - canvasGutter * 2 + columnGap) / (nodeWidth + columnGap)),
+  ))
+  const rows = Math.ceil(projects.length / columns)
+  const width = columns * (nodeWidth + columnGap) - columnGap + canvasGutter * 2
+  const height = 500 + Math.max(0, rows - 1) * (nodeHeight + rowGap)
+  const hubX = (width - nodeWidth) / 2
+  const hubY = rows ? 62 : 158
+  const hubCenter = width / 2
+  const hubBottom = hubY + nodeHeight
+  const nodes = projects.map((item, index) => {
+    const row = Math.floor(index / columns)
+    const count = Math.min(columns, projects.length - row * columns)
+    const x = (width - count * (nodeWidth + columnGap) + columnGap) / 2
+      + (index % columns) * (nodeWidth + columnGap)
+    const y = hubBottom + rowGap + row * (nodeHeight + rowGap)
+    return { item, x, y }
+  })
+  const busY = hubBottom + rowGap / 2
+  const railX = canvasGutter / 2
+  function fitCanvas() {
+    const viewport = viewportRef.current
+    setZoom(Math.min(1, viewport.clientWidth / width, viewport.clientHeight / height))
+    viewport.scrollTo(0, 0)
+  }
+  function closeDetails() {
+    setSelection(null)
+    openerRef.current?.focus()
+  }
+  function toggle(event, next, selected) {
+    if (selected) {
+      closeDetails()
+    } else {
+      openerRef.current = event.currentTarget
+      setSelection(next)
+    }
+  }
+  useEffect(() => {
+    if (selection) closeRef.current?.focus({ preventScroll: true })
+  }, [selection])
+
+  const project = projects.find((item) => item.id === selection?.projectId)
+  const labSelected = selection?.lab === true
+  const projectSignal = (item) => connectionSignals[item.connection] || connectionSignals.unknown
+  const runnerSignal = runner.connected
+    ? { label: "Mac đã kết nối", tone: "success" }
+    : { label: "Mac chưa có tín hiệu mới", tone: "warning" }
+  const details = project
+    ? [
+        ["Repository", project.repository],
+        ["Kết nối runner", <Signal tone={projectSignal(project).tone}>{projectSignal(project).label}</Signal>],
+        ["Project", project.enabled ? "Đang bật" : "Tạm dừng"],
+        ["Mac runner cho project", project.runnerEnabled ? "Đã bật" : "Chưa bật"],
+        ["Request đang chạy", number(project.running)],
+        ["Request bị chặn trong hàng đợi", number(project.blocked)],
+      ]
+    : [
+        ["API", <Signal tone="success">Đang phản hồi tại lần tải gần nhất</Signal>],
+        ["Mac runner", <Signal tone={runnerSignal.tone}>{runnerSignal.label}</Signal>],
+        ["Heartbeat Mac gần nhất", timestamp(runner.lastSeenAt)],
+        ["Project đã đăng ký", number(projects.length)],
+      ]
+
+  return (
+    <section className="perf-card perf-topology" aria-labelledby="perf-connection-title">
+      <div className="perf-card-heading">
+        <div>
+          <h2 id="perf-connection-title">Sơ đồ kết nối</h2>
+          <p>Chọn AI Agent Lab hoặc một project để xem chi tiết kết nối.</p>
+        </div>
+        <Network size={18} aria-hidden="true" />
+      </div>
+      <div
+        className="perf-topology-canvas"
+        onKeyDown={(event) => {
+          if (event.key === "Escape" && (labSelected || project)) closeDetails()
+        }}
+      >
+        <div className="perf-topology-viewport" ref={viewportRef}>
+          <div className="perf-topology-stage" style={{ width, height, zoom, "--map-node-width": nodeWidth + "px", "--map-node-height": nodeHeight + "px" }}>
+            {nodes.length > 0 && (
+              <svg className="perf-topology-wires" width={width} height={height} aria-hidden="true">
+                <path d={`M ${hubCenter} ${hubBottom} V ${busY}`} />
+                {rows > 1 && (
+                  <path d={`M ${hubCenter} ${busY} H ${railX} V ${nodes.at(-1).y - rowGap / 2}`} />
+                )}
+                {nodes.map(({ item, x, y }) => {
+                  const center = x + nodeWidth / 2
+                  const branchY = y - rowGap / 2
+                  return (
+                    <g key={item.id}>
+                      <path d={`M ${branchY === busY ? hubCenter : railX} ${branchY} H ${center} V ${y - 7}`} />
+                      <polygon points={`${center - 4},${y - 8} ${center + 4},${y - 8} ${center},${y - 2}`} />
+                    </g>
+                  )
+                })}
+              </svg>
+            )}
+            <ConnectionNode
+              icon={FlaskConical}
+              name="AI Agent Lab"
+              subtitle="Điều phối project"
+              signal={runnerSignal}
+              selected={labSelected}
+              x={hubX}
+              y={hubY}
+              onSelect={(event) => toggle(event, { lab: true }, labSelected)}
+            />
+            {nodes.length > 0 ? (
+              <ul className="perf-topology-projects" aria-label="Project đã đăng ký">
+                {nodes.map(({ item, x, y }) => (
+                  <li key={item.id}>
+                    <ConnectionNode
+                      icon={Github}
+                      name={item.name}
+                      subtitle={item.repository}
+                      signal={projectSignal(item)}
+                      selected={project?.id === item.id}
+                      x={x}
+                      y={y}
+                      onSelect={(event) => toggle(event, { projectId: item.id }, project?.id === item.id)}
+                    />
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="perf-topology-empty" style={{ top: hubBottom + 24 }}>
+                Chưa có project đăng ký.
+              </p>
+            )}
+          </div>
+        </div>
+        <div className="perf-topology-tools" role="group" aria-label="Thu phóng sơ đồ">
+          <button className="icon-button" type="button" aria-label="Phóng to" title="Phóng to" disabled={zoom >= 1.5} onClick={() => setZoom(Math.min(1.5, zoom + 0.2))}>
+            <Plus size={16} aria-hidden="true" />
+          </button>
+          <button className="icon-button" type="button" aria-label="Thu nhỏ" title="Thu nhỏ" disabled={zoom <= 0.4} onClick={() => setZoom(Math.max(0.4, zoom - 0.2))}>
+            <Minus size={16} aria-hidden="true" />
+          </button>
+          <button className="icon-button" type="button" aria-label="Vừa khung" title="Vừa khung" onClick={fitCanvas}>
+            <Maximize size={15} aria-hidden="true" />
+          </button>
+        </div>
+        {(labSelected || project) && (
+          <section
+            id="perf-connection-details"
+            className="perf-topology-details"
+            aria-labelledby="perf-connection-details-title"
+          >
+            <header>
+              <div>
+                <small className="eyebrow">CHI TIẾT KẾT NỐI</small>
+                <h3 id="perf-connection-details-title">{project?.name || "AI Agent Lab"}</h3>
+              </div>
+              <button className="icon-button" type="button" ref={closeRef} aria-label="Đóng chi tiết kết nối" onClick={closeDetails}>
+                <X size={17} aria-hidden="true" />
+              </button>
+            </header>
+            <dl className="perf-health">
+              {details.map(([label, value]) => (
+                <div key={label}>
+                  <dt>{label}</dt>
+                  <dd>{value}</dd>
+                </div>
+              ))}
+            </dl>
+          </section>
+        )}
+      </div>
+      <p className="perf-footnote">
+        Trạng thái project dựa trên cấu hình kết nối và tín hiệu Mac runner của Lab.
+      </p>
+    </section>
+  )
+}
+
 function PerformanceSelect({ children, ...props }) {
   return (
     <span className="perf-select">
       <select {...props}>{children}</select>
     </span>
-  );
+  )
 }
-const count = (value) => number(Math.round(value));
-const percentage = (value) => number(value) + "%";
-function AnimatedValue({ value, format = count }) {
-  const current = useRef(0);
-  const [display, setDisplay] = useState(0);
-  useEffect(() => {
-    const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
-    let frame;
-    const finish = () => {
-      cancelAnimationFrame(frame);
-      current.current = value;
-      setDisplay(value);
-    };
-    const from = current.current ?? 0;
-    if (value == null || motion.matches || from === value) {
-      finish();
-    } else {
-      const started = performance.now();
-      const tick = (now) => {
-        const progress = Math.min(1, (now - started) / 650);
-        const next = from + (value - from) * (1 - Math.pow(1 - progress, 3));
-        current.current = next;
-        setDisplay(next);
-        if (progress < 1) frame = requestAnimationFrame(tick);
-      };
-      frame = requestAnimationFrame(tick);
-    }
-    const onMotion = () => {
-      if (motion.matches) finish();
-    };
-    motion.addEventListener("change", onMotion);
-    return () => {
-      cancelAnimationFrame(frame);
-      motion.removeEventListener("change", onMotion);
-    };
-  }, [value]);
-  return (
-    <>
-      <span aria-hidden="true">
-        {value == null ? "—" : format(display ?? 0)}
-      </span>
-      <span className="sr-only">{value == null ? "—" : format(value)}</span>
-    </>
-  );
-}
+const count = (value) => number(Math.round(value))
+const percentage = (value) => number(value) + "%"
 function Metric({
   icon: Icon,
   label,
@@ -135,210 +322,454 @@ function Metric({
       </strong>
       <small>{note}</small>
     </article>
-  );
+  )
 }
 
-function ProjectReport({ project: p, runner }) {
-  const stages = [
-    { label: "Feedback", value: p.total, detail: "Được tạo trong kỳ" },
-    { label: "Nghiệm thu", value: p.completed, detail: "Đã chấp nhận kết quả" },
-    { label: "Deploy", value: p.deployed, detail: "Lab xác nhận thành công" },
-  ];
-  const connectionTone =
-    p.connection === "ready"
-      ? "success"
-      : ["error", "stale"].includes(p.connection)
-        ? "warning"
-        : "neutral";
+function ProjectRuntime({ api, days, refresh }) {
+  const [data, setData] = useState(null),
+    [error, setError] = useState(""),
+    [selected, setSelected] = useState("all")
+  useEffect(() => {
+    let cancelled = false,
+      inFlight = false
+    setData(null)
+    async function load() {
+      if (inFlight) return
+      inFlight = true
+      try {
+        const report = await api("/monitoring?days=" + days)
+        if (!cancelled) {
+          setData(report)
+          setError("")
+        }
+      } catch (e) {
+        if (!cancelled) setError(e.message)
+        throw e
+      } finally {
+        inFlight = false
+      }
+    }
+    const polling = startPolling(load, { interval: () => 60000 })
+    return () => {
+      cancelled = true
+      polling.stop()
+    }
+  }, [days, refresh])
   return (
-    <section
-      className="perf-project-report"
-      aria-labelledby={"project-report-" + p.id}
-    >
+    <>
+      <div className="perf-section-heading">
+        <div>
+          <h2>Vận hành ứng dụng</h2>
+          <p>
+            Số liệu trực tiếp từ app · cửa sổ báo cáo UTC · tự cập nhật 60 giây
+          </p>
+        </div>
+        <PerformanceSelect
+          aria-label="Lọc ứng dụng monitoring"
+          value={selected}
+          onChange={(e) => setSelected(e.target.value)}
+        >
+          <option value="all">Tất cả ứng dụng</option>
+          {data?.targets.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.name}
+            </option>
+          ))}
+        </PerformanceSelect>
+      </div>
+      {error && (
+        <p className="perf-error" role="alert">
+          {error}
+        </p>
+      )}
+      {!data && !error && (
+        <div className="perf-loading" role="status">
+          Đang đọc số liệu ứng dụng…
+        </div>
+      )}
+      {data?.configurationError && (
+        <p className="perf-error">Cấu hình kết nối monitoring không hợp lệ.</p>
+      )}
+      {data && !data.configurationError && !data.targets.length && (
+        <p className="perf-card perf-empty">
+          Chưa cấu hình kết nối monitoring chỉ đọc.
+        </p>
+      )}
+      {data?.targets
+        .filter((t) => selected === "all" || selected === t.id)
+        .map((t) => <RuntimeReport key={t.id} target={t} days={days} />)}
+    </>
+  )
+}
+const money = (v) =>
+  new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 6,
+  }).format(v)
+const bytes = (v) => number(v / 1048576) + " MB"
+const show = (value, format = number) =>
+  value == null ? "Chưa có dữ liệu" : format(value)
+function RuntimeReport({ target: t, days }) {
+  const r = t.report,
+    http = r?.http,
+    ai = r?.ai,
+    rt = r?.runtime
+  const ledger = r?.ledger?.models || []
+  const totals = ledger.reduce(
+    (a, v) => {
+      for (const k of [
+        "calls",
+        "cache_hits",
+        "input_tokens",
+        "cached_input_tokens",
+        "output_tokens",
+        "priced_calls",
+      ])
+        a[k] = (a[k] || 0) + Number(v[k] || 0)
+      a.cost += Number(v.known_cost_usd || 0)
+      return a
+    },
+    { cost: 0 },
+  )
+  const tone =
+    t.status === "ready"
+      ? "success"
+      : t.status === "degraded"
+        ? "warning"
+        : "error"
+  return (
+    <section className="perf-project-report">
       <header className="perf-project-heading">
         <div>
-          <span className="eyebrow">PROJECT REPORT</span>
-          <h2 id={"project-report-" + p.id}>{p.name}</h2>
-          <p className="perf-repository">{p.repository}</p>
+          <span className="eyebrow">APPLICATION MONITORING</span>
+          <h2>{t.name}</h2>
+          <p className="perf-repository">{t.origin}</p>
         </div>
-        <Signal tone={connectionTone}>{connectionLabels[p.connection]}</Signal>
+        <Signal tone={tone}>
+          {t.status === "ready"
+            ? "App & database phản hồi"
+            : t.status === "unauthorized"
+              ? "Không xác thực được"
+              : "Thiếu tín hiệu / cần kiểm tra"}
+        </Signal>
       </header>
-      <div className="perf-metrics">
-        <Metric
-          icon={GitBranch}
-          label="Feedback trong kỳ"
-          value={p.total}
-          surface="blue"
-        />
-        <Metric
-          icon={CheckCircle2}
-          label="Đã nghiệm thu"
-          value={p.completed}
-          surface="lime"
-        />
-        <Metric
-          icon={ArrowUpRight}
-          label="Đã deploy"
-          value={p.deployed}
-          surface="yellow"
-        />
-        <Metric
-          icon={Clock}
-          label="P95 tới deploy"
-          value={p.p95DeliveryMs}
-          format={duration}
-          surface="ink"
-          note={p.deliverySamples + " mẫu · gồm thời gian chờ và xử lý"}
-        />
-      </div>
-      <div className="perf-grid">
-        <article className="perf-card perf-trend-card perf-delivery-flow">
-          <div className="perf-card-heading">
-            <div>
-              <h2>Luồng bàn giao</h2>
-              <p>Kết quả tích lũy của nhóm feedback được tạo trong kỳ</p>
-            </div>
-            <GitBranch size={18} aria-hidden="true" />
+      {!r ? (
+        <div className="perf-card perf-empty">
+          Chưa đọc được endpoint monitoring. Không suy diễn số liệu bằng 0.
+        </div>
+      ) : (
+        <>
+          <RuntimeOverview report={r} />
+          <div className="perf-grid">
+            <article className="perf-card perf-system-card">
+              <div className="perf-card-heading">
+                <div>
+                  <h2>Sơ đồ kết nối</h2>
+                  <p>Trạng thái từng tầng tại thời điểm đọc báo cáo</p>
+                </div>
+              </div>
+              <ol
+                className="perf-connection-flow"
+                aria-label="Ứng dụng tới database và AI provider"
+              >
+                <li>
+                  <Server size={20} />
+                  <strong>{t.name}</strong>
+                  <Signal tone="success">Đang phản hồi</Signal>
+                </li>
+                <li>
+                  <Activity size={20} />
+                  <strong>Database</strong>
+                  <Signal
+                    tone={
+                      r.database?.status === "ready" ? "success" : "warning"
+                    }
+                  >
+                    {r.database?.status === "ready"
+                      ? "Truy vấn thành công"
+                      : "Chưa xác minh"}
+                  </Signal>
+                </li>
+                <li>
+                  <GitBranch size={20} />
+                  <strong>AI providers</strong>
+                  <Signal tone={ai.failed ? "warning" : "neutral"}>
+                    {ai.calls
+                      ? number(ai.calls) + " lượt gọi đã ghi nhận"
+                      : "Chưa có mẫu trong kỳ"}
+                  </Signal>
+                </li>
+              </ol>
+              <p className="perf-footnote">
+                AI phản ánh kết quả gọi đã ghi nhận; không thực hiện thêm lượt
+                gọi AI để kiểm tra online.
+              </p>
+              <dl className="perf-health">
+                <div>
+                  <dt>Database round trip</dt>
+                  <dd>{show(r.database?.responseMs, duration)}</dd>
+                </div>
+                <div>
+                  <dt>Pool tổng / rảnh / chờ</dt>
+                  <dd>
+                    {r.database?.poolTotal ?? "—"} /{" "}
+                    {r.database?.poolIdle ?? "—"} /{" "}
+                    {r.database?.poolWaiting ?? "—"}
+                  </dd>
+                </div>
+                <div>
+                  <dt>App → Lab</dt>
+                  <dd>{duration(t.fetchMs)} · gồm truy vấn monitoring</dd>
+                </div>
+              </dl>
+            </article>
+            <article className="perf-card perf-system-card">
+              <div className="perf-card-heading">
+                <div>
+                  <h2>Tiến trình máy chủ</h2>
+                  <p>Instance hiện tại · CPU theo một lõi, có thể vượt 100%</p>
+                </div>
+                <Server size={20} />
+              </div>
+              <dl className="perf-health">
+                {[
+                  ["CPU", show(rt.cpuPercent, percentage)],
+                  ["RAM RSS", show(rt.rssBytes, bytes)],
+                  [
+                    "Heap dùng / tổng",
+                    show(rt.heapUsedBytes, bytes) +
+                      " / " +
+                      show(rt.heapTotalBytes, bytes),
+                  ],
+                  ["Uptime", duration(rt.uptimeSeconds * 1000)],
+                  ["HTTP / AI đang xử lý", http.inFlight + " / " + ai.inFlight],
+                  ["Node.js", rt.nodeVersion],
+                  ["Commit", rt.commit?.slice(0, 12) || "Chưa xác định"],
+                  ["Tiến trình bắt đầu", timestamp(rt.startedAt)],
+                ].map(([label, value]) => (
+                  <div key={label}>
+                    <dt>{label}</dt>
+                    <dd>{value}</dd>
+                  </div>
+                ))}
+              </dl>
+            </article>
           </div>
-          <ol className="perf-flow" aria-label={"Luồng bàn giao của " + p.name}>
-            {stages.map((stage, index) => (
-              <li key={stage.label}>
-                <span className="perf-flow-step">0{index + 1}</span>
-                <strong>
-                  <AnimatedValue value={stage.value} />
-                </strong>
-                <h3>{stage.label}</h3>
-                <small>{stage.detail}</small>
-                {index < stages.length - 1 && (
-                  <ArrowRight
-                    className="perf-flow-arrow"
-                    size={20}
-                    aria-hidden="true"
-                  />
-                )}
-              </li>
-            ))}
-          </ol>
+          <AICharts report={r} />
+          <WorkflowStatus inventory={r.inventory} />
+          <details className="rc-details">
+            <summary>Xem bảng số liệu chi tiết · AI và HTTP</summary>
+            <article className="perf-card perf-recent">
+              <div className="perf-card-heading">
+                <div>
+                  <h2>AI usage theo provider / model</h2>
+                  <p>
+                    Dispatcher đã instrument · cached input nằm trong input ·
+                    không cộng với ledger bên dưới
+                  </p>
+                </div>
+              </div>
+              <div className="perf-table-scroll">
+                <table>
+                  <thead>
+                    <tr>
+                      {[
+                        "Provider : model",
+                        "Calls / lỗi",
+                        "Input",
+                        "Cached input",
+                        "Output",
+                        "Có usage / giá",
+                        "Chi phí ước tính",
+                        "P95",
+                      ].map((v) => (
+                        <th key={v}>{v}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {ai.models.map((m) => (
+                      <tr key={m.model}>
+                        <td>{m.model}</td>
+                        <td>
+                          {m.calls} / {m.failed}
+                        </td>
+                        <td>{number(m.inputTokens)}</td>
+                        <td>{number(m.cachedInputTokens)}</td>
+                        <td>{number(m.outputTokens)}</td>
+                        <td>
+                          {m.usageSamples} / {m.pricedCalls}
+                        </td>
+                        <td>{show(m.knownCostUsd, money)}</td>
+                        <td>{duration(m.p95Ms)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {!ai.models.length && (
+                <p className="perf-empty">
+                  Chưa có lượt gọi AI được đo trong kỳ.
+                </p>
+              )}
+            </article>
+            <article className="perf-card perf-recent">
+              <div className="perf-card-heading">
+                <div>
+                  <h2>AI ledger đã lưu của ứng dụng</h2>
+                  <p>
+                    Lịch sử workflow trong kỳ · có thể chỉ bao phủ một phần hoạt
+                    động · không cộng vào dispatcher
+                  </p>
+                </div>
+              </div>
+              <p className="perf-footnote">
+                {r.ledger
+                  ? number(totals.calls || 0) +
+                    " lượt đã lưu · " +
+                    number(totals.cache_hits || 0) +
+                    " cache hits · " +
+                    number(totals.input_tokens || 0) +
+                    " input / " +
+                    number(totals.output_tokens || 0) +
+                    " output tokens · " +
+                    show(totals.priced_calls ? totals.cost : null, money) +
+                    " đã định giá (" +
+                    (totals.priced_calls || 0) +
+                    " lượt)"
+                  : "Chưa đọc được ledger lịch sử."}
+              </p>
+              <div className="perf-table-scroll">
+                <table>
+                  <thead>
+                    <tr>
+                      {[
+                        "Provider / model",
+                        "Bước",
+                        "Lượt đã lưu / cache hits",
+                        "Input / cached / output",
+                        "Có giá",
+                        "USD ước tính",
+                      ].map((v) => (
+                        <th key={v}>{v}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {ledger.map((m, i) => (
+                      <tr key={i}>
+                        <td>
+                          {m.source ? m.source + " · " : ""}
+                          {m.provider} / {m.model}
+                        </td>
+                        <td>{m.step}</td>
+                        <td>
+                          {m.calls} / {m.cache_hits}
+                        </td>
+                        <td>
+                          {number(m.input_tokens)} /{" "}
+                          {number(m.cached_input_tokens)} /{" "}
+                          {number(m.output_tokens)}
+                        </td>
+                        <td>
+                          {m.priced_calls} / {m.calls}
+                        </td>
+                        <td>{show(m.known_cost_usd, money)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </article>
+            <article className="perf-card perf-recent">
+              <div className="perf-card-heading">
+                <div>
+                  <h2>HTTP theo route</h2>
+                  <p>Chỉ tên route, không chứa URL người dùng hoặc query</p>
+                </div>
+              </div>
+              <div className="perf-table-scroll">
+                <table>
+                  <thead>
+                    <tr>
+                      {[
+                        "Route",
+                        "Requests",
+                        "5xx / 4xx / hủy",
+                        "Trung bình",
+                        "P50 / P95 / P99",
+                        "Cao nhất",
+                      ].map((v) => (
+                        <th key={v}>{v}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {http.routes.map((v) => (
+                      <tr key={v.route}>
+                        <td>{v.route}</td>
+                        <td>{v.calls}</td>
+                        <td>
+                          {v.failed} / {v.clientErrors} / {v.aborted}
+                        </td>
+                        <td>{duration(v.averageMs)}</td>
+                        <td>
+                          {duration(v.p50Ms)} / {duration(v.p95Ms)} /{" "}
+                          {duration(v.p99Ms)}
+                        </td>
+                        <td>{duration(v.maxMs)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </article>
+          </details>
           <p className="perf-footnote">
-            Thời lượng tính tới mốc deployedAt đã lưu.{" "}
-            {p.missingDeploymentTimes > 0
-              ? p.missingDeploymentTimes +
-                " request thiếu mốc deploy được loại khỏi mẫu P95."
-              : p.deliverySamples
-                ? "Các mẫu thời gian hiện có đã được ghi nhận."
-                : "Chưa có mẫu thời gian deploy trong kỳ."}
+            Cập nhật {timestamp(r.generatedAt)} · bắt đầu có mẫu{" "}
+            {timestamp(r.coverage.firstMeasuredHour)} · P50/P95/P99 là cận trên
+            histogram. AI calls là lượt qua dispatcher, không bao gồm từng retry
+            nội bộ SDK. Chi phí tính theo giá model được cấu hình, chưa phải hóa
+            đơn provider. Số liệu có thể mất tối đa 5 giây khi tiến trình dừng
+            đột ngột.
           </p>
-        </article>
-        <article className="perf-card perf-system-card">
-          <div className="perf-card-heading">
-            <div>
-              <h2>Kết nối & vận hành</h2>
-              <p>Tín hiệu mới nhất của runner và checkout</p>
-            </div>
-            <Server size={18} aria-hidden="true" />
-          </div>
-          <ol
-            className="perf-connection-flow"
-            aria-label={"Kết nối vận hành của " + p.name}
-          >
-            <li>
-              <Server size={18} aria-hidden="true" />
-              <strong>Agent Lab</strong>
-              <Signal tone="success">Đang phản hồi</Signal>
-            </li>
-            <li>
-              <Activity size={18} aria-hidden="true" />
-              <strong>Mac runner</strong>
-              <Signal tone={runner.connected ? "success" : "warning"}>
-                {runner.connected ? "Đã kết nối" : "Chưa có tín hiệu mới"}
-              </Signal>
-            </li>
-            <li>
-              <GitBranch size={18} aria-hidden="true" />
-              <strong>Checkout</strong>
-              <Signal tone={connectionTone}>
-                {connectionLabels[p.connection]}
-              </Signal>
-            </li>
-          </ol>
-          <div className="perf-project-numbers">
-            <div>
-              <strong>
-                <AnimatedValue value={p.active} />
-              </strong>
-              <small>Đang vận hành</small>
-            </div>
-            <div>
-              <strong data-tone={p.blocked ? "warning" : "neutral"}>
-                <AnimatedValue value={p.blocked} />
-              </strong>
-              <small>Chờ lượt</small>
-            </div>
-            <div>
-              <strong data-tone={p.attention ? "error" : "neutral"}>
-                <AnimatedValue value={p.attention} />
-              </strong>
-              <small>Cần xử lý</small>
-            </div>
-          </div>
-          <dl className="perf-health">
-            <div>
-              <dt>Đang xử lý</dt>
-              <dd>{p.running} request</dd>
-            </div>
-            <div>
-              <dt>Heartbeat runner</dt>
-              <dd>{timestamp(p.lastSeenAt)}</dd>
-            </div>
-            <div>
-              <dt>Phát hành gần nhất</dt>
-              <dd>
-                {p.latestRelease ? (
-                  <>
-                    {statusLabels[p.latestRelease.phase] ||
-                      p.latestRelease.phase}
-                    <br />
-                    <small>{timestamp(p.latestRelease.at)}</small>
-                  </>
-                ) : (
-                  "Chưa có phát hành"
-                )}
-              </dd>
-            </div>
-            <div>
-              <dt>Runtime app</dt>
-              <dd>Chưa có dữ liệu runtime</dd>
-            </div>
-          </dl>
+          {(!r.coverage.complete || r.coverage.recordingErrors > 0) && (
+            <p className="perf-error">
+              Phạm vi thu thập chưa đầy đủ · {r.coverage.recordingErrors} lỗi
+              ghi nhận.
+            </p>
+          )}
           <p className="perf-footnote">
-            Số liệu hàng đợi phản ánh trạng thái hiện tại. Runtime app cần
-            health check riêng sau deploy.
+            Chưa thu thập: giới hạn container, disk/network, toàn bộ replica,
+            người dùng hoạt động, lỗi JavaScript và trải nghiệm trình duyệt, hóa
+            đơn provider. Các chỉ số này cần thêm tích hợp Railway/RUM/billing.
           </p>
-        </article>
-      </div>
+        </>
+      )}
     </section>
-  );
+  )
 }
 
 export default function Performance({ api, onRequest }) {
   const [days, setDays] = useState(7),
     [scope, setScope] = useState("lab"),
-    [projectId, setProjectId] = useState("all");
+    [projectId, setProjectId] = useState("all")
   const [data, setData] = useState(null),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
-    [refresh, setRefresh] = useState(0);
-  const reportProject = scope === "projects" ? projectId : "all";
+    [refresh, setRefresh] = useState(0)
+  const reportProject = projectId
   useEffect(() => {
-    setData(null);
-  }, [days, reportProject]);
+    setData(null)
+  }, [days, reportProject])
   useEffect(() => {
     let cancelled = false,
-      inFlight = false;
+      inFlight = false
     async function load() {
-      if (inFlight) return;
-      inFlight = true;
-      setBusy(true);
+      if (inFlight) return
+      inFlight = true
+      setBusy(true)
       try {
         const next = await api(
           "/performance?days=" +
@@ -346,17 +777,17 @@ export default function Performance({ api, onRequest }) {
             (reportProject === "all"
               ? ""
               : "&projectId=" + encodeURIComponent(reportProject)),
-        );
+        )
         if (!cancelled) {
-          setData(next);
-          setError("");
+          setData(next)
+          setError("")
         }
       } catch (e) {
         if (!cancelled) setError(e.message);
         throw e;
       } finally {
-        inFlight = false;
-        if (!cancelled) setBusy(false);
+        inFlight = false
+        if (!cancelled) setBusy(false)
       }
     }
     const polling = startPolling(load,{interval:()=>60000});
@@ -365,16 +796,13 @@ export default function Performance({ api, onRequest }) {
       polling.stop();
     };
   }, [days, refresh, reportProject]);
-  const projects =
-    data?.projects.filter((p) => projectId === "all" || p.id === projectId) ||
-    [];
   const recent =
     data?.recent.filter(
       (r) => projectId === "all" || r.projectId === projectId,
-    ) || [];
+    ) || []
   const summary = data?.summary,
-    lab = data?.lab;
-  const maximum = Math.max(1, ...(data?.trend.map((v) => v.created) || []));
+    lab = data?.lab
+  const maximum = Math.max(1, ...(data?.trend.map((v) => v.created) || []))
   return (
     <section className="performance-page" aria-labelledby="performance-title">
       <div className="perf-heading">
@@ -426,7 +854,7 @@ export default function Performance({ api, onRequest }) {
           {data
             ? "Cập nhật " +
               timestamp(data.generatedAt) +
-              " · Tự làm mới 30 giây"
+              " · Tự làm mới 60 giây"
             : "Đang kết nối dữ liệu"}
         </small>
       </div>
@@ -456,6 +884,28 @@ export default function Performance({ api, onRequest }) {
         <div className="perf-report" key={scope + days + reportProject}>
           {scope === "lab" ? (
             <>
+              <div className="perf-section-heading">
+                <div>
+                  <h2>Hoạt động AI Agent Lab</h2>
+                  <p>
+                    Feedback được lọc theo project; HTTP và sức khỏe máy chủ
+                    phản ánh toàn bộ Lab.
+                  </p>
+                </div>
+                <PerformanceSelect
+                  aria-label="Lọc project của Lab"
+                  value={projectId}
+                  onChange={(e) => setProjectId(e.target.value)}
+                >
+                  <option value="all">Tất cả project</option>
+                  {data.projects.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </PerformanceSelect>
+              </div>
+              <ConnectionMap projects={data.projects} runner={lab.runner} />
               <div className="perf-metrics">
                 <Metric
                   icon={Activity}
@@ -463,7 +913,7 @@ export default function Performance({ api, onRequest }) {
                   tone={lab.http.calls ? "info" : "neutral"}
                   value={lab.http.calls}
                   surface="blue"
-                  note="HTTP tới API, runner và MCP"
+                  note="Toàn bộ Lab · không tách HTTP theo project"
                 />
                 <Metric
                   icon={CheckCircle2}
@@ -512,6 +962,7 @@ export default function Performance({ api, onRequest }) {
                   }
                 />
               </div>
+              <TaskUsage report={data} lab/>
               <div className="perf-grid">
                 <article className="perf-card perf-trend-card">
                   <div className="perf-card-heading">
@@ -658,122 +1109,94 @@ export default function Performance({ api, onRequest }) {
               </div>
             </>
           ) : (
+            <ProjectRuntime api={api} days={days} refresh={refresh} />
+          )}
+          {scope === "lab" && (
             <>
-              <div className="perf-section-heading">
-                <div>
-                  <h2>Hoạt động theo project</h2>
-                  <p>
-                    Hàng đợi hiện tại và kết quả của feedback được tạo trong kỳ.
-                  </p>
+              <article className="perf-card perf-recent">
+                <div className="perf-card-heading">
+                  <div>
+                    <h2>Hoạt động gần đây</h2>
+                    <p>
+                      Tối đa 50 feedback mới nhất trong kỳ, sắp xếp theo lần cập
+                      nhật.
+                    </p>
+                  </div>
                 </div>
-                <PerformanceSelect
-                  aria-label="Lọc project báo cáo"
-                  value={projectId}
-                  onChange={(e) => setProjectId(e.target.value)}
-                >
-                  <option value="all">Tất cả project</option>
-                  {data.projects.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
-                    </option>
-                  ))}
-                </PerformanceSelect>
-              </div>
-              {!projects.length ? (
-                <div className="perf-card perf-empty">
-                  Chưa có project để báo cáo. Kết nối repository trong Cài đặt
-                  để bắt đầu.
+                <div className="perf-table-scroll">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Feedback</th>
+                        <th>Project</th>
+                        <th>Trạng thái hiện tại</th>
+                        <th>Cập nhật</th>
+                        <th>
+                          <span className="sr-only">Chi tiết</span>
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(scope === "lab" ? data.recent : recent).map((r) => (
+                        <tr key={r.id}>
+                          <td>
+                            <button
+                              className="perf-request"
+                              onClick={() => onRequest(r.id)}
+                            >
+                              {r.title || r.id}
+                            </button>
+                          </td>
+                          <td>
+                            {data.projects.find((p) => p.id === r.projectId)
+                              ?.name || r.projectId}
+                          </td>
+                          <td>
+                            <Signal
+                              tone={
+                                r.failed
+                                  ? "error"
+                                  : r.releasePhase === "deployed"
+                                    ? "success"
+                                    : "neutral"
+                              }
+                            >
+                              {statusLabels[r.releasePhase || r.status] ||
+                                r.status}
+                            </Signal>
+                          </td>
+                          <td>{timestamp(r.updatedAt)}</td>
+                          <td>
+                            <button
+                              className="icon-button"
+                              aria-label={"Xem feedback " + (r.title || r.id)}
+                              onClick={() => onRequest(r.id)}
+                            >
+                              <ArrowUpRight size={16} />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
-              ) : (
-                <div className="perf-project-reports">
-                  {projects.map((p) => (
-                    <ProjectReport key={p.id} project={p} runner={lab.runner} />
-                  ))}
-                </div>
-              )}
+                {!(scope === "lab" ? data.recent : recent).length && (
+                  <div className="perf-empty">
+                    Chưa có feedback trong khoảng thời gian đã chọn.
+                  </div>
+                )}
+              </article>
+              <p className="perf-footnote">
+                Dữ liệu request đã lưu · loại trừ thùng rác. Các chỉ số trong kỳ
+                theo ngày tạo feedback, trạng thái phản ánh lần cập nhật mới
+                nhất. Biểu đồ theo UTC, thời điểm hiển thị theo múi giờ thiết
+                bị. Thời lượng deploy tính tới lúc Lab xác nhận thành công;
+                request thiếu mốc thời gian được loại khỏi mẫu P95.
+              </p>
             </>
           )}
-          <article className="perf-card perf-recent">
-            <div className="perf-card-heading">
-              <div>
-                <h2>Hoạt động gần đây</h2>
-                <p>
-                  Tối đa 50 feedback mới nhất trong kỳ, sắp xếp theo lần cập
-                  nhật.
-                </p>
-              </div>
-            </div>
-            <div className="perf-table-scroll">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Feedback</th>
-                    <th>Project</th>
-                    <th>Trạng thái hiện tại</th>
-                    <th>Cập nhật</th>
-                    <th>
-                      <span className="sr-only">Chi tiết</span>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(scope === "lab" ? data.recent : recent).map((r) => (
-                    <tr key={r.id}>
-                      <td>
-                        <button
-                          className="perf-request"
-                          onClick={() => onRequest(r.id)}
-                        >
-                          {r.title || r.id}
-                        </button>
-                      </td>
-                      <td>
-                        {data.projects.find((p) => p.id === r.projectId)
-                          ?.name || r.projectId}
-                      </td>
-                      <td>
-                        <Signal
-                          tone={
-                            r.failed
-                              ? "error"
-                              : r.releasePhase === "deployed"
-                                ? "success"
-                                : "neutral"
-                          }
-                        >
-                          {statusLabels[r.releasePhase || r.status] || r.status}
-                        </Signal>
-                      </td>
-                      <td>{timestamp(r.updatedAt)}</td>
-                      <td>
-                        <button
-                          className="icon-button"
-                          aria-label={"Xem feedback " + (r.title || r.id)}
-                          onClick={() => onRequest(r.id)}
-                        >
-                          <ArrowUpRight size={16} />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            {!(scope === "lab" ? data.recent : recent).length && (
-              <div className="perf-empty">
-                Chưa có feedback trong khoảng thời gian đã chọn.
-              </div>
-            )}
-          </article>
-          <p className="perf-footnote">
-            Dữ liệu request đã lưu · loại trừ thùng rác. Các chỉ số trong kỳ
-            theo ngày tạo feedback, trạng thái phản ánh lần cập nhật mới nhất.
-            Biểu đồ theo UTC, thời điểm hiển thị theo múi giờ thiết bị. Thời
-            lượng deploy tính tới lúc Lab xác nhận thành công; request thiếu mốc
-            thời gian được loại khỏi mẫu P95.
-          </p>
         </div>
       )}
     </section>
-  );
+  )
 }
