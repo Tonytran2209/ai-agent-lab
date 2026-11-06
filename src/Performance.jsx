@@ -12,7 +12,12 @@ import {
   Clock,
   CheckCircle2,
   FlaskConical,
+  Github,
+  Maximize,
+  Minus,
   Network,
+  Plus,
+  X,
 } from "lucide-react"
 import "./performance.css"
 
@@ -63,20 +68,21 @@ function Signal({ tone = "neutral", children }) {
     </span>
   )
 }
-function ConnectionNode({ icon: Icon, name, subtitle, signal, selected, onSelect }) {
+function ConnectionNode({ icon: Icon, name, subtitle, signal, selected, onSelect, x, y }) {
   return (
     <button
       type="button"
       className="perf-topology-node"
+      style={{ left: x, top: y }}
       aria-pressed={selected}
       aria-controls={selected ? "perf-connection-details" : undefined}
       onClick={onSelect}
     >
       <span className="perf-topology-node-heading">
-        <Icon size={18} aria-hidden="true" />
+        <Icon size={22} aria-hidden="true" />
         <span>
-          <strong>{name}</strong>
-          <small>{subtitle}</small>
+          <strong title={name}>{name}</strong>
+          <small title={subtitle}>{subtitle}</small>
         </span>
       </span>
       <Signal tone={signal.tone}>{signal.label}</Signal>
@@ -84,19 +90,75 @@ function ConnectionNode({ icon: Icon, name, subtitle, signal, selected, onSelect
   )
 }
 
+const nodeHeight = 136
+const columnGap = 72
+const rowGap = 96
+const canvasGutter = 24
+
 function ConnectionMap({ projects, runner }) {
   const [selection, setSelection] = useState(null)
-  const detailsRef = useRef(null)
+  const [zoom, setZoom] = useState(1)
+  const [viewportWidth, setViewportWidth] = useState(0)
+  const viewportRef = useRef(null)
+  const openerRef = useRef(null)
+  const closeRef = useRef(null)
   useEffect(() => {
-    if (selection) detailsRef.current?.scrollIntoView({ block: "nearest" })
+    const viewport = viewportRef.current
+    const observer = new ResizeObserver(() => setViewportWidth(viewport.clientWidth))
+    observer.observe(viewport)
+    return () => observer.disconnect()
+  }, [])
+
+  const nodeWidth = viewportWidth ? Math.min(264, Math.max(180, viewportWidth - canvasGutter * 2)) : 264
+  const columns = Math.max(1, Math.min(
+    3,
+    projects.length,
+    Math.floor((viewportWidth - canvasGutter * 2 + columnGap) / (nodeWidth + columnGap)),
+  ))
+  const rows = Math.ceil(projects.length / columns)
+  const width = columns * (nodeWidth + columnGap) - columnGap + canvasGutter * 2
+  const height = 500 + Math.max(0, rows - 1) * (nodeHeight + rowGap)
+  const hubX = (width - nodeWidth) / 2
+  const hubY = rows ? 62 : 158
+  const hubCenter = width / 2
+  const hubBottom = hubY + nodeHeight
+  const nodes = projects.map((item, index) => {
+    const row = Math.floor(index / columns)
+    const count = Math.min(columns, projects.length - row * columns)
+    const x = (width - count * (nodeWidth + columnGap) + columnGap) / 2
+      + (index % columns) * (nodeWidth + columnGap)
+    const y = hubBottom + rowGap + row * (nodeHeight + rowGap)
+    return { item, x, y }
+  })
+  const busY = hubBottom + rowGap / 2
+  const railX = canvasGutter / 2
+  function fitCanvas() {
+    const viewport = viewportRef.current
+    setZoom(Math.min(1, viewport.clientWidth / width, viewport.clientHeight / height))
+    viewport.scrollTo(0, 0)
+  }
+  function closeDetails() {
+    setSelection(null)
+    openerRef.current?.focus()
+  }
+  function toggle(event, next, selected) {
+    if (selected) {
+      closeDetails()
+    } else {
+      openerRef.current = event.currentTarget
+      setSelection(next)
+    }
+  }
+  useEffect(() => {
+    if (selection) closeRef.current?.focus({ preventScroll: true })
   }, [selection])
+
   const project = projects.find((item) => item.id === selection?.projectId)
   const labSelected = selection?.lab === true
   const projectSignal = (item) => connectionSignals[item.connection] || connectionSignals.unknown
   const runnerSignal = runner.connected
     ? { label: "Mac đã kết nối", tone: "success" }
     : { label: "Mac chưa có tín hiệu mới", tone: "warning" }
-  const toggle = (next, selected) => setSelection(selected ? null : next)
   const details = project
     ? [
         ["Repository", project.repository],
@@ -122,52 +184,103 @@ function ConnectionMap({ projects, runner }) {
         </div>
         <Network size={18} aria-hidden="true" />
       </div>
-      <div className="perf-topology-canvas">
-        <ConnectionNode
-          icon={FlaskConical}
-          name="AI Agent Lab"
-          subtitle="Điều phối project"
-          signal={runnerSignal}
-          selected={labSelected}
-          onSelect={() => toggle({ lab: true }, labSelected)}
-        />
-        {projects.length > 0 ? (
-          <ul className="perf-topology-projects" aria-label="Project đã đăng ký">
-            {projects.map((item) => (
-              <li key={item.id}>
-                <ConnectionNode
-                  icon={GitBranch}
-                  name={item.name}
-                  subtitle={item.repository}
-                  signal={projectSignal(item)}
-                  selected={project?.id === item.id}
-                  onSelect={() => toggle({ projectId: item.id }, project?.id === item.id)}
-                />
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="perf-topology-empty">Chưa có project đăng ký.</p>
+      <div
+        className="perf-topology-canvas"
+        onKeyDown={(event) => {
+          if (event.key === "Escape" && (labSelected || project)) closeDetails()
+        }}
+      >
+        <div className="perf-topology-viewport" ref={viewportRef}>
+          <div className="perf-topology-stage" style={{ width, height, zoom, "--map-node-width": nodeWidth + "px", "--map-node-height": nodeHeight + "px" }}>
+            {nodes.length > 0 && (
+              <svg className="perf-topology-wires" width={width} height={height} aria-hidden="true">
+                <path d={`M ${hubCenter} ${hubBottom} V ${busY}`} />
+                {rows > 1 && (
+                  <path d={`M ${hubCenter} ${busY} H ${railX} V ${nodes.at(-1).y - rowGap / 2}`} />
+                )}
+                {nodes.map(({ item, x, y }) => {
+                  const center = x + nodeWidth / 2
+                  const branchY = y - rowGap / 2
+                  return (
+                    <g key={item.id}>
+                      <path d={`M ${branchY === busY ? hubCenter : railX} ${branchY} H ${center} V ${y - 7}`} />
+                      <polygon points={`${center - 4},${y - 8} ${center + 4},${y - 8} ${center},${y - 2}`} />
+                    </g>
+                  )
+                })}
+              </svg>
+            )}
+            <ConnectionNode
+              icon={FlaskConical}
+              name="AI Agent Lab"
+              subtitle="Điều phối project"
+              signal={runnerSignal}
+              selected={labSelected}
+              x={hubX}
+              y={hubY}
+              onSelect={(event) => toggle(event, { lab: true }, labSelected)}
+            />
+            {nodes.length > 0 ? (
+              <ul className="perf-topology-projects" aria-label="Project đã đăng ký">
+                {nodes.map(({ item, x, y }) => (
+                  <li key={item.id}>
+                    <ConnectionNode
+                      icon={Github}
+                      name={item.name}
+                      subtitle={item.repository}
+                      signal={projectSignal(item)}
+                      selected={project?.id === item.id}
+                      x={x}
+                      y={y}
+                      onSelect={(event) => toggle(event, { projectId: item.id }, project?.id === item.id)}
+                    />
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="perf-topology-empty" style={{ top: hubBottom + 24 }}>
+                Chưa có project đăng ký.
+              </p>
+            )}
+          </div>
+        </div>
+        <div className="perf-topology-tools" role="group" aria-label="Thu phóng sơ đồ">
+          <button type="button" aria-label="Phóng to" title="Phóng to" disabled={zoom >= 1.5} onClick={() => setZoom(Math.min(1.5, zoom + 0.2))}>
+            <Plus size={16} aria-hidden="true" />
+          </button>
+          <button type="button" aria-label="Thu nhỏ" title="Thu nhỏ" disabled={zoom <= 0.4} onClick={() => setZoom(Math.max(0.4, zoom - 0.2))}>
+            <Minus size={16} aria-hidden="true" />
+          </button>
+          <button type="button" aria-label="Vừa khung" title="Vừa khung" onClick={fitCanvas}>
+            <Maximize size={15} aria-hidden="true" />
+          </button>
+        </div>
+        {(labSelected || project) && (
+          <section
+            id="perf-connection-details"
+            className="perf-topology-details"
+            aria-labelledby="perf-connection-details-title"
+          >
+            <header>
+              <div>
+                <small>CHI TIẾT KẾT NỐI</small>
+                <h3 id="perf-connection-details-title">{project?.name || "AI Agent Lab"}</h3>
+              </div>
+              <button type="button" ref={closeRef} aria-label="Đóng chi tiết kết nối" onClick={closeDetails}>
+                <X size={17} aria-hidden="true" />
+              </button>
+            </header>
+            <dl className="perf-health">
+              {details.map(([label, value]) => (
+                <div key={label}>
+                  <dt>{label}</dt>
+                  <dd>{value}</dd>
+                </div>
+              ))}
+            </dl>
+          </section>
         )}
       </div>
-      {(labSelected || project) && (
-        <section
-          id="perf-connection-details"
-          ref={detailsRef}
-          className="perf-topology-details"
-          aria-labelledby="perf-connection-details-title"
-        >
-          <h3 id="perf-connection-details-title">Chi tiết · {project?.name || "AI Agent Lab"}</h3>
-          <dl className="perf-health">
-            {details.map(([label, value]) => (
-              <div key={label}>
-                <dt>{label}</dt>
-                <dd>{value}</dd>
-              </div>
-            ))}
-          </dl>
-        </section>
-      )}
       <p className="perf-footnote">
         Trạng thái project dựa trên cấu hình kết nối và tín hiệu Mac runner của Lab.
       </p>
