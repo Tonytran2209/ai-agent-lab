@@ -141,10 +141,10 @@ export function projectPerformanceMetrics(report) {
   }
 }
 
-export function combinedProjectJobMetrics(targets) {
+export function combinedProjectJobMetrics(targets, field = "jobHistory") {
   const count = (value) => Number.isSafeInteger(value) && value >= 0
   const cohorts = targets.flatMap(({ name, report }) => {
-    const history = report?.jobHistory
+    const history = report?.[field]
     if (!history) return []
     const { executed, failed, technicalErrors, unclassifiedFailures, validCompletions, unverifiedCompletions } = history
     if (![executed, failed, technicalErrors, unclassifiedFailures, validCompletions, unverifiedCompletions].every(count) ||

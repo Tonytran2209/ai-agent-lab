@@ -415,8 +415,9 @@ const bytes = (v) => number(v / 1048576) + " MB"
 const show = (value, format = number) =>
   value == null ? "Chưa có dữ liệu" : format(value)
 function ProjectPerformanceTargets({ report, targets }) {
+  const [historyScope, setHistoryScope] = useState("all")
   const combined = targets
-    ? combinedProjectJobMetrics(targets)
+    ? combinedProjectJobMetrics(targets, historyScope === "all" ? "jobHistoryAllTime" : "jobHistory")
     : report.jobHistory ? combinedProjectJobMetrics([{ name: "", report }]) : null
   const metrics = { ...projectPerformanceMetrics(report || {}), ...combined }
   const range = ([low, high]) => low === high ? rate(low) : rate(low) + "–" + rate(high)
@@ -497,15 +498,20 @@ function ProjectPerformanceTargets({ report, targets }) {
           <h3>{targets ? "Mục tiêu hiệu năng · Job toàn bộ project" : "Mục tiêu hiệu năng"}</h3>
           {targets ? (
             <p>
-              Lịch sử theo kỳ UTC · {combined.coverage}/{targets.length} project có nguồn dữ liệu.
+              {historyScope === "all" ? "Toàn bộ lịch sử đã lưu" : "Lịch sử theo kỳ UTC"} · {combined.coverage}/{targets.length} project có nguồn dữ liệu.
               {!combined.complete && " Phạm vi chưa đầy đủ."}
-              {" "}Writer dùng trạng thái cuối của mỗi bài batch, Intercom dùng từng lượt EB V2 gate.
+              {" "}Writer dùng từng hạng mục batch, Intercom dùng từng lượt EB V2 gate.
             </p>
           ) : combined
             ? <p>Chỉ số theo kỳ UTC · Ba chỉ số job dùng bản ghi đã lưu.{!combined.complete && " Phạm vi chưa đầy đủ."}</p>
             : <p>Chỉ số theo kỳ báo cáo · P95 là cận trên của khoảng chứa mẫu phân vị 95%.</p>}
         </div>
-        <Activity size={18} aria-hidden="true" />
+        {targets ? (
+          <PerformanceSelect aria-label="Phạm vi lịch sử job" value={historyScope} onChange={(event) => setHistoryScope(event.target.value)}>
+            <option value="all">Toàn bộ lịch sử job</option>
+            <option value="period">Theo kỳ báo cáo</option>
+          </PerformanceSelect>
+        ) : <Activity size={18} aria-hidden="true" />}
       </div>
       <div className="perf-table-scroll">
         <table>
