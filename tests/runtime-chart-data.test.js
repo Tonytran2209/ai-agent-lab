@@ -6,6 +6,7 @@ import {
   hourlySeries,
   responseShare,
   statusTone,
+  projectPerformanceMetrics,
 } from "../src/runtime-chart-data.js"
 test("chart series combines workflow steps but never mixes historical and new usage or double-counts cache", () => {
   const report = {
@@ -91,4 +92,32 @@ test("latency plot preserves equal readings, missing percentiles, and zero", () 
   assert.equal(latencyDotPlot({ p50Ms: 20, p99Ms: 100 }).points[1].value, null)
   assert.equal(latencyDotPlot({ p50Ms: 100, p95Ms: 20 }).valid, false)
   assert.equal(latencyDotPlot({}).hasSamples, false)
+})
+
+test("project targets keep missing user and job measurements separate from HTTP and task telemetry", () => {
+  const report = {
+    http: { calls: 3, p95Ms: 120 },
+    taskUsage: { rows: [{ kind: "gate", status: "completed", startedAt: "2026-11-05", finishedAt: "2026-11-06" }] },
+  }
+  assert.deepEqual(projectPerformanceMetrics(report), {
+    httpP95Ms: 120, responseMs: null, clickMs: null, completion: [],
+    executed: null, errorRate: null, successRate: null,
+  })
+
+  const job = { job: "Gate", workload: "10 items", p95Ms: 1500, samples: 20 }
+  const performanceKpis = {
+    responseTime: { p95Ms: 2300, samples: 20 },
+    clickLatency: { p95Ms: 0, samples: 0 },
+    jobCompletion: [job, { ...job, workload: "", samples: 0 }],
+    jobs: { executed: 20, technicalErrors: 0, validCompletions: 19 },
+  }
+  const measured = projectPerformanceMetrics({ ...report, performanceKpis })
+  assert.equal(measured.responseMs, 2300)
+  assert.equal(measured.clickMs, null)
+  assert.deepEqual(measured.completion, [job])
+  assert.equal(measured.errorRate, 0)
+  assert.equal(measured.successRate, 95)
+  assert.equal(projectPerformanceMetrics({ performanceKpis: {
+    jobs: { executed: 0, technicalErrors: 0, validCompletions: 0 },
+  } }).errorRate, null)
 })

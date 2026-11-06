@@ -111,3 +111,32 @@ export function httpLatencyTimeline(report) {
     time, calls, average: calls && complete ? totalMs / calls : null,
   }))
 }
+export function projectPerformanceMetrics(report) {
+  const kpis = report.performanceKpis
+  const duration = (value) =>
+    Number.isFinite(value) && value >= 0 ? value : null
+  const count = (value) => Number.isSafeInteger(value) && value >= 0
+  const p95 = (metric) =>
+    count(metric?.samples) && metric.samples > 0 ? duration(metric.p95Ms) : null
+  const jobs = kpis?.jobs
+  const rate = (numerator) =>
+    count(jobs?.executed) && jobs.executed > 0 && count(numerator) && numerator <= jobs.executed
+      ? 100 * numerator / jobs.executed
+      : null
+  const completion = Array.isArray(kpis?.jobCompletion)
+    ? kpis.jobCompletion.filter((row) =>
+        typeof row?.job === "string" && row.job.trim() &&
+        typeof row.workload === "string" && row.workload.trim() && p95(row) !== null,
+      )
+    : []
+
+  return {
+    responseMs: p95(kpis?.responseTime),
+    clickMs: p95(kpis?.clickLatency),
+    httpP95Ms: report.http?.calls > 0 ? duration(report.http.p95Ms) : null,
+    completion,
+    executed: count(jobs?.executed) ? jobs.executed : null,
+    errorRate: rate(jobs?.technicalErrors),
+    successRate: rate(jobs?.validCompletions),
+  }
+}
