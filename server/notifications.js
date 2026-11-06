@@ -1,4 +1,5 @@
 import {z} from 'zod';
+import {runnerConnected} from './runner-presence.js';
 import {transaction} from './db.js';
 import {fail} from './schemas.js';
 export const notificationInput=z.object({clientId:z.string().uuid(),title:z.string().max(200).default(''),message:z.string().min(1).max(2500),type:z.enum(['info','success','warning','error']).default('info'),view:z.enum(['inbox','projects','library','memory','connection']).default('inbox'),requestId:z.string().regex(/^REQ-[A-F0-9]{8}$/).optional()}).strict();
@@ -26,7 +27,6 @@ export function createNotificationCenter(db,{clock=()=>Date.now()}={}){
  // Other settings screens use INSERT OR REPLACE. Inspect the previous row before replacement,
  // and only record phase changes, never evaluation cases, Lark payloads or provider responses.
  for(const [table,key,source,title,phase,project,note] of [
-  ['library_maintenance','project_id','library','Đồng bộ MD',"json_extract(NEW.data,'$.phase')",'NEW.project_id',"json_extract(NEW.data,'$.note')"],
   ['learning_runs','id','learning','Đánh giá cải thiện',"json_extract(NEW.data,'$.phase')",'NEW.project_id',"''"],
   ['agent_evaluations','id','evaluation','Đánh giá model',"CASE WHEN json_extract(NEW.data,'$.error') IS NOT NULL THEN 'failed' WHEN json_extract(NEW.data,'$.passed')=1 THEN 'passed' ELSE 'needs-review' END","json_extract(NEW.data,'$.projectId')","''"],
   ['runner_controls','id','mac','Điều khiển Mac',"json_extract(NEW.data,'$.phase')","NULL","json_extract(NEW.data,'$.note')"],
@@ -38,6 +38,12 @@ export function createNotificationCenter(db,{clock=()=>Date.now()}={}){
    WHEN NOT EXISTS(SELECT 1 FROM ${table} prior WHERE prior.${key}=NEW.${key} AND COALESCE(${oldPhase},'')=COALESCE(${phase},'') AND COALESCE(${oldNote},'')=COALESCE(${note},'')) BEGIN
    INSERT INTO notification_log(audience,data) VALUES('admin',json_object('source','${source}','view','${source==='library'?'library':'projects'}','projectId',${project},'title','${title}','phase',${phase},'message',substr(COALESCE(${note},''),1,2500),'at',strftime('%Y-%m-%dT%H:%M:%fZ','now'))); END;`);
  }
+ // MD sync announces only news (MD changed, code/MD drift, failure, recovery) via data.announce;
+ // routine hourly syncs and the transient 'syncing' write never notify.
+ db.exec('DROP TRIGGER IF EXISTS notification_library_maintenance_replace');
+ if(db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='library_maintenance'").get())db.exec(`CREATE TRIGGER IF NOT EXISTS notification_library_maintenance_announce BEFORE INSERT ON library_maintenance
+  WHEN json_extract(NEW.data,'$.announce.id') IS NOT NULL AND NOT EXISTS(SELECT 1 FROM library_maintenance prior WHERE prior.project_id=NEW.project_id AND json_extract(prior.data,'$.announce.id')=json_extract(NEW.data,'$.announce.id')) BEGIN
+  INSERT INTO notification_log(audience,data) VALUES('admin',json_object('source','library','view','library','projectId',NEW.project_id,'title','Đồng bộ MD','phase',json_extract(NEW.data,'$.announce.phase'),'message',substr(COALESCE(json_extract(NEW.data,'$.announce.note'),''),1,2500),'at',strftime('%Y-%m-%dT%H:%M:%fZ','now'))); END;`);
  const visibility=user=>({sql:`NOT EXISTS(SELECT 1 FROM notification_hidden h WHERE h.owner=? AND h.notification_id=n.id) AND ((n.audience='request' AND r.id IS NOT NULL AND (?=1 OR json_extract(r.data,'$.author')=?)) OR (n.audience='admin' AND ?=1) OR (n.audience='user' AND n.owner=?))`,args:[principal(user),Number(user.role==='admin'),user.name,Number(user.role==='admin'),principal(user)]});
  const add=(data,{audience='admin',owner=null,requestId=null,dedupe=null}={})=>db.prepare('INSERT OR IGNORE INTO notification_log(request_id,audience,owner,dedupe,data) VALUES(?,?,?,?,?)').run(requestId,audience,owner,dedupe,JSON.stringify(data));
  const from=' FROM notification_log n LEFT JOIN requests r ON r.id=n.request_id ';
@@ -46,7 +52,7 @@ export function createNotificationCenter(db,{clock=()=>Date.now()}={}){
  function observe(){
   const check=(key,value,data)=>{const old=db.prepare('SELECT value FROM notification_observers WHERE key=?').get(key)?.value,next=JSON.stringify(value);if(old===next)return;db.prepare('INSERT OR REPLACE INTO notification_observers VALUES(?,?)').run(key,next);add({...data,at:new Date(clock()).toISOString()});};
   const runner=JSON.parse(db.prepare("SELECT value FROM settings WHERE key='mac_runner'").get()?.value||'null');
-  if(runner){const connected=runner.phase!=='error'&&clock()-Date.parse(runner.lastSeenAt)<120000;check('mac-connection',connected,{source:'mac',view:'projects',title:'Kết nối Mac',message:connected?'Mac đã kết nối Lab.':'Mac chưa có tín hiệu hoặc đã mất kết nối.',type:connected?'success':'warning'});
+  if(runner){const connected=runnerConnected(runner,clock());check('mac-connection',connected,{source:'mac',view:'projects',title:'Kết nối Mac',message:connected?'Mac đã kết nối Lab.':'Mac chưa có tín hiệu hoặc đã mất kết nối.',type:connected?'success':'warning'});
    if(connected){for(const status of runner.projects||[]){const row=db.prepare('SELECT data FROM projects WHERE id=? AND repository=? COLLATE NOCASE').get(status.projectId,status.repository);if(!row)continue;const project=JSON.parse(row.data);check('mac-project:'+project.id,{ready:status.repoReady},{source:'mac',view:'projects',projectId:project.id,title:'Mac · '+project.name,message:status.repoReady?'Checkout project đã sẵn sàng.':'Checkout project chưa sẵn sàng.'+(status.note?' '+status.note:''),type:status.repoReady?'info':'warning'});}}
   }
   const supervisor=JSON.parse(db.prepare("SELECT value FROM settings WHERE key='mac_supervisor'").get()?.value||'null');

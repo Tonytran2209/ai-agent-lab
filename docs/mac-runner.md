@@ -54,6 +54,10 @@ Muốn gỡ: bootout trước, xóa plist trên, rồi tùy chọn xóa Keychain
 
 Nếu runner bị kill/mất điện, lock `~/Library/Application Support/AI Agent Lab/mac/state/runner.lock` có thể còn. Đọc PID trong `runner.lock/pid` và xác minh process/agent con cũ đã dừng trước khi xóa lock. Không tự retry các request đã claim. Claim hết hạn vẫn cần admin xác minh agent cũ đã dừng và mở lại/duyệt lại trong Lab. Nếu tác vụ bị chặn, runner dừng process trước rồi yêu cầu re-triage; bạn xem journal `mac/state/REQ-*.json` và hoạt động trong Lab.
 
+Từ bản này, runner tự xoá `runner.lock` nếu lock được tạo trước lần khởi động máy gần nhất (mọi process cũ đã chết theo lần reboot/mất điện). Nếu máy chưa khởi động lại thì vẫn giữ lock và cần kiểm tra thủ công như trên, vì tool Codex tách nền của runner cũ có thể còn chạy.
+
+Heartbeat claim (mỗi 60 giây, lease 15 phút) cho phép lỡ tối đa 3 lần liên tiếp do lỗi mạng/timeout/429/5xx trước khi huỷ job; Lab từ chối claim (lỗi MCP hoặc HTTP 4xx) thì huỷ ngay. Nút "Kết nối lại" đóng MCP client hiện tại và mở kết nối mới ở vòng kế tiếp (chỉ chạy khi runner rảnh).
+
 ## Kiểm tra kết quả
 
 Trong **Kết quả**, commit cục bộ được ghi rõ **chưa push** và branch `lab/REQ-...`. Journal trong `~/Library/Application Support/AI Agent Lab/mac/state` trên Mac có đường dẫn worktree. Mở worktree trong Codex, xem diff/kiểm tra hành vi, sau đó tự push/tạo PR nếu cần. Khi chưa có node_modules, runner dùng npm ci trong worktree; cần mạng tới npm. Chạy `git config user.name`/`user.email` trên máy để Git có thể commit.

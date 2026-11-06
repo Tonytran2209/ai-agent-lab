@@ -55,7 +55,7 @@ export function workflowMessage(request, runner, aiConfigured = true) {
   if (request.status === "feedback") return "Feedback đã lưu. Admin cần nhấn Chuẩn bị để AI tạo request; chưa có tác vụ nào được gửi sang Mac.";
   if (request.status === "awaiting-approval") return "Nhãn low risk chỉ là mức rủi ro, chưa phải quyền thực thi. Kiểm tra phạm vi bên dưới và nhấn Duyệt & chạy để đưa request vào hàng đợi.";
   if (request.status === "approved") return runner?.connected
-    ? runner.phase === "running" ? "Mac đang xử lý request khác. Request này sẽ được nhận khi runner rảnh." : "Mac đã kết nối. Runner kiểm tra mỗi 15 giây khi rảnh; Codex chưa bắt đầu request này."
+    ? runner.phase === "running" ? "Mac đang xử lý request khác. Request này sẽ được nhận khi runner rảnh." : "Mac đã kết nối. Runner kiểm tra mỗi 60 giây khi rảnh; Codex chưa bắt đầu request này."
     : "Chưa nhận được heartbeat gần đây từ Mac. Request vẫn trong hàng đợi; kiểm tra Mac đang thức, có mạng và runner đã bật.";
   if (request.status === "needs-triage") return "Chưa vào hàng đợi Codex: còn " + (request.draft?.questions?.length || 0) + " câu hỏi cần giải quyết. Xem các câu hỏi bên dưới hoặc Hoạt động nếu runner đã dừng. Nhãn low risk không bỏ qua bước làm rõ và duyệt.";
   if (["claimed", "running"].includes(request.status)) return "Mac đã claim request. Xem Hoạt động để theo dõi tiến trình; kết quả sẽ được gửi về Lab sau khi kiểm tra.";

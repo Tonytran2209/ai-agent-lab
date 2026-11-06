@@ -19,3 +19,10 @@ New authenticated API routes: GET /api/notifications (before, limit), POST /api/
 Settings operation notices and errors are mirrored through a shared React notice context without altering their existing inline messages or API handlers. Empty values, input drafts and repeated unchanged polling errors do not create notifications. Model evaluation history copies only outcome/phase metadata, never evaluation cases or model/provider output.
 
 Users may delete one or clear all visible notifications for their own account. Persistent user-scoped tombstones preserve request events and other users’ histories and prevent backfill resurrection. Routine Mac work/idle/busy transitions are omitted; connection loss/recovery, readiness changes and actionable supervisor problems remain visible.
+
+## MD sync and Mac presence noise control
+
+- Scheduled and webhook MD syncs notify only through `library_maintenance.data.announce`: MD content actually changed (document path/content hashes), a code change left related MD untouched (drift), the first failure of a failing streak, or recovery after a failure. Routine syncs that find nothing new, and the transient `syncing` write, record state silently. Manual sync buttons still show their own toast.
+- The post-deploy library sync keeps retrying with backoff (capped at 30 minutes) because the project lane waits for it, but only the first failed attempt adds a request event; later failures update state silently until success.
+- Mac runner presence requires a heartbeat newer than 120 seconds. A reported loop `error` counts as disconnected only after it has persisted for 150 seconds (`errorSince`), so a single failed poll no longer produces a disconnect/reconnect pair or triggers cloud dispatch.
+

@@ -5,6 +5,7 @@ import {githubClient} from './release.js';
 import {verifyArtifactLineage} from '../server/commit-lineage.js';
 import {codexModelArgs} from './codex.js';
 import {feedbackImageArgs} from './images.js';
+import {createHeartbeatGuard} from './heartbeat-guard.js';
 const repairReasons={
  'codex-exit':'Codex thoát với mã lỗi; xem chẩn đoán cục bộ trên Mac.',
  'workspace-dirty':'Worktree còn bản sửa chưa commit từ lượt trước; giữ nguyên artifact để phục hồi, không gọi lại model.',
@@ -30,7 +31,7 @@ export async function pollCiRepairs(configs,token,run,signal,{prepareDependencie
  const credentials={repairToken:claim.repairToken},env=childEnvironment(process.env);
  const git=async(args,cwd=config.repoPath)=>{const out=await run('git',['-c','core.hooksPath=/dev/null','-C',cwd,...args],{env,signal:controller.signal,timeout:120000});if(out.code)throw Error('Git sửa CI chưa hoàn tất.');return out.stdout.trim();};
  try{
-  if(signal?.aborted)abort();heartbeat=setInterval(()=>{if(busy)return;busy=true;request('/'+row.id+'/heartbeat',credentials).catch(abort).finally(()=>{busy=false;});},60000);
+  if(signal?.aborted)abort();const guard=createHeartbeatGuard(abort);heartbeat=setInterval(()=>{if(busy)return;busy=true;request('/'+row.id+'/heartbeat',credentials).then(()=>guard.ok(),e=>{guard.fail(e);}).finally(()=>{busy=false;});},60000);
   const api=githubClient(run,config.ghPath||'/opt/homebrew/bin/gh',Object.fromEntries(Object.entries(process.env).filter(([k])=>!['MCP_TOKEN','AI_AGENT_LAB_MCP_TOKEN'].includes(k))),controller.signal),prefix='repos/'+r.repository;
   const pr=await api(prefix+'/pulls/'+c.prNumber),branch=r.result.localArtifact.branch;
   if(pr.head?.sha!==c.head||pr.head?.ref!==branch||pr.head?.repo?.full_name!==r.repository||pr.base?.repo?.full_name!==r.repository||pr.base?.ref!==r.branch||pr.state!=='open'||pr.merged)throw Error('PR sửa CI đã đổi.');

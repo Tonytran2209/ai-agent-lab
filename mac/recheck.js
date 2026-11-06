@@ -3,6 +3,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import {mkdir} from 'node:fs/promises';
 import {matchesProject} from './projects.js';
+import {createHeartbeatGuard} from './heartbeat-guard.js';
 export async function recheckArtifact(r,config,run,signal,prepare,env){
  if(!matchesProject(r,config)||!/^REQ-[A-F0-9]{8}$/.test(r.id)||!/^[a-f0-9]{40}$/.test(r.result?.commit)||!/^[a-f0-9]{40}$/.test(r.baseCommit))throw new Error('Sai project hoặc artifact.');
  const git=async args=>{const result=await run('git',['-C',config.repoPath,...args],{signal,env,timeout:60000});if(result.code)throw new Error('Không xác minh được Git: '+args[0]);return result.stdout.trim();};
@@ -33,7 +34,7 @@ export async function pollRechecks(config,token,run,signal,prepare,env,queuedRow
   let claim;try{claim=await request('/'+r.id+'/claim',{protocol:'artifact-recheck-v2'});}catch{continue;}
   const controller=new AbortController(),abort=()=>controller.abort();signal?.addEventListener('abort',abort,{once:true});if(signal?.aborted)abort();
   let pending=Promise.resolve(),busy=false;
-  const timer=setInterval(()=>{if(busy)return;busy=true;pending=request('/'+r.id+'/heartbeat',{recheckToken:claim.recheckToken}).catch(()=>controller.abort()).finally(()=>{busy=false;});},60000);
+  const guard=createHeartbeatGuard(()=>controller.abort());const timer=setInterval(()=>{if(busy)return;busy=true;pending=request('/'+r.id+'/heartbeat',{recheckToken:claim.recheckToken}).then(()=>guard.ok(),e=>{guard.fail(e);}).finally(()=>{busy=false;});},60000);
   try{const checks=await recheckArtifact(claim.request,config,run,controller.signal,prepare,env);clearInterval(timer);await pending;if(controller.signal.aborted)throw new Error('Kiểm tra đã dừng hoặc mất claim.');await request('/'+r.id+'/report',{recheckToken:claim.recheckToken,resultRevision:claim.request.resultRevision,checks,note:'Đã kiểm tra độc lập artifact cũ, không gọi AI, không sửa source. Lịch sử kiểm tra thất bại được giữ nguyên.'});}
   catch(e){await request('/'+r.id+'/fail',{recheckToken:claim.recheckToken,note:String(e.message).slice(0,2000)}).catch(()=>{});}
   finally{clearInterval(timer);signal?.removeEventListener('abort',abort);await pending;}return;

@@ -23,6 +23,8 @@ import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { relativePath } from "../server/schemas.js";
+import { createHeartbeatGuard } from "./heartbeat-guard.js";
+import { acquireRunnerLock } from "./runner-lock.js";
 
 class ScopeError extends Error {}
 const REPOSITORY = "Tonytran2209/RebuildWriterStudioTool";
@@ -158,11 +160,12 @@ export async function executeRequest({ packet, call, config, signal, run = comma
   if (signal?.aborted) abort();
   const journal = async status => writeFile(journalPath, JSON.stringify({ requestId: r.id, status, branch, worktree, at: new Date().toISOString() }, null, 2), { mode: 0o600 });
   let heartbeatTask = Promise.resolve(), heartbeatBusy = false;
+  const heartbeatGuard = createHeartbeatGuard(() => controller.abort());
   const heartbeat = setInterval(() => {
     if (heartbeatBusy) return;
     heartbeatBusy = true;
     heartbeatTask = reportStatus({ phase: "running", requestId: r.id }).then(() => call("report_progress", { requestId: r.id, claimToken: token, note: "Worker " + (config.workerName || "mac-runner") + " đang chạy Codex và kiểm tra trong worktree riêng." }))
-      .catch(() => controller.abort()).finally(() => { heartbeatBusy = false; });
+      .then(() => heartbeatGuard.ok(), error => { heartbeatGuard.fail(error); }).finally(() => { heartbeatBusy = false; });
   }, 60000);
   const stopHeartbeat = async () => { clearInterval(heartbeat); await heartbeatTask; };
   try {
@@ -246,7 +249,7 @@ export async function connect(config, token) {
   }
   const call = async (name, args = {}) => {
     const res = await client.callTool({ name, arguments: args });
-    if (res.isError) throw new Error(res.content?.find(c => c.type === "text")?.text || "MCP tool failed.");
+    if (res.isError) throw Object.assign(new Error(res.content?.find(c => c.type === "text")?.text || "MCP tool failed."), { mcpRejected: true });
     return res.structuredContent ?? JSON.parse(res.content.find(c => c.type === "text").text);
   };
   return { client, call };
@@ -265,17 +268,16 @@ export async function main(configPath) {
   const token = process.env.AI_AGENT_LAB_MCP_TOKEN;
   if (!token || token.length < 24) throw new Error("Chưa có AI_AGENT_LAB_MCP_TOKEN.");
   await mkdir(config.stateDir, { recursive: true, mode: 0o700 });
-  // Exclusive instance lock; stale locks require explicit inspection to avoid duplicate workers.
-  const lock = path.join(config.stateDir, "runner.lock");
-  await mkdir(lock, { mode: 0o700 });
-  await writeFile(path.join(lock, "pid"), String(process.pid), { mode: 0o600 });
+  // Exclusive instance lock; only locks from before the last boot are cleared automatically.
+  const lock = await acquireRunnerLock(config.stateDir, { log: text => console.log(new Date().toISOString(), text) });
   const controller = new AbortController();
   const stop = () => controller.abort();
   process.once("SIGTERM", stop); process.once("SIGINT", stop);process.once("disconnect",stop);
   const log = text => console.log(new Date().toISOString(), text);
   let safeIdle=false,wake,connection,monitorPending=false,monitorStarted=false,queueActive=false;
   const ipc=message=>{try{process.send?.(message);}catch{}};
-  const onControl=message=>{if(message?.type==='reconnect')wake?.();};process.on('message',onControl);
+  // Reconnect is only sent while safe-idle: drop the MCP client so the next pass opens a fresh one.
+  const onControl=message=>{if(message?.type==='reconnect'){const stale=connection;connection=null;stale?.client.close().catch(()=>{});wake?.();}};process.on('message',onControl);
   let lastTelemetry={deploymentProtocol:'railway-onboarding-v1',publisherEnabled:config.releaseEnabled===true,phase:"polling",requestId:null,contractProtocol:"md-trace-v1",governanceProtocol:"impact-v1",attachmentProtocol:"feedback-images-v1"};
   let telemetryAt=0,telemetryKey="",telemetryFlight=null;
   const reportStatus = async value => {

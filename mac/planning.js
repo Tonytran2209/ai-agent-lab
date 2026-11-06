@@ -14,6 +14,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 import {relativePath,draftSchema} from '../server/schemas.js';
+import {createHeartbeatGuard} from './heartbeat-guard.js';
 export const planningPrompt=packet=>packet.request.workflowProtocol==='direct-v1'?directSurveyPrompt(packet):[
  'Survey this pinned repository in READ-ONLY mode and return a concise Vietnamese implementation plan. You have NO permission to edit files, install dependencies, commit, push, approve, merge, deploy, or call MCP tools. You may run existing targeted offline non-browser tests inside the read-only sandbox with a short timeout; no network, production calls, writes or broad package scripts. If dependencies or write access are missing, record that limitation and plan the scoped regression for execution. Never claim a test ran when it did not.',
  'Read AGENTS.md and relevant actual source. Never read secrets, .env, credentials, keys, home files or anything outside this checkout. Verify root-cause hypotheses against code, cite exact paths and existing line ranges. Do not claim tests ran. Preserve the original feedback intent; do not ask users for internal file names. Separate technical investigation from product decisions. Missing root-cause knowledge alone is not a human checkpoint or a reason to inflate risk.',
@@ -45,12 +46,12 @@ export async function surveyFeedback({job,config,api,run,signal,environment,imag
  }catch(e){await api('/'+job.requestId+'/preflight-failed',{jobId:job.id,observedBaseCommit:job.baseCommit,reason:e.code==='WORKSPACE_DIRTY'?'workspace_dirty':'workspace_prepare'}).catch(()=>{});throw e;}
  let failureReason="worker";
  let investigation=null,activity;
- let claim,heartbeat,busy=false,heartbeatLost=false,heartbeatTask=Promise.resolve();const controller=new AbortController(),abort=()=>controller.abort();signal?.addEventListener('abort',abort,{once:true});if(signal?.aborted)abort();
+ let claim,heartbeat,busy=false,heartbeatLost=false,heartbeatTask=Promise.resolve();const controller=new AbortController(),abort=()=>controller.abort(),guard=createHeartbeatGuard(()=>{heartbeatLost=true;controller.abort();});signal?.addEventListener('abort',abort,{once:true});if(signal?.aborted)abort();
  try{
   const head=await git(['rev-parse','HEAD'],worktree);claim=await api('/'+job.requestId+'/claim',{jobId:job.id,observedBaseCommit:head,contractProtocol:"md-trace-v1",governanceProtocol:"impact-v1",replayProtocol:"planning-replay-v1",attachmentProtocol:"feedback-images-v1",workflowProtocol:"direct-v1"});
   if(claim.request.baseCommit!==head||claim.request.repository!==config.repository||claim.request.projectId!==config.projectId||claim.library.projectId!==config.projectId||claim.library.sourceCommit!==head)throw new Error('Packet khảo sát không khớp checkout.');
   const credentials={jobId:job.id,planningToken:claim.planningToken};
-  heartbeat=setInterval(()=>{if(busy)return;busy=true;heartbeatTask=api('/'+job.requestId+'/heartbeat',{...credentials,...(activity?{progress:activity.snapshot()}:{})}).catch(()=>{heartbeatLost=true;controller.abort();}).finally(()=>{busy=false;});},60000);
+  heartbeat=setInterval(()=>{if(busy)return;busy=true;heartbeatTask=api('/'+job.requestId+'/heartbeat',{...credentials,...(activity?{progress:activity.snapshot()}:{})}).then(()=>guard.ok(),e=>{guard.fail(e);}).finally(()=>{busy=false;});},60000);
   const outputPath=path.join(config.stateDir,'planning',job.id+'-plan.json');await mkdir(path.dirname(outputPath),{recursive:true,mode:0o700});
   if(job.mode!=='report-only'){
    failureReason="codex";

@@ -1,4 +1,5 @@
 import {requestIndexRows,requestIndexPage} from './request-index.js';
+import { runnerConnected, withErrorSince } from "./runner-presence.js";
 import {reportedRetryPassed} from './recheck-policy.js';
 import {isTestFollowupPath} from './criterion-ci.js';
 import {executionReadiness} from './execution-readiness.js';
@@ -183,14 +184,15 @@ export function createService(db, options = {}) {
     currentLibrary, library, list: () => {const rows=list(),ordered=queueRows([...rows].reverse());return rows.map(r=>publicRequest(r,ordered));},
     reportRunner(input) {
       const value = { ...input, projects:input.projects ?? this.runnerStatus().projects ?? [], contractProtocol:input.contractProtocol??this.runnerStatus().contractProtocol, governanceProtocol:input.governanceProtocol??this.runnerStatus().governanceProtocol, attachmentProtocol:input.attachmentProtocol??this.runnerStatus().attachmentProtocol, deploymentProtocol:input.deploymentProtocol??this.runnerStatus().deploymentProtocol,publisherEnabled:input.publisherEnabled??this.runnerStatus().publisherEnabled,lastSeenAt: now() };
-      db.prepare("INSERT OR REPLACE INTO settings(key,value) VALUES ('mac_runner',?)").run(JSON.stringify(value));
+      const previous = JSON.parse(db.prepare("SELECT value FROM settings WHERE key='mac_runner'").get()?.value || "null");
+      db.prepare("INSERT OR REPLACE INTO settings(key,value) VALUES ('mac_runner',?)").run(JSON.stringify(withErrorSince(value, previous)));
       return { ok: true };
     },
     runnerStatus() {
       const row = db.prepare("SELECT value FROM settings WHERE key='mac_runner'").get();
       if (!row) return { connected: false, phase: "unknown", lastSeenAt: null, requestId: null };
       const value = JSON.parse(row.value);
-      return { ...value, connected: value.phase!=="error" && Date.now() - Date.parse(value.lastSeenAt) < 120000 };
+      return { ...value, connected: runnerConnected(value) };
     },
     image(id,imageId){const r=get(id),metadata=r.attachments?.find(a=>a.id===imageId);if(!metadata)fail('Không tìm thấy ảnh.',404);return {metadata,bytes:feedbackImages.get(id,imageId)};},
     get: id => publicRequest(get(id)), packet: id => packet(get(id)),
@@ -715,6 +717,8 @@ export function createService(db, options = {}) {
         r.release.syncAttempts=(r.release.syncAttempts||0)+1;r.release.syncNextAt=succeeded?null:Date.now()+Math.min(1800000,30000*2**Math.min(r.release.syncAttempts,6));
         if (!succeeded) r.release.note = "Deploy thành công. Đồng bộ MD chưa đạt; hệ thống sẽ thử lại, không merge/deploy lại.";
         if(succeeded){save(r);service.memory.list(r.projectId);}
+        // Keep retrying (the project lane waits for this sync) but announce only the first failure.
+        else if(r.release.syncAttempts>1){r.updatedAt=now();save(r);return publicRequest(r);}
         return changed(r, succeeded ? "release_library_synced" : "release_library_sync_failed", "publisher", succeeded ? "Library cho feedback mới đã cập nhật theo main; packet cũ giữ nguyên." : "Deploy thành công nhưng chưa làm mới library. Kiểm tra quyền GitHub và đồng bộ lại.");
       });
     },

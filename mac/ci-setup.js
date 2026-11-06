@@ -4,6 +4,7 @@ import {mkdir,readFile,writeFile,lstat} from 'node:fs/promises';
 import {githubClient} from './release.js';
 import {ciTemplate,adapterTemplate} from './ci-template.js';
 import {assessCi,ciSetupPaths} from '../server/ci-evidence.js';
+import {createHeartbeatGuard} from './heartbeat-guard.js';
 export async function ciSetupStep({job:j,config,run,api,signal}) {
  if(!/^[a-f0-9-]{36}$/.test(j.id)||! /^[a-f0-9]{40}$/.test(j.baseCommit))throw new Error('CI job identity không hợp lệ.');
  if(j.projectId!==config.projectId||j.repository!==config.repository||j.branch!==config.branch)throw new Error('CI job không khớp project/checkout.');
@@ -86,7 +87,7 @@ export async function pollCiSetups(configs,token,run,signal,onPullRequest=async(
  for(const row of jobs){const config=configs.find(c=>c.projectId===row.projectId&&c.repository===row.repository);if(!config||signal?.aborted)continue;
   let claim;try{claim=await request('/'+row.projectId+'/claim',{jobId:row.id,protocol:adapterProtocol});}catch{continue;}
   const controller=new AbortController(),abort=()=>controller.abort();signal?.addEventListener('abort',abort,{once:true});let heartbeat=Promise.resolve();
-  const keep=setInterval(()=>{heartbeat=request('/'+row.projectId+'/heartbeat',{jobId:row.id,setupToken:claim.setupToken}).catch(()=>controller.abort());},60000);
+  const guard=createHeartbeatGuard(()=>controller.abort());const keep=setInterval(()=>{heartbeat=request('/'+row.projectId+'/heartbeat',{jobId:row.id,setupToken:claim.setupToken}).then(()=>guard.ok(),e=>{guard.fail(e);});},60000);
   let update;try{const env={...process.env};for(const k of ['AI_AGENT_LAB_MCP_TOKEN','MCP_TOKEN','OPENAI_API_KEY'])delete env[k];const safeRun=(exe,args,opts={})=>run(exe,args,{...opts,env,signal:controller.signal});update=await ciSetupStep({job:claim.job,config,run:safeRun,api:githubClient(safeRun,config.ghPath||'/opt/homebrew/bin/gh',env,controller.signal),signal:controller.signal});if(update.prNumber)await onPullRequest('https://github.com/'+row.repository+'/pull/'+update.prNumber);}catch(e){update={phase:'failed',note:String(e.message).slice(0,2000)};}finally{clearInterval(keep);await heartbeat;signal?.removeEventListener('abort',abort);}
   try{await request('/'+row.projectId+'/report',{jobId:row.id,setupToken:claim.setupToken,update});}
   catch(e){if(update.phase==='failed')throw e;await request('/'+row.projectId+'/report',{jobId:row.id,setupToken:claim.setupToken,update:{...update,phase:'failed',note:'Mac đã dừng bước này; server chưa xác minh được GitHub/library. Kiểm tra quyền/rate limit rồi dùng Thử lại CI. '+update.note}});}

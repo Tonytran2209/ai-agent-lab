@@ -29,6 +29,10 @@ test('admin acceptance queues a bound release; claims are exclusive, sanitized a
   assert.equal(s.releaseLibrarySync(r.id,true).release.librarySync,'synced');
   assert.equal(s.releaseLibrarySync(r.id,false).release.deployedAt,deployedAt);
   assert.equal(createService(db).get(r.id).release.deployedAt,deployedAt);
+  s.releaseLibrarySync(r.id,false);s.releaseLibrarySync(r.id,false);
+  const failures=db.prepare("SELECT count(*) AS n FROM events WHERE request_id=? AND json_extract(data,'$.type')='release_library_sync_failed'").get(r.id).n;
+  assert.ok(failures<=1,'repeated post-deploy MD sync failures must not add an event per retry');
+  assert.ok(s.get(r.id).release.syncNextAt>Date.now(),'retries stay scheduled');
  }finally{db.close();rmSync(dir,{recursive:true,force:true});}
 });
 test('high risk requires separate explicit release confirmation and failed checks cannot publish',()=>{
