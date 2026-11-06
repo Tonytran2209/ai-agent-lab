@@ -1,0 +1,466 @@
+/* Clean dashboard theme for the Performance page.
+   Neutral canvas, white cards with soft shadows, one green accent for volume
+   charts and a small categorical palette for breakdowns. Loaded after the
+   older bento styles and overrides their palette; status semantics stay. */
+main:has(.performance-page) {
+  background: var(--perf-canvas);
+}
+.performance-page {
+  --perf-canvas: #eef0f3;
+  --perf-surface: #fff;
+  --perf-track: #f2f3f5;
+  --perf-line: #eceef1;
+  --perf-label: #6b7280;
+  --perf-shadow: 0 1px 2px rgb(16 24 40 / 4%), 0 2px 8px rgb(16 24 40 / 4%);
+  --perf-green: #22c55e;
+  --perf-green-soft: #e9f9ef;
+  --perf-green-ink: #15803d;
+  --perf-purple: #7c6cf2;
+  --perf-yellow: #f1df86;
+  --perf-rose: #ef4f6b;
+  --rc-c-primary: var(--perf-green);
+  --rc-c-error: var(--perf-rose);
+  --rc-c-1: var(--perf-green);
+  --rc-c-2: var(--perf-purple);
+  --rc-c-3: var(--perf-yellow);
+  padding-bottom: var(--space-8);
+}
+[data-theme="dark"] .performance-page {
+  --perf-canvas: #141414;
+  --perf-surface: #1f1f1f;
+  --perf-track: #2a2a2a;
+  --perf-line: #2e2e2e;
+  --perf-label: #a3a3a3;
+  --perf-shadow: 0 1px 2px rgb(0 0 0 / 30%);
+  --perf-green: #34d27a;
+  --perf-green-soft: rgb(52 210 122 / 14%);
+  --perf-green-ink: #6ee7a0;
+  --perf-purple: #9d90ff;
+  --perf-yellow: #e6d27a;
+}
+
+/* Header and toolbar */
+.performance-page .perf-heading h1 {
+  font-size: 26px;
+  letter-spacing: -0.02em;
+}
+.performance-page .eyebrow {
+  color: var(--perf-label);
+}
+.performance-page .perf-subnav {
+  margin: var(--space-4) 0 var(--space-6);
+}
+.performance-page .perf-switch {
+  background: var(--perf-surface);
+  border-radius: 999px;
+  box-shadow: var(--perf-shadow);
+}
+.performance-page .perf-switch button {
+  border-radius: 999px;
+  padding: 6px 14px;
+  min-height: 32px;
+  font-size: 13px;
+}
+.performance-page .perf-switch button[aria-pressed="true"] {
+  background: var(--perf-track);
+  color: var(--text);
+  font-weight: 550;
+}
+.performance-page .perf-select select,
+.performance-page .perf-toolbar .button {
+  border-radius: 999px;
+  border-color: transparent;
+  background-color: var(--perf-surface);
+  box-shadow: var(--perf-shadow);
+}
+
+/* Cards: one surface style everywhere */
+.performance-page .perf-card,
+.performance-page .rc-card,
+.performance-page .rc-card.rc-project-usage,
+.performance-page .rc-card.rc-latency,
+.performance-page .rc-card.rc-workflow,
+.performance-page .task-list {
+  --card: var(--perf-surface);
+  --rc-fg: var(--text);
+  --rc-muted: var(--perf-label);
+  background: var(--perf-surface);
+  color: var(--text);
+  border: 0;
+  border-radius: 16px;
+  box-shadow: var(--perf-shadow);
+}
+.performance-page .perf-card {
+  padding: 20px 24px;
+}
+.performance-page .perf-card-heading {
+  margin-bottom: var(--space-4);
+}
+.performance-page .perf-card h2,
+.performance-page .perf-card h3,
+.performance-page .rc-heading h3 {
+  font-size: 15px;
+  font-weight: 600;
+}
+.performance-page .perf-card-heading p,
+.performance-page .rc-heading p,
+.performance-page .perf-card-heading > svg,
+.performance-page .rc-heading > span {
+  color: var(--perf-label);
+}
+.performance-page .perf-section-heading {
+  margin: var(--space-8) 0 var(--space-4);
+}
+.performance-page .perf-section-heading h2 {
+  font-size: 18px;
+}
+.performance-page .perf-metrics,
+.performance-page .perf-grid,
+.performance-page .rc-bento,
+.performance-page .task-summary {
+  gap: var(--space-4);
+}
+
+/* KPI tiles: neutral surface, colour only on the tone badge */
+.performance-page .perf-metric,
+.performance-page .perf-metric[data-surface] {
+  --card: var(--perf-surface);
+  --text: inherit;
+  --secondary: var(--perf-label);
+  --muted: var(--perf-label);
+  min-height: 0;
+}
+.performance-page .perf-metric .perf-card-label {
+  color: var(--perf-label);
+  font-size: 13px;
+}
+.performance-page .perf-metric > strong {
+  margin: 14px 0 6px;
+  font-size: 32px;
+  letter-spacing: -0.03em;
+  color: var(--text);
+}
+.performance-page .perf-metric > small {
+  color: var(--perf-label);
+  font-size: 12px;
+}
+.performance-page .perf-metric .perf-card-label svg {
+  padding: 5px;
+  border-radius: 999px;
+  color: var(--perf-tone, var(--perf-label));
+  background: color-mix(in srgb, var(--perf-tone, var(--perf-label)) 12%, transparent);
+}
+.performance-page .perf-metric[data-surface][data-tone="info"] .perf-card-label svg {
+  --perf-tone: var(--link);
+}
+.performance-page .perf-metric[data-tone="success"] .perf-card-label svg {
+  color: var(--perf-green-ink);
+  background: var(--perf-green-soft);
+}
+.performance-page .perf-metric[data-surface][data-tone="error"] .perf-card-label svg {
+  --perf-tone: var(--danger);
+}
+.performance-page .perf-metric[data-surface][data-tone="neutral"] .perf-card-label svg {
+  --perf-tone: var(--perf-label);
+}
+
+/* Dark bento cards back to the shared light surface */
+.performance-page .perf-metric[data-surface="ink"],
+.performance-page .perf-system-card,
+.performance-page .perf-trend-card {
+  --text: inherit;
+  --secondary: var(--perf-label);
+  --muted: var(--perf-label);
+  --border: var(--perf-line);
+  --success: var(--perf-green-ink);
+  --warning: #b45309;
+  --danger: #c0262d;
+}
+[data-theme="dark"] .performance-page .perf-metric[data-surface="ink"],
+[data-theme="dark"] .performance-page .perf-system-card,
+[data-theme="dark"] .performance-page .perf-trend-card {
+  --warning: #f0ca73;
+  --danger: #ff8a80;
+}
+
+/* Status signals as soft pills */
+.performance-page .perf-signal {
+  padding: 3px 10px 3px 8px;
+  border-radius: 999px;
+  background: var(--perf-track);
+  font-weight: 500;
+}
+.performance-page .perf-signal.success {
+  color: var(--perf-green-ink);
+  background: var(--perf-green-soft);
+}
+.performance-page .perf-signal.warning {
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
+}
+.performance-page .perf-signal.error {
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+}
+
+/* Key/value rows and tables */
+.performance-page .perf-health > div,
+.performance-page .perf-recent td,
+.performance-page .perf-recent th,
+.performance-page .perf-project-targets th,
+.performance-page .perf-project-targets td,
+.performance-page .perf-main-job th,
+.performance-page .perf-main-job td,
+.performance-page .task-row + .task-row,
+.performance-page .task-detail,
+.performance-page .task-detail td,
+.performance-page .task-detail th {
+  border-color: var(--perf-line);
+}
+.performance-page .perf-health > div:last-child,
+.performance-page .perf-recent tbody tr:last-child td {
+  border-bottom: 0;
+}
+.performance-page .perf-health dt,
+.performance-page .perf-recent th,
+.performance-page .perf-project-targets small {
+  color: var(--perf-label);
+}
+.performance-page .perf-card thead th {
+  font-weight: 500;
+  font-size: 12px;
+  color: var(--perf-label);
+  border-bottom: 0;
+  background: var(--perf-track);
+}
+.performance-page .perf-card thead th:first-child {
+  border-radius: 8px 0 0 8px;
+}
+.performance-page .perf-card thead th:last-child {
+  border-radius: 0 8px 8px 0;
+}
+.performance-page .perf-tag {
+  border: 0;
+  background: var(--perf-track);
+  color: var(--perf-label);
+  border-radius: 999px;
+  padding: 3px 10px;
+}
+
+/* Feedback trend: green bars over light full-height tracks */
+.performance-page .perf-chart {
+  height: 220px;
+  gap: 8px;
+  border-bottom: 0;
+  background: none;
+}
+.performance-page .perf-bar-track {
+  width: 64%;
+  max-width: 22px;
+  border-radius: 999px;
+  background: var(--perf-track);
+  overflow: hidden;
+}
+.performance-page .perf-bar,
+.performance-page .perf-trend-card .perf-bar {
+  background: var(--perf-green);
+  opacity: 1;
+  border-radius: 999px;
+}
+.performance-page .perf-bar-count {
+  color: var(--perf-label);
+  font-variant-numeric: tabular-nums;
+}
+.performance-page .perf-bar-column > small,
+.performance-page .perf-chart-footer {
+  color: var(--perf-label);
+}
+
+/* Connection map */
+.performance-page .perf-topology-canvas {
+  border: 0;
+  border-radius: 12px;
+  background: radial-gradient(circle, var(--perf-line) 1px, transparent 1px) var(--perf-track) 7px 7px / 22px 22px;
+}
+.performance-page .perf-topology-node,
+.performance-page .perf-topology-tools,
+.performance-page .perf-topology-details {
+  border: 0;
+  border-radius: 14px;
+  background: var(--perf-surface);
+  box-shadow: var(--perf-shadow);
+}
+.performance-page .perf-topology-node > .perf-signal {
+  align-self: flex-start;
+}
+.performance-page .perf-topology-node[aria-pressed="true"] {
+  box-shadow: 0 0 0 2px var(--perf-green), var(--perf-shadow);
+}
+
+/* Main job */
+.performance-page .perf-main-job-steps li {
+  border: 0;
+  border-radius: 999px;
+  padding: 4px 12px 4px 4px;
+  background: var(--perf-track);
+}
+.performance-page .perf-main-job-steps li span {
+  background: var(--perf-surface);
+}
+.performance-page .perf-main-job-metrics > div {
+  background: var(--perf-track);
+  border-radius: 12px;
+}
+
+/* Runtime bento: light cards, colour moved into the data marks */
+.performance-page .rc-card.rc-ink,
+.performance-page .rc-card.rc-lime,
+.performance-page .rc-card.rc-orange,
+.performance-page .rc-card.rc-blue,
+.performance-page .rc-card.rc-white {
+  --rc-fg: var(--text);
+  --rc-muted: var(--perf-label);
+  background: var(--perf-surface);
+}
+.performance-page .rc-number {
+  font-size: clamp(28px, 2.8vw, 36px);
+  letter-spacing: -0.03em;
+}
+.performance-page .rc-gauge-track {
+  stroke: var(--perf-track);
+}
+.performance-page .rc-gauge-fill {
+  stroke: var(--perf-green);
+}
+.performance-page .rc-content-strip,
+.performance-page .rc-workflow-track {
+  gap: 4px;
+  height: 14px;
+  border-radius: 0;
+  overflow: visible;
+}
+.performance-page .rc-content-strip > span,
+.performance-page .rc-workflow-track > span {
+  border-radius: 999px;
+}
+.performance-page .rc-workflow-row .rc-workflow-track {
+  height: 10px;
+}
+.performance-page .rc-status-good {
+  background: var(--perf-green);
+}
+.performance-page .rc-status-bad {
+  background: var(--perf-rose);
+}
+.performance-page .rc-status-waiting {
+  background: var(--perf-yellow);
+}
+.performance-page .rc-status-other {
+  background: var(--perf-purple);
+}
+.performance-page .rc-traffic-track {
+  background: var(--perf-track);
+}
+.performance-page .rc-traffic-fill {
+  background: var(--perf-green);
+}
+.performance-page .rc-traffic-fill > i {
+  background: var(--perf-rose);
+}
+.performance-page .rc-observation-gap {
+  border-left-color: var(--perf-line);
+}
+.performance-page .rc-token-track,
+.performance-page .rc-cost-track {
+  background: var(--perf-track);
+}
+.performance-page .rc-token-track > div {
+  gap: 3px;
+}
+.performance-page .rc-token-track i {
+  border-radius: 999px;
+}
+.performance-page .rc-cost-track,
+.performance-page .rc-cost-track span {
+  height: 6px;
+  border-radius: 999px;
+}
+.performance-page .rc-cost-track span {
+  background: var(--perf-purple);
+}
+.performance-page .rc-cost-track span::after {
+  top: -3px;
+  width: 12px;
+  height: 12px;
+  box-sizing: border-box;
+  background: var(--perf-surface);
+  border: 3px solid var(--perf-purple);
+}
+.performance-page .rc-price-missing {
+  border-top-color: var(--perf-line);
+}
+
+/* Latency card: light surface, purple marks */
+.performance-page .rc-card.rc-latency {
+  --latency-accent: var(--perf-purple);
+}
+.performance-page .rc-latency-summary strong {
+  color: var(--text);
+}
+.performance-page .rc-latency-graph {
+  border-block-color: var(--perf-line);
+  background: linear-gradient(transparent calc(50% - 0.5px), var(--perf-line) calc(50% - 0.5px), var(--perf-line) calc(50% + 0.5px), transparent calc(50% + 0.5px));
+}
+.performance-page .rc-latency-bar {
+  border-radius: 6px 6px 0 0;
+}
+.performance-page .rc-latency-bar:is(:hover, :focus-visible, [aria-pressed="true"]) {
+  background: color-mix(in srgb, var(--perf-purple) 70%, var(--perf-surface));
+}
+
+/* Project usage timeline */
+.performance-page .rc-card.rc-project-usage {
+  --usage-surface: var(--perf-surface);
+  --usage-cell: var(--perf-track);
+  --usage-accent: var(--perf-green);
+}
+.performance-page .rc-project-usage [data-source="dispatcher"] {
+  --usage-series: var(--perf-purple);
+}
+.performance-page .rc-project-usage-switch,
+.performance-page .rc-project-usage-switch button {
+  border-radius: 999px;
+}
+
+/* Task usage list and details */
+.performance-page .rc-details {
+  border-top-color: var(--perf-line);
+}
+.performance-page .rc-details > summary {
+  color: var(--perf-label);
+}
+
+/* Messages */
+.performance-page .perf-error {
+  border: 0;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--danger) 8%, var(--perf-surface));
+}
+.performance-page .perf-skeleton {
+  border-radius: 16px;
+  background: var(--perf-surface);
+}
+
+@media (max-width: 600px) {
+  .performance-page .perf-card {
+    padding: 16px;
+  }
+  .performance-page .perf-card,
+  .performance-page .rc-card {
+    border-radius: 14px;
+  }
+  .performance-page .perf-switch button {
+    min-height: 44px;
+  }
+  .performance-page .perf-metric > strong {
+    font-size: 28px;
+  }
+}

@@ -210,8 +210,8 @@ export function RuntimeOverview({ report: r }) {
             </div>
             <Legend
               items={[
-                { label: "HTTP requests", color: "#242522" },
-                { label: "Trong đó lỗi 5xx", color: "#7e1d22" },
+                { label: "HTTP requests", color: "var(--rc-c-primary, #242522)" },
+                { label: "Trong đó lỗi 5xx", color: "var(--rc-c-error, #7e1d22)" },
               ]}
             />
           </>
@@ -275,9 +275,9 @@ function AIModelCharts({ report, source }) {
         </strong>
         <Legend
           items={[
-            { label: "Input không cache", color: "#ceff62" },
-            { label: "Cached input", color: "#9ab9ff" },
-            { label: "Output", color: "#ffed87" },
+            { label: "Input không cache", color: "var(--rc-c-1, #ceff62)" },
+            { label: "Cached input", color: "var(--rc-c-2, #9ab9ff)" },
+            { label: "Output", color: "var(--rc-c-3, #ffed87)" },
           ]}
         />
         {series.length ? (
@@ -295,9 +295,9 @@ function AIModelCharts({ report, source }) {
                 >
                   <div style={{ width: (v.total / max) * 100 + "%" }}>
                     {[
-                      [v.input - v.cached, "#ceff62"],
-                      [v.cached, "#9ab9ff"],
-                      [v.output, "#ffed87"],
+                      [v.input - v.cached, "var(--rc-c-1, #ceff62)"],
+                      [v.cached, "var(--rc-c-2, #9ab9ff)"],
+                      [v.output, "var(--rc-c-3, #ffed87)"],
                     ].map(([value, color], i) => (
                       <i
                         key={i}

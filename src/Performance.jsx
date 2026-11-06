@@ -22,6 +22,7 @@ import {
   X,
 } from "lucide-react"
 import "./performance.css"
+import "./performance-theme.css"
 
 const number = (value) =>
   new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 1 }).format(value)
