@@ -1,7 +1,7 @@
 import TaskUsage from "./TaskUsage.jsx";
 import AnimatedValue from "./AnimatedValue.jsx"
 import { RuntimeOverview, AICharts, WorkflowStatus } from "./RuntimeCharts.jsx"
-import React, { useEffect, useState } from "react"
+import React, { useEffect, useRef, useState } from "react"
 import {
   Activity,
   ArrowUpRight,
@@ -11,6 +11,8 @@ import {
   GitBranch,
   Clock,
   CheckCircle2,
+  FlaskConical,
+  Network,
 } from "lucide-react"
 import "./performance.css"
 
@@ -26,13 +28,13 @@ const duration = (ms) =>
       : ms < 60000
         ? number(ms / 1000) + " giây"
         : number(ms / 60000) + " phút"
-const connectionLabels = {
-  ready: "Sẵn sàng",
-  stale: "Tín hiệu quá hạn",
-  error: "Lỗi checkout",
-  unknown: "Chưa có tín hiệu",
-  paused: "Đã tạm dừng",
-  disabled: "Runner chưa bật",
+const connectionSignals = {
+  ready: { label: "Sẵn sàng", tone: "success" },
+  stale: { label: "Tín hiệu quá hạn", tone: "warning" },
+  error: { label: "Lỗi checkout", tone: "error" },
+  unknown: { label: "Chưa có tín hiệu", tone: "neutral" },
+  paused: { label: "Đã tạm dừng", tone: "neutral" },
+  disabled: { label: "Runner chưa bật", tone: "neutral" },
 }
 const statusLabels = {
   completed: "Đã nghiệm thu",
@@ -61,6 +63,118 @@ function Signal({ tone = "neutral", children }) {
     </span>
   )
 }
+function ConnectionNode({ icon: Icon, name, subtitle, signal, selected, onSelect }) {
+  return (
+    <button
+      type="button"
+      className="perf-topology-node"
+      aria-pressed={selected}
+      aria-controls={selected ? "perf-connection-details" : undefined}
+      onClick={onSelect}
+    >
+      <span className="perf-topology-node-heading">
+        <Icon size={18} aria-hidden="true" />
+        <span>
+          <strong>{name}</strong>
+          <small>{subtitle}</small>
+        </span>
+      </span>
+      <Signal tone={signal.tone}>{signal.label}</Signal>
+    </button>
+  )
+}
+
+function ConnectionMap({ projects, runner }) {
+  const [selection, setSelection] = useState(null)
+  const detailsRef = useRef(null)
+  useEffect(() => {
+    if (selection) detailsRef.current?.scrollIntoView({ block: "nearest" })
+  }, [selection])
+  const project = projects.find((item) => item.id === selection?.projectId)
+  const labSelected = selection?.lab === true
+  const projectSignal = (item) => connectionSignals[item.connection] || connectionSignals.unknown
+  const runnerSignal = runner.connected
+    ? { label: "Mac đã kết nối", tone: "success" }
+    : { label: "Mac chưa có tín hiệu mới", tone: "warning" }
+  const toggle = (next, selected) => setSelection(selected ? null : next)
+  const details = project
+    ? [
+        ["Repository", project.repository],
+        ["Kết nối runner", <Signal tone={projectSignal(project).tone}>{projectSignal(project).label}</Signal>],
+        ["Project", project.enabled ? "Đang bật" : "Tạm dừng"],
+        ["Mac runner cho project", project.runnerEnabled ? "Đã bật" : "Chưa bật"],
+        ["Request đang chạy", number(project.running)],
+        ["Request bị chặn trong hàng đợi", number(project.blocked)],
+      ]
+    : [
+        ["API", <Signal tone="success">Đang phản hồi tại lần tải gần nhất</Signal>],
+        ["Mac runner", <Signal tone={runnerSignal.tone}>{runnerSignal.label}</Signal>],
+        ["Heartbeat Mac gần nhất", timestamp(runner.lastSeenAt)],
+        ["Project đã đăng ký", number(projects.length)],
+      ]
+
+  return (
+    <section className="perf-card perf-topology" aria-labelledby="perf-connection-title">
+      <div className="perf-card-heading">
+        <div>
+          <h2 id="perf-connection-title">Sơ đồ kết nối</h2>
+          <p>Chọn AI Agent Lab hoặc một project để xem chi tiết kết nối.</p>
+        </div>
+        <Network size={18} aria-hidden="true" />
+      </div>
+      <div className="perf-topology-canvas">
+        <ConnectionNode
+          icon={FlaskConical}
+          name="AI Agent Lab"
+          subtitle="Điều phối project"
+          signal={runnerSignal}
+          selected={labSelected}
+          onSelect={() => toggle({ lab: true }, labSelected)}
+        />
+        {projects.length > 0 ? (
+          <ul className="perf-topology-projects" aria-label="Project đã đăng ký">
+            {projects.map((item) => (
+              <li key={item.id}>
+                <ConnectionNode
+                  icon={GitBranch}
+                  name={item.name}
+                  subtitle={item.repository}
+                  signal={projectSignal(item)}
+                  selected={project?.id === item.id}
+                  onSelect={() => toggle({ projectId: item.id }, project?.id === item.id)}
+                />
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="perf-topology-empty">Chưa có project đăng ký.</p>
+        )}
+      </div>
+      {(labSelected || project) && (
+        <section
+          id="perf-connection-details"
+          ref={detailsRef}
+          className="perf-topology-details"
+          aria-labelledby="perf-connection-details-title"
+        >
+          <h3 id="perf-connection-details-title">Chi tiết · {project?.name || "AI Agent Lab"}</h3>
+          <dl className="perf-health">
+            {details.map(([label, value]) => (
+              <div key={label}>
+                <dt>{label}</dt>
+                <dd>{value}</dd>
+              </div>
+            ))}
+          </dl>
+        </section>
+      )}
+      <p className="perf-footnote">
+        Trạng thái project dựa trên cấu hình kết nối và tín hiệu Mac runner của Lab.
+      </p>
+    </section>
+  )
+}
+
 function PerformanceSelect({ children, ...props }) {
   return (
     <span className="perf-select">
@@ -568,9 +682,6 @@ export default function Performance({ api, onRequest }) {
       clearInterval(timer)
     }
   }, [days, refresh, reportProject])
-  const projects =
-    data?.projects.filter((p) => projectId === "all" || p.id === projectId) ||
-    []
   const recent =
     data?.recent.filter(
       (r) => projectId === "all" || r.projectId === projectId,
@@ -680,6 +791,7 @@ export default function Performance({ api, onRequest }) {
                   ))}
                 </PerformanceSelect>
               </div>
+              <ConnectionMap projects={data.projects} runner={lab.runner} />
               <div className="perf-metrics">
                 <Metric
                   icon={Activity}
