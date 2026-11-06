@@ -417,6 +417,7 @@ function ProjectPerformanceTargets({ report }) {
     value > 0 && value < 0.01
       ? "< 0,01%"
       : new Intl.NumberFormat("vi-VN", { style: "percent", maximumFractionDigits: 2 }).format(value / 100)
+  const sampleCount = (metric) => number(report.performanceKpis[metric].samples) + " mẫu"
   const samples = metrics.executed === null ? "" : " · " + number(metrics.executed) + " job đã thực hiện"
   const rows = [
     {
@@ -426,7 +427,10 @@ function ProjectPerformanceTargets({ report }) {
       format: duration,
       target: "≤ 2,5 giây",
       meets: metrics.responseMs <= 2500,
-      note: metrics.httpP95Ms === null ? null : "Tham chiếu HTTP P95 · " + duration(metrics.httpP95Ms),
+      note: [
+        metrics.responseMs === null ? null : sampleCount("responseTime"),
+        metrics.httpP95Ms === null ? null : "Tham chiếu HTTP P95 · " + duration(metrics.httpP95Ms),
+      ].filter(Boolean).join(" · "),
     },
     {
       name: "Click Latency",
@@ -435,6 +439,7 @@ function ProjectPerformanceTargets({ report }) {
       format: duration,
       target: "≤ 200 ms",
       meets: metrics.clickMs <= 200,
+      note: metrics.clickMs === null ? null : sampleCount("clickLatency"),
     },
     {
       name: "Job Completion Time",
@@ -456,6 +461,9 @@ function ProjectPerformanceTargets({ report }) {
       format: rate,
       target: "0%",
       meets: metrics.errorRate === 0,
+      note: metrics.executed > 0 && metrics.errorRate === null
+        ? "Có job chưa xác định được loại lỗi."
+        : null,
     },
     {
       name: "Job Success Rate",
@@ -472,7 +480,7 @@ function ProjectPerformanceTargets({ report }) {
       <div className="perf-card-heading">
         <div>
           <h3>Mục tiêu hiệu năng</h3>
-          <p>Chỉ số theo kỳ báo cáo · P95 là mức mà 95% mẫu nằm ở mức đó hoặc thấp hơn.</p>
+          <p>Chỉ số theo kỳ báo cáo · P95 là cận trên của khoảng chứa mẫu phân vị 95%.</p>
         </div>
         <Activity size={18} aria-hidden="true" />
       </div>
