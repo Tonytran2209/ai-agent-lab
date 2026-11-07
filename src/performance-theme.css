@@ -510,3 +510,25 @@
 .perf-app-section tbody tr:last-child > * {
   border-bottom: 0;
 }
+
+/* Connection map: monitored apps (read-only) vs registered projects */
+.perf-topology-wires g.monitor path {
+  stroke-dasharray: 1.5 5;
+  stroke-linecap: round;
+}
+.perf-topology-node.monitor {
+  border-style: dashed;
+  border-color: var(--control-border);
+}
+.perf-topology-group {
+  position: absolute;
+  margin: 0;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--perf-label);
+  pointer-events: none;
+}
+.perf-topology-open {
+  margin-top: var(--space-4);
+  width: 100%;
+}

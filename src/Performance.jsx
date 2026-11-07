@@ -19,6 +19,7 @@ import {
   Maximize,
   Minus,
   Network,
+  Gauge,
   Plus,
   X,
 } from "lucide-react"
@@ -44,6 +45,14 @@ const connectionSignals = {
   unknown: { label: "Chưa có tín hiệu", tone: "neutral" },
   paused: { label: "Đã tạm dừng", tone: "neutral" },
   disabled: { label: "Runner chưa bật", tone: "neutral" },
+}
+// Monitored apps: status of the last read of /internal/monitoring (read-only, no Lab authority).
+const monitorSignals = {
+  ready: { label: "Đang báo cáo", tone: "success" },
+  degraded: { label: "Báo cáo thiếu dữ liệu", tone: "warning" },
+  unauthorized: { label: "Sai token", tone: "error" },
+  unavailable: { label: "Mất tín hiệu", tone: "error" },
+  loading: { label: "Đang kiểm tra", tone: "neutral" },
 }
 const statusLabels = {
   completed: "Đã nghiệm thu",
@@ -72,11 +81,11 @@ function Signal({ tone = "neutral", children }) {
     </span>
   )
 }
-function ConnectionNode({ icon: Icon, name, subtitle, signal, selected, onSelect, x, y }) {
+function ConnectionNode({ icon: Icon, name, subtitle, signal, selected, onSelect, x, y, kind }) {
   return (
     <button
       type="button"
-      className="perf-topology-node"
+      className={"perf-topology-node" + (kind ? " " + kind : "")}
       style={{ left: x, top: y }}
       aria-pressed={selected}
       aria-controls={selected ? "perf-connection-details" : undefined}
@@ -99,7 +108,7 @@ const columnGap = 72
 const rowGap = 96
 const canvasGutter = 24
 
-function ConnectionMap({ projects, runner }) {
+function ConnectionMap({ projects, runner, monitored, onOpenApp }) {
   const [selection, setSelection] = useState(null)
   const [zoom, setZoom] = useState(1)
   const [viewportWidth, setViewportWidth] = useState(0)
@@ -114,26 +123,31 @@ function ConnectionMap({ projects, runner }) {
   }, [])
 
   const nodeWidth = viewportWidth ? Math.min(264, Math.max(180, viewportWidth - canvasGutter * 2)) : 264
+  const apps = monitored?.targets || []
   const columns = Math.max(1, Math.min(
     3,
-    projects.length,
+    Math.max(projects.length, apps.length),
     Math.floor((viewportWidth - canvasGutter * 2 + columnGap) / (nodeWidth + columnGap)),
   ))
-  const rows = Math.ceil(projects.length / columns)
+  const projectRows = Math.ceil(projects.length / columns)
+  const appRows = Math.ceil(apps.length / columns)
+  const rows = projectRows + appRows
   const width = columns * (nodeWidth + columnGap) - columnGap + canvasGutter * 2
   const height = 500 + Math.max(0, rows - 1) * (nodeHeight + rowGap)
   const hubX = (width - nodeWidth) / 2
   const hubY = rows ? 62 : 158
   const hubCenter = width / 2
   const hubBottom = hubY + nodeHeight
-  const nodes = projects.map((item, index) => {
-    const row = Math.floor(index / columns)
-    const count = Math.min(columns, projects.length - row * columns)
+  // Each group starts on a new row; monitored apps sit below registered projects.
+  const place = (list, firstRow, kind) => list.map((item, index) => {
+    const row = firstRow + Math.floor(index / columns)
+    const count = Math.min(columns, list.length - Math.floor(index / columns) * columns)
     const x = (width - count * (nodeWidth + columnGap) + columnGap) / 2
       + (index % columns) * (nodeWidth + columnGap)
     const y = hubBottom + rowGap + row * (nodeHeight + rowGap)
-    return { item, x, y }
+    return { item, x, y, kind, key: kind + ":" + item.id }
   })
+  const nodes = [...place(projects, 0, "project"), ...place(apps, projectRows, "monitor")]
   const busY = hubBottom + rowGap / 2
   const railX = canvasGutter / 2
   function fitCanvas() {
@@ -158,12 +172,24 @@ function ConnectionMap({ projects, runner }) {
   }, [selection])
 
   const project = projects.find((item) => item.id === selection?.projectId)
+  const app = apps.find((item) => item.id === selection?.appId)
   const labSelected = selection?.lab === true
+  const appSignal = (item) => monitorSignals[item.status] || monitorSignals.unavailable
   const projectSignal = (item) => connectionSignals[item.connection] || connectionSignals.unknown
   const runnerSignal = runner.connected
     ? { label: "Mac đã kết nối", tone: "success" }
     : { label: "Mac chưa có tín hiệu mới", tone: "warning" }
-  const details = project
+  const details = app
+    ? [
+        ["Loại kết nối", "Ứng dụng theo dõi · chỉ đọc số liệu"],
+        ["Địa chỉ", app.origin],
+        ["Trạng thái báo cáo", <Signal tone={appSignal(app).tone}>{appSignal(app).label}</Signal>],
+        ["App ID", app.appId || "Chưa xác định"],
+        ["Báo cáo gần nhất", app.generatedAt ? timestamp(app.generatedAt) : "Chưa đọc được"],
+        ["App → Lab", app.fetchMs == null ? "—" : duration(app.fetchMs)],
+        ["Quyền trong Lab", "Không nhận feedback, không chạy code, không deploy"],
+      ]
+    : project
     ? [
         ["Repository", project.repository],
         ["Kết nối runner", <Signal tone={projectSignal(project).tone}>{projectSignal(project).label}</Signal>],
@@ -177,6 +203,7 @@ function ConnectionMap({ projects, runner }) {
         ["Mac runner", <Signal tone={runnerSignal.tone}>{runnerSignal.label}</Signal>],
         ["Heartbeat Mac gần nhất", timestamp(runner.lastSeenAt)],
         ["Project đã đăng ký", number(projects.length)],
+        ["Ứng dụng theo dõi", monitored?.error ? "Chưa đọc được" : monitored ? number(apps.length) : "Đang tải"],
       ]
 
   return (
@@ -184,14 +211,14 @@ function ConnectionMap({ projects, runner }) {
       <div className="perf-card-heading">
         <div>
           <h2 id="perf-connection-title">Sơ đồ kết nối</h2>
-          <p>Chọn AI Agent Lab hoặc một project để xem chi tiết kết nối.</p>
+          <p>Chọn AI Agent Lab, một project hoặc một ứng dụng theo dõi để xem chi tiết kết nối.</p>
         </div>
         <Network size={18} aria-hidden="true" />
       </div>
       <div
         className="perf-topology-canvas"
         onKeyDown={(event) => {
-          if (event.key === "Escape" && (labSelected || project)) closeDetails()
+          if (event.key === "Escape" && (labSelected || project || app)) closeDetails()
         }}
       >
         <div className="perf-topology-viewport" ref={viewportRef}>
@@ -202,11 +229,11 @@ function ConnectionMap({ projects, runner }) {
                 {rows > 1 && (
                   <path d={`M ${hubCenter} ${busY} H ${railX} V ${nodes.at(-1).y - rowGap / 2}`} />
                 )}
-                {nodes.map(({ item, x, y }) => {
+                {nodes.map(({ x, y, kind, key }) => {
                   const center = x + nodeWidth / 2
                   const branchY = y - rowGap / 2
                   return (
-                    <g key={item.id}>
+                    <g key={key} className={kind}>
                       <path d={`M ${branchY === busY ? hubCenter : railX} ${branchY} H ${center} V ${y - 7}`} />
                       <polygon points={`${center - 4},${y - 8} ${center + 4},${y - 8} ${center},${y - 2}`} />
                     </g>
@@ -224,10 +251,10 @@ function ConnectionMap({ projects, runner }) {
               y={hubY}
               onSelect={(event) => toggle(event, { lab: true }, labSelected)}
             />
-            {nodes.length > 0 ? (
+            {projects.length > 0 ? (
               <ul className="perf-topology-projects" aria-label="Project đã đăng ký">
-                {nodes.map(({ item, x, y }) => (
-                  <li key={item.id}>
+                {nodes.filter((n) => n.kind === "project").map(({ item, x, y, key }) => (
+                  <li key={key}>
                     <ConnectionNode
                       icon={Github}
                       name={item.name}
@@ -246,6 +273,30 @@ function ConnectionMap({ projects, runner }) {
                 Chưa có project đăng ký.
               </p>
             )}
+            {apps.length > 0 && (
+              <>
+                <p className="perf-topology-group" style={{ top: hubBottom + rowGap + projectRows * (nodeHeight + rowGap) - rowGap / 2 - 26, left: nodes.find((n) => n.kind === "monitor").x }}>
+                  Ứng dụng theo dõi · chỉ đọc số liệu
+                </p>
+                <ul className="perf-topology-projects" aria-label="Ứng dụng theo dõi">
+                  {nodes.filter((n) => n.kind === "monitor").map(({ item, x, y, key }) => (
+                    <li key={key}>
+                      <ConnectionNode
+                        icon={Gauge}
+                        kind="monitor"
+                        name={item.name}
+                        subtitle={item.origin.replace(/^https:\/\//, "")}
+                        signal={appSignal(item)}
+                        selected={app?.id === item.id}
+                        x={x}
+                        y={y}
+                        onSelect={(event) => toggle(event, { appId: item.id }, app?.id === item.id)}
+                      />
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
           </div>
         </div>
         <div className="perf-topology-tools" role="group" aria-label="Thu phóng sơ đồ">
@@ -259,7 +310,7 @@ function ConnectionMap({ projects, runner }) {
             <Maximize size={15} aria-hidden="true" />
           </button>
         </div>
-        {(labSelected || project) && (
+        {(labSelected || project || app) && (
           <section
             id="perf-connection-details"
             className="perf-topology-details"
@@ -268,7 +319,7 @@ function ConnectionMap({ projects, runner }) {
             <header>
               <div>
                 <small className="eyebrow">CHI TIẾT KẾT NỐI</small>
-                <h3 id="perf-connection-details-title">{project?.name || "AI Agent Lab"}</h3>
+                <h3 id="perf-connection-details-title">{app?.name || project?.name || "AI Agent Lab"}</h3>
               </div>
               <button className="icon-button" type="button" ref={closeRef} aria-label="Đóng chi tiết kết nối" onClick={closeDetails}>
                 <X size={17} aria-hidden="true" />
@@ -282,11 +333,17 @@ function ConnectionMap({ projects, runner }) {
                 </div>
               ))}
             </dl>
+            {app && onOpenApp && (
+              <button type="button" className="button perf-topology-open" onClick={() => onOpenApp(app.id)}>
+                Xem số liệu ứng dụng
+              </button>
+            )}
           </section>
         )}
       </div>
       <p className="perf-footnote">
-        Trạng thái project dựa trên cấu hình kết nối và tín hiệu Mac runner của Lab.
+        Trạng thái project dựa trên cấu hình kết nối và tín hiệu Mac runner của Lab. Ứng dụng theo dõi (nét chấm) chỉ gửi số liệu cho Lab qua endpoint monitoring, quản lý tại Cài đặt → Monitoring ứng dụng.
+        {monitored?.error && " Chưa đọc được danh sách ứng dụng theo dõi."}
       </p>
     </section>
   )
@@ -328,10 +385,10 @@ function Metric({
   )
 }
 
-function ProjectRuntime({ api, days, refresh }) {
+function ProjectRuntime({ api, days, refresh, initialApp = "all" }) {
   const [data, setData] = useState(null),
     [error, setError] = useState(""),
-    [selected, setSelected] = useState("all")
+    [selected, setSelected] = useState(initialApp)
   useEffect(() => {
     let cancelled = false,
       inFlight = false
@@ -969,7 +1026,9 @@ function RuntimeReport({ target: t, days }) {
 export default function Performance({ api, onRequest }) {
   const [days, setDays] = useState(7),
     [scope, setScope] = useState("lab"),
-    [projectId, setProjectId] = useState("all")
+    [projectId, setProjectId] = useState("all"),
+    [focusApp, setFocusApp] = useState("all"),
+    [monitored, setMonitored] = useState(null)
   const [data, setData] = useState(null),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
@@ -1011,6 +1070,30 @@ export default function Performance({ api, onRequest }) {
       polling.stop();
     };
   }, [days, refresh, reportProject]);
+  useEffect(() => {
+    if (scope !== "lab") return undefined
+    let cancelled = false
+    async function load() {
+      try {
+        const next = await api("/monitoring?days=" + days)
+        if (!cancelled)
+          setMonitored(next.configurationError ? { error: true, targets: [] } : {
+            targets: next.targets.map((t) => ({
+              id: t.id, name: t.name, origin: t.origin, status: t.status, fetchMs: t.fetchMs ?? null,
+              appId: t.report?.appId ?? null, generatedAt: t.report?.generatedAt ?? null,
+            })),
+          })
+      } catch (e) {
+        if (!cancelled) setMonitored((old) => old && !old.error ? old : { error: true, targets: [] })
+        throw e
+      }
+    }
+    const polling = startPolling(load, { interval: () => 60000 })
+    return () => {
+      cancelled = true
+      polling.stop()
+    }
+  }, [scope, days, refresh])
   const recent =
     data?.recent.filter(
       (r) => projectId === "all" || r.projectId === projectId,
@@ -1052,7 +1135,7 @@ export default function Performance({ api, onRequest }) {
         <div className="perf-switch" role="group" aria-label="Phạm vi báo cáo">
           <button
             aria-pressed={scope === "lab"}
-            onClick={() => setScope("lab")}
+            onClick={() => { setScope("lab"); setFocusApp("all") }}
           >
             {scope === "lab" && <ActivePill group="perf-scope" />}
             <Server size={15} />
@@ -1122,7 +1205,8 @@ export default function Performance({ api, onRequest }) {
                   ))}
                 </PerformanceSelect>
               </div>
-              <ConnectionMap projects={data.projects} runner={lab.runner} />
+              <ConnectionMap projects={data.projects} runner={lab.runner} monitored={monitored}
+                onOpenApp={(id) => { setFocusApp(id); setScope("projects") }} />
               <div className="perf-metrics">
                 <Metric
                   icon={Activity}
@@ -1326,7 +1410,7 @@ export default function Performance({ api, onRequest }) {
               </div>
             </>
           ) : (
-            <ProjectRuntime api={api} days={days} refresh={refresh} />
+            <ProjectRuntime api={api} days={days} refresh={refresh} initialApp={focusApp} />
           )}
           {scope === "lab" && (
             <>

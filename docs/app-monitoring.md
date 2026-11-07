@@ -72,6 +72,10 @@ Admins add, edit, test and remove apps in **Cài đặt → Monitoring ứng d�
 - Origins may be any public HTTPS domain: Railway, Vercel or a custom domain. IP literals, ports, paths, credentials and local/internal names (`localhost`, `.local`, `.internal`, `.railway.internal`, …) are rejected. Redirects are still refused.
 - `LAB_MONITORING_TARGETS` still works as a read-only bootstrap list and every entry needs an `appId`. An app saved in Settings with the same id takes precedence. Environment entries are shown with the "Biến môi trường" badge and are removed only in Railway.
 
+### Connection map
+
+Performance → AI Agent Lab shows monitored apps as a separate group below registered projects. Their wires are dotted and their node borders dashed. A node's status comes from the last monitoring read: Đang báo cáo, Báo cáo thiếu dữ liệu, Sai token, or Mất tín hiệu. The same app can appear twice, once as a registered project (repository and runner connection) and once as a monitored app (runtime report), because these are separate connections with different authority. Selecting a monitored app shows its address, app id, last report time and Lab → app latency, and opens its metrics in Projects. Monitored apps never receive feedback, run code or deploy.
+
 ### Connecting another app
 
 1. Implement `GET /internal/monitoring?days=1..30` in the app. It returns 404 while `LAB_MONITORING_TOKEN` is unset and 401 for a wrong bearer token.
