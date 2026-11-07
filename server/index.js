@@ -1,4 +1,4 @@
-import {createAppMonitoring,monitoringTargets} from './app-monitoring.js';
+import {createAppMonitoring,createMonitoringRegistry} from './app-monitoring.js';
 import {createPerformance} from './performance.js';
 import {createNotificationCenter} from './notifications.js';
 import {createDeployOnboarding,deploymentInput,deploymentProtocol} from './deploy-onboarding.js';
@@ -96,7 +96,8 @@ export function createApp(config, options = {}) {
   const runnerControl=createRunnerControl(db,service);
   const notificationCenter=createNotificationCenter(db);
   const performanceReport = createPerformance(db, service, config);
-  const appMonitoring = createAppMonitoring({targets:()=>monitoringTargets(config.LAB_MONITORING_TARGETS || '[]')});
+  const monitoringRegistry = createMonitoringRegistry(db, config);
+  const appMonitoring = createAppMonitoring({targets:()=>monitoringRegistry.targets()});
   const app = express();
   app.use(['/api', '/runner', '/mcp'], performanceReport.middleware);
   // Railway edge proxy adds one trusted hop; app is designed for one replica.
@@ -164,6 +165,11 @@ export function createApp(config, options = {}) {
     const {days}=z.object({days:z.coerce.number().int().min(1).max(30).default(7)}).strict().parse(req.query);
     res.set('Cache-Control','private, no-store').json(await appMonitoring.snapshot(days));
   });
+  app.get('/api/settings/monitoring',auth.admin,(req,res)=>res.set('Cache-Control','private, no-store').json(monitoringRegistry.list()));
+  app.post('/api/settings/monitoring',auth.admin,limiter(20),(req,res)=>{const r=monitoringRegistry.add(req.body,req.user.name);appMonitoring.clear();res.status(201).json(r);});
+  app.put('/api/settings/monitoring/:id',auth.admin,limiter(20),(req,res)=>{const r=monitoringRegistry.update(req.params.id,req.body,req.user.name);appMonitoring.clear();res.json(r);});
+  app.delete('/api/settings/monitoring/:id',auth.admin,limiter(20),(req,res)=>{const r=monitoringRegistry.remove(req.params.id);appMonitoring.clear();res.json(r);});
+  app.post('/api/settings/monitoring/test',auth.admin,limiter(10),async(req,res)=>res.set('Cache-Control','private, no-store').json(await appMonitoring.probe(monitoringRegistry.probeTarget(req.body))));
   app.get("/api/performance", auth.admin, (req, res) => {
     const {days,projectId}=z.object({days:z.coerce.number().int().min(1).max(30).default(7),projectId:z.string().min(3).max(64).optional()}).strict().parse(req.query);
     res.json(performanceReport.snapshot(days,projectId));

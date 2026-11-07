@@ -8,7 +8,7 @@ Configure server-only `LAB_MONITORING_TARGETS` as a JSON array of at most 12 obj
 [{"id":"writer-studio","appId":"writer-studio","name":"Writer Studio","origin":"https://YOUR-SERVICE.up.railway.app","token":"SERVICE-SPECIFIC-SECRET-AT-LEAST-32-CHARS"}]
 ```
 
-The matching app service requires `LAB_MONITORING_TOKEN`. Use separate random secrets per app. Never store real tokens in Git or frontend environment variables. Origins must be HTTPS Railway app domains without credentials, custom ports, query, fragment or path. Lab fetches only `/internal/monitoring?days=1..30`, sends the token server-side, refuses redirects, bounds response size to 2 MiB and times out after 12 seconds. Responses must match protocol, app identity, requested window and freshness. Report reads are admin-only, no-store, cached/single-flight for 30 seconds per target/window; failures are isolated per app and are never converted to zeros. Unavailable reports do not reuse prior success silently.
+The matching app service requires `LAB_MONITORING_TOKEN`. Use separate random secrets per app. Never store real tokens in Git or frontend environment variables. Origins must be public HTTPS domains without credentials, custom ports, query, fragment or path (see Managing apps in Settings). Lab fetches only `/internal/monitoring?days=1..30`, sends the token server-side, refuses redirects, bounds response size to 2 MiB and times out after 12 seconds. Responses must match protocol, app identity, requested window and freshness. Report reads are admin-only, no-store, cached/single-flight for 30 seconds per target/window; failures are isolated per app and are never converted to zeros. Unavailable reports do not reuse prior success silently.
 
 App reports include current process CPU/heap/RSS/uptime/commit, database round-trip and pool state, deduplicated current article inventory, relational plan/workflow/queue/QC status counts, HTTP route 4xx/5xx/aborts/latencies and new central generate-dispatcher AI calls/errors/tokens/pricing coverage. Historic workflow AI ledger is displayed separately; it is not added to dispatcher usage. AI cost is configured-price USD estimation, not an invoice. Missing prices remain null. Percentiles are histogram upper bounds. Current inventory is not limited by the selected period; HTTP/AI and ledger are. New telemetry begins at deployment and cannot reconstruct missing earlier activity.
 
@@ -60,10 +60,22 @@ Any app can join Performance without Lab code changes. Besides the required `pro
 
 The Lab bounds and type-checks every part (`appProfile` in `src/runtime-chart-data.js`) and drops malformed entries instead of guessing. Profile text is rendered as plain text. Reports must still carry counts, durations and statuses only, never personal data or content.
 
+### Managing apps in Settings
+
+Admins add, edit, test and remove apps in **Cài đặt → Monitoring ứng dụng**, without a redeploy. Up to 12 apps in total.
+
+- Stored in SQLite (`settings` key `monitoring-targets-v1`). Tokens are sealed with AES-256-GCM, using a key derived from `LAB_MONITORING_ENCRYPTION_KEY`, or from `SESSION_SECRET` when that is unset. Tokens are never returned by any API.
+- If the key changes, the app is marked "Cần nhập lại token" and stops being read. It is never read with a wrong credential.
+- Changing an app's address requires entering the token again, so a saved token is never sent to a new host.
+- Connection test (`POST /api/settings/monitoring/test`) reports the status, the app id the app reports and which sections it sends. It is not cached and does not return the report body.
+- Saving or removing an app clears the 30-second report cache, so Performance shows the change on its next read.
+- Origins may be any public HTTPS domain: Railway, Vercel or a custom domain. IP literals, ports, paths, credentials and local/internal names (`localhost`, `.local`, `.internal`, `.railway.internal`, …) are rejected. Redirects are still refused.
+- `LAB_MONITORING_TARGETS` still works as a read-only bootstrap list and every entry needs an `appId`. An app saved in Settings with the same id takes precedence. Environment entries are shown with the "Biến môi trường" badge and are removed only in Railway.
+
 ### Connecting another app
 
 1. Implement `GET /internal/monitoring?days=1..30` in the app. It returns 404 while `LAB_MONITORING_TOKEN` is unset and 401 for a wrong bearer token.
-2. Generate a separate random secret of at least 32 characters. Set it as `LAB_MONITORING_TOKEN` on the app's Railway service.
-3. Add `{ "id", "appId", "name", "origin", "token" }` for the app to the Lab's `LAB_MONITORING_TARGETS` on Railway, then redeploy the Lab.
+2. Generate a separate random secret of at least 32 characters. Set it as `LAB_MONITORING_TOKEN` on the app's service.
+3. In Lab, open **Cài đặt → Monitoring ứng dụng**. Enter the name, address and token, and press **Kiểm tra kết nối** to fill in the app id. Then press **Thêm ứng dụng**.
 
 Outreach (`Tonytran2209/Project-test`, Python/FastAPI) is the first app connected this way. See `app/lab_monitoring.py` in that repository.

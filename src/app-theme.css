@@ -136,3 +136,25 @@ pre {
   border-radius: 12px;
   background: var(--track);
 }
+
+/* Monitoring settings */
+.settings-badge {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 6px;
+  padding: 1px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--track);
+  color: var(--label);
+  font-size: 11px;
+  font-weight: 500;
+  vertical-align: middle;
+}
+.settings-badge.warning {
+  background: color-mix(in srgb, var(--warning) 14%, transparent);
+  color: var(--warning);
+}
+.button.danger {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 40%, var(--border));
+}

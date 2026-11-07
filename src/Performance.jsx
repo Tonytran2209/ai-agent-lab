@@ -395,7 +395,7 @@ function ProjectRuntime({ api, days, refresh }) {
       )}
       {data && !data.configurationError && !data.targets.length && (
         <p className="perf-card perf-empty">
-          Chưa cấu hình kết nối monitoring chỉ đọc.
+          Chưa có ứng dụng nào. Admin thêm ứng dụng trong Cài đặt → Monitoring ứng dụng.
         </p>
       )}
       {data?.targets
