@@ -142,3 +142,30 @@ test("latest job targets are fixed for known project and job pairs", () => {
   assert.equal(jobCompletionTarget("intercom", "EB V2 review"), 0.5)
   assert.equal(jobCompletionTarget("intercom", "Writer batch article"), null)
 })
+
+test("an app profile declares its own job targets, labels and sections; malformed parts are dropped", async () => {
+  const { appProfile } = await import("../src/runtime-chart-data.js")
+  assert.equal(appProfile(null), null)
+  assert.equal(appProfile({ version: "other" }), null)
+  const profile = appProfile({
+    version: "profile-v1",
+    jobTargets: { "Connect batch": 30, Broken: -1, Text: "5" },
+    inventoryLabels: { outreach_jobs: "Connect jobs", bad: 4 },
+    mainJob: { title: "Outreach", steps: ["Connect", "", "Message"], metrics: [{ label: "Sent", value: 12 }, { label: "Bad", value: "x" }] },
+    sections: [
+      { id: "funnel", title: "Funnel", metrics: [{ label: "Rate", value: 41.5, format: "percent", tone: "success" }, { label: "Missing", value: null }] },
+      { title: "Table", table: { columns: ["A", "B"], rows: [["x", 1], ["too", "many", "cells"], ["y", null]] } },
+      { title: "Empty" },
+      { title: "Bad table", table: { columns: ["A", 3], rows: [] } },
+    ],
+  })
+  assert.deepEqual(profile.jobTargets, { "Connect batch": 30 })
+  assert.deepEqual(profile.inventoryLabels, { outreach_jobs: "Connect jobs" })
+  assert.deepEqual(profile.mainJob.steps, ["Connect", "Message"])
+  assert.equal(profile.mainJob.metrics.length, 1)
+  assert.equal(profile.sections.length, 2)
+  assert.deepEqual(profile.sections[0].metrics.map((m) => [m.value, m.format, m.tone]), [[41.5, "percent", "success"], [null, "number", null]])
+  assert.deepEqual(profile.sections[1].table.rows, [["x", 1], ["y", null]])
+  assert.equal(jobCompletionTarget("outreach", "Connect batch", profile), 30)
+  assert.equal(jobCompletionTarget("writer-studio", "Writer batch article", profile), 10, "built-in targets still apply")
+})

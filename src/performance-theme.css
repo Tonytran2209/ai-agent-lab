@@ -455,3 +455,44 @@
     font-size: 28px;
   }
 }
+
+/* App-described sections (profile-v1) */
+.perf-project-report .perf-grid > :only-child {
+  grid-column: 1 / -1;
+}
+.perf-app-sections {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr));
+  gap: 20px;
+}
+.perf-app-section .perf-app-metrics {
+  margin-bottom: 0;
+}
+.perf-app-section .perf-app-metrics + .perf-table-scroll {
+  margin-top: var(--space-4);
+}
+.perf-app-metrics small {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--perf-label);
+}
+.perf-app-section table {
+  width: 100%;
+  text-align: left;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+.perf-app-section th,
+.perf-app-section td {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--perf-line);
+  font-size: 12px;
+}
+.perf-app-section tbody th {
+  font-weight: 500;
+  white-space: nowrap;
+}
+.perf-app-section tbody tr:last-child > * {
+  border-bottom: 0;
+}

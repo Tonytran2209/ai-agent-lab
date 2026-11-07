@@ -3,7 +3,7 @@ import {startPolling} from './polling.js';
 import TaskUsage from "./TaskUsage.jsx";
 import AnimatedValue from "./AnimatedValue.jsx"
 import { RuntimeOverview, AICharts, WorkflowStatus } from "./RuntimeCharts.jsx"
-import { jobCompletionTarget, projectJobHistoryMetrics, projectPerformanceMetrics } from "./runtime-chart-data.js"
+import { appProfile, jobCompletionTarget, projectJobHistoryMetrics, projectPerformanceMetrics } from "./runtime-chart-data.js"
 import React, { useEffect, useRef, useState } from "react"
 import {
   Activity,
@@ -413,12 +413,12 @@ const money = (v) =>
 const bytes = (v) => number(v / 1048576) + " MB"
 const show = (value, format = number) =>
   value == null ? "Chưa có dữ liệu" : format(value)
-function ProjectPerformanceTargets({ report }) {
+function ProjectPerformanceTargets({ report, profile }) {
   const [historyScope, setHistoryScope] = useState(report.jobHistoryAllTime ? "all" : "period")
   const history = projectJobHistoryMetrics(historyScope === "all" ? report.jobHistoryAllTime : report.jobHistory)
   const metrics = { ...projectPerformanceMetrics(report), ...history }
   const latestJob = history?.latestJob
-  const targetMinutes = latestJob ? jobCompletionTarget(report.appId, latestJob.job) : null
+  const targetMinutes = latestJob ? jobCompletionTarget(report.appId, latestJob.job, profile) : null
   const minutes = (value) => new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 2 }).format(value) + " phút"
   const range = ([low, high]) => low === high ? rate(low) : rate(low) + "–" + rate(high)
   const rate = (value) =>
@@ -545,6 +545,88 @@ const workloadLabels = {
 }
 const formatLabels = { facebook: "Facebook", linkedin: "LinkedIn", threads: "Threads" }
 
+function profileValue({ value, format, unit }) {
+  if (value === null) return "Chưa có dữ liệu"
+  const shown = format === "text" ? value
+    : format === "percent" ? new Intl.NumberFormat("vi-VN", { style: "percent", maximumFractionDigits: 1 }).format(value / 100)
+    : format === "duration" ? duration(value)
+    : format === "minutes" ? new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 2 }).format(value) + " phút"
+    : number(value)
+  return unit ? shown + " " + unit : shown
+}
+
+function ProfileMetrics({ metrics, className = "perf-main-job-metrics" }) {
+  return (
+    <dl className={className}>
+      {metrics.map((m) => (
+        <div key={m.label}>
+          <dt>{m.label}</dt>
+          <dd>{m.tone ? <Signal tone={m.tone}>{profileValue(m)}</Signal> : profileValue(m)}</dd>
+          {m.note && <small>{m.note}</small>}
+        </div>
+      ))}
+    </dl>
+  )
+}
+
+// Main job described by the app itself (profile-v1).
+function ProfileMainJob({ job }) {
+  return (
+    <article className="perf-card perf-main-job">
+      <div className="perf-card-heading">
+        <div>
+          <h2>Main job</h2>
+          <p>{job.title}</p>
+        </div>
+        <GitBranch size={18} aria-hidden="true" />
+      </div>
+      {job.steps.length > 0 && (
+        <ol className="perf-main-job-steps" aria-label="Các bước thực hiện">
+          {job.steps.map((step, index) => (
+            <li key={step + index}><span aria-hidden="true">{index + 1}</span>{step}</li>
+          ))}
+        </ol>
+      )}
+      {job.metrics.length > 0 && <ProfileMetrics metrics={job.metrics} />}
+      {job.note && <p className="perf-footnote">{job.note}</p>}
+    </article>
+  )
+}
+
+// App-specific cards: each connected app decides what belongs to it.
+function AppSections({ sections }) {
+  if (!sections.length) return null
+  return (
+    <div className="perf-app-sections">
+      {sections.map((section) => (
+        <article className="perf-card perf-app-section" key={section.id}>
+          <div className="perf-card-heading">
+            <div>
+              <h2>{section.title}</h2>
+              {section.description && <p>{section.description}</p>}
+            </div>
+          </div>
+          {section.metrics.length > 0 && <ProfileMetrics metrics={section.metrics} className="perf-main-job-metrics perf-app-metrics" />}
+          {section.table && (
+            <div className="perf-table-scroll">
+              <table>
+                <thead><tr>{section.table.columns.map((c) => <th scope="col" key={c}>{c}</th>)}</tr></thead>
+                <tbody>
+                  {section.table.rows.length ? section.table.rows.map((row, i) => (
+                    <tr key={i}>{row.map((cell, j) => j === 0
+                      ? <th scope="row" key={j}>{cell ?? "—"}</th>
+                      : <td key={j}>{cell == null ? "—" : typeof cell === "number" ? number(cell) : cell}</td>)}</tr>
+                  )) : <tr><td colSpan={section.table.columns.length}>Chưa có dữ liệu.</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </article>
+      ))}
+    </div>
+  )
+}
+
 function MainJob({ workload }) {
   const labels = workloadLabels[workload?.kind]
   return (
@@ -599,6 +681,7 @@ function MainJob({ workload }) {
 }
 
 function RuntimeReport({ target: t, days }) {
+  const profile = appProfile(t.report?.profile)
   const r = t.report,
     http = r?.http,
     ai = r?.ai,
@@ -648,11 +731,11 @@ function RuntimeReport({ target: t, days }) {
         </div>
       ) : (
         <>
-          <ProjectPerformanceTargets report={r} />
-          <RuntimeOverview report={r} />
+          <ProjectPerformanceTargets report={r} profile={profile} />
+          {http && <RuntimeOverview report={r} />}
           <div className="perf-grid">
-            <MainJob workload={r.contentWorkload} />
-            <article className="perf-card perf-system-card">
+            {profile?.mainJob ? <ProfileMainJob job={profile.mainJob} /> : <MainJob workload={r.contentWorkload} />}
+            {rt && <article className="perf-card perf-system-card">
               <div className="perf-card-heading">
                 <div>
                   <h2>Tiến trình máy chủ</h2>
@@ -671,8 +754,8 @@ function RuntimeReport({ target: t, days }) {
                       show(rt.heapTotalBytes, bytes),
                   ],
                   ["Uptime", duration(rt.uptimeSeconds * 1000)],
-                  ["HTTP / AI đang xử lý", http.inFlight + " / " + ai.inFlight],
-                  ["Node.js", rt.nodeVersion],
+                  ["HTTP / AI đang xử lý", (http?.inFlight ?? "—") + " / " + (ai?.inFlight ?? "—")],
+                  ["Runtime", rt.runtimeVersion || (rt.nodeVersion ? "Node.js " + rt.nodeVersion : "Chưa xác định")],
                   ["Commit", rt.commit?.slice(0, 12) || "Chưa xác định"],
                   ["Tiến trình bắt đầu", timestamp(rt.startedAt)],
                   ["Database round trip", show(r.database?.responseMs, duration)],
@@ -685,11 +768,12 @@ function RuntimeReport({ target: t, days }) {
                   </div>
                 ))}
               </dl>
-            </article>
+            </article>}
           </div>
-          <AICharts report={r} />
-          <WorkflowStatus inventory={r.inventory} />
-          <details className="rc-details">
+          <AppSections sections={profile?.sections || []} />
+          {ai && <AICharts report={r} />}
+          {r.inventory && <WorkflowStatus inventory={r.inventory} labels={profile?.inventoryLabels} />}
+          {(http || ai) && <details className="rc-details">
             <summary>Xem bảng số liệu chi tiết · AI và HTTP</summary>
             <article className="perf-card perf-recent">
               <div className="perf-card-heading">
@@ -720,7 +804,7 @@ function RuntimeReport({ target: t, days }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {ai.models.map((m) => (
+                    {(ai?.models || []).map((m) => (
                       <tr key={m.model}>
                         <td>{m.model}</td>
                         <td>
@@ -739,7 +823,7 @@ function RuntimeReport({ target: t, days }) {
                   </tbody>
                 </table>
               </div>
-              {!ai.models.length && (
+              {!ai?.models?.length && (
                 <p className="perf-empty">
                   Chưa có lượt gọi AI được đo trong kỳ.
                 </p>
@@ -837,7 +921,7 @@ function RuntimeReport({ target: t, days }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {http.routes.map((v) => (
+                    {(http?.routes || []).map((v) => (
                       <tr key={v.route}>
                         <td>{v.route}</td>
                         <td>{v.calls}</td>
@@ -856,16 +940,16 @@ function RuntimeReport({ target: t, days }) {
                 </table>
               </div>
             </article>
-          </details>
+          </details>}
           <p className="perf-footnote">
             Cập nhật {timestamp(r.generatedAt)} · bắt đầu có mẫu{" "}
-            {timestamp(r.coverage.firstMeasuredHour)} · P50/P95/P99 là cận trên
+            {timestamp(r.coverage?.firstMeasuredHour)} · P50/P95/P99 là cận trên
             histogram. AI calls là lượt qua dispatcher, không bao gồm từng retry
             nội bộ SDK. Chi phí tính theo giá model được cấu hình, chưa phải hóa
             đơn provider. Số liệu có thể mất tối đa 5 giây khi tiến trình dừng
             đột ngột.
           </p>
-          {(!r.coverage.complete || r.coverage.recordingErrors > 0) && (
+          {r.coverage && (!r.coverage.complete || r.coverage.recordingErrors > 0) && (
             <p className="perf-error">
               Phạm vi thu thập chưa đầy đủ · {r.coverage.recordingErrors} lỗi
               ghi nhận.

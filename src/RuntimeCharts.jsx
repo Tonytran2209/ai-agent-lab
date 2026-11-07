@@ -388,7 +388,7 @@ eb_v2_library_documents: "EB V2 · Thư viện",
 eb_v2_discovery_items: "EB V2 · Discovery",
 eb_v2_channel_outputs: "EB V2 · Output mới nhất theo kênh",
 }
-export function WorkflowStatus({ inventory }) {
+export function WorkflowStatus({ inventory, labels }) {
   return (
     <article className="rc-card rc-workflow">
       <Title
@@ -402,7 +402,7 @@ export function WorkflowStatus({ inventory }) {
           return (
             <div className="rc-workflow-row" key={key}>
               <div>
-                <strong>{names[key] || key}</strong>
+                <strong>{labels?.[key] || names[key] || key}</strong>
                 <span>
                   {rows === null ? "Chưa có dữ liệu" : n(total) + " bản ghi"}
                 </span>

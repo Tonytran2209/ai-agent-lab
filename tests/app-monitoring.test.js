@@ -66,3 +66,20 @@ test("authorization failures, invalid identities and redirects are isolated per 
     assert.ok(!JSON.stringify(result).includes(target.token))
   }
 })
+test("an app may report only its profile and runtime; http and ai stay optional", async () => {
+  const report = (extra) => ({
+    protocol: "app-monitoring-v1", appId: "writer-studio", generatedAt: new Date().toISOString(),
+    window: { days: 7 }, database: { status: "ready" }, ...extra,
+  })
+  for (const [extra, ok] of [
+    [{ runtime: {}, profile: { version: "profile-v1" } }, true],
+    [{ profile: { version: "profile-v1" } }, true],
+    [{}, false],
+    [{ runtime: {}, http: "bad" }, false],
+    [{ profile: [] }, false],
+  ]) {
+    const monitor = createAppMonitoring({ targets: () => [target], fetcher: async () => Response.json(report(extra)) })
+    const result = await monitor.snapshot(7)
+    assert.equal(result.targets[0].report !== null, ok, JSON.stringify(extra))
+  }
+})

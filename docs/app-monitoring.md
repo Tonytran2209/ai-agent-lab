@@ -45,3 +45,25 @@ Writer Studio and Intercom Writer Studio emit browser samples for outline genera
 Each project performance table defaults to all saved job history (`jobHistoryAllTime`). It also supports the current UTC reporting window (`jobHistory`). Writer Studio contributes one terminal record per saved batch item. The matching article supplies the saved completion timestamp when available; otherwise the item update selects the reporting window. Duration is shown only when both start and completion are saved. Intercom contributes terminal EB V2 gate records with a saved end time. Both sources include new and historical saved records, so the dashboard does not add the overlapping instrumentation counts. The KPI displays the duration in minutes of the latest job with a saved start and end in the selected scope. Targets are fixed per app and job: Writer batch article 10 minutes (a clean single-pass article took about 3–5 minutes in production; the earlier 60-minute target sat above the observed P95 of 53 minutes and hid retried or paused articles); Intercom Brief and Article 0.25 minutes; Adapt and Review 0.5 minutes. Targets compare unrounded durations. The older P95 aggregates remain available in the report for compatibility. Technical failures are classified from recognizable stored messages and shown as a range when other failure messages remain ambiguous. Success counts require a persisted nonempty result and the source's terminal completion state. Truncated or unavailable sources are marked incomplete.
 
 The content workload section reports completed Writer SEO batch items and stored draft lengths. Intercom reports the latest usable EB V2 article per package and latest active output per package and channel, with counts and stored text lengths per format. Word counts split on whitespace and aggregate across saved content. The monitoring response contains counts and lengths only.
+
+## Self-described app sections (profile-v1)
+
+Any app can join Performance without Lab code changes. Besides the required `protocol`, `appId`, `generatedAt` and `window`, a report needs at least one of `runtime`, `http`, `ai` or `profile`; sections it does not send are hidden rather than shown as zero. `jobHistory`, `jobHistoryAllTime`, `performanceKpis`, `database` and `inventory` keep the meaning described above.
+
+`profile` (`version: "profile-v1"`) lets the app describe what belongs to it:
+
+- `jobTargets`: `{ "<job name>": minutes }`. Used for Job Completion Time when the latest job has that name. It takes precedence over the built-in Writer Studio/Intercom targets.
+- `inventoryLabels`: display names for `inventory` keys.
+- `mainJob`: `{ title, steps: [string], metrics: [metric], note }`. Replaces the built-in content-workload card.
+- `sections`: up to 8 cards, each `{ id, title, description, metrics: [metric], table: { columns: [string], rows: [[string|number|null]] } }`.
+- A metric is `{ label, value, format, unit, note, tone }`. `format` is `number` (default), `percent` (0–100), `duration` (ms), `minutes` or `text`. `tone` is `neutral`, `success`, `warning` or `error`. `value: null` means not measured.
+
+The Lab bounds and type-checks every part (`appProfile` in `src/runtime-chart-data.js`) and drops malformed entries instead of guessing. Profile text is rendered as plain text. Reports must still carry counts, durations and statuses only, never personal data or content.
+
+### Connecting another app
+
+1. Implement `GET /internal/monitoring?days=1..30` in the app. It returns 404 while `LAB_MONITORING_TOKEN` is unset and 401 for a wrong bearer token.
+2. Generate a separate random secret of at least 32 characters. Set it as `LAB_MONITORING_TOKEN` on the app's Railway service.
+3. Add `{ "id", "appId", "name", "origin", "token" }` for the app to the Lab's `LAB_MONITORING_TARGETS` on Railway, then redeploy the Lab.
+
+Outreach (`Tonytran2209/Project-test`, Python/FastAPI) is the first app connected this way. See `app/lab_monitoring.py` in that repository.

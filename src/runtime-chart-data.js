@@ -157,7 +157,63 @@ const jobTargetsMinutes = {
   intercom: { "EB V2 brief": 0.25, "EB V2 article": 0.25, "EB V2 adapt": 0.5, "EB V2 review": 0.5 },
 }
 
-export function jobCompletionTarget(appId, job) {
+// A target the app declares in its own profile wins; the built-in map keeps older reports working.
+export function jobCompletionTarget(appId, job, profile = null) {
+  if (profile?.jobTargets && Object.hasOwn(profile.jobTargets, job)) return profile.jobTargets[job]
   const targets = jobTargetsMinutes[appId]
   return targets && Object.hasOwn(targets, job) ? targets[job] : null
+}
+
+// profile-v1: a connected app describes its own Performance sections. Everything is
+// bounded and type-checked here; anything malformed is dropped, never guessed.
+const text = (value, max = 200) =>
+  typeof value === "string" && value.trim() ? value.trim().slice(0, max) : null
+const metricFormats = new Set(["number", "percent", "duration", "minutes", "text"])
+const tones = new Set(["neutral", "success", "warning", "error"])
+function profileMetric(raw) {
+  const label = text(raw?.label, 80)
+  if (!label) return null
+  const format = metricFormats.has(raw.format) ? raw.format : "number"
+  const value = raw.value === null ? null
+    : format === "text" ? text(raw.value, 120)
+    : Number.isFinite(raw.value) ? raw.value : undefined
+  if (value === undefined) return null
+  return { label, value, format, unit: text(raw.unit, 24), note: text(raw.note, 160),
+    tone: tones.has(raw.tone) ? raw.tone : null }
+}
+const list = (value, max, map) =>
+  Array.isArray(value) ? value.slice(0, max).map(map).filter((v) => v != null) : []
+function profileTable(raw) {
+  const columns = list(raw?.columns, 8, (c) => text(c, 60))
+  if (!columns.length || columns.length !== raw.columns.length) return null
+  const rows = list(raw.rows, 50, (row) =>
+    Array.isArray(row) && row.length === columns.length &&
+    row.every((cell) => cell === null || typeof cell === "string" || Number.isFinite(cell))
+      ? row.map((cell) => (typeof cell === "string" ? cell.slice(0, 120) : cell))
+      : null)
+  return { columns, rows }
+}
+export function appProfile(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw) || raw.version !== "profile-v1") return null
+  const jobTargets = {}
+  for (const [job, minutes] of Object.entries(raw.jobTargets || {}).slice(0, 20))
+    if (text(job, 80) && Number.isFinite(minutes) && minutes > 0) jobTargets[job] = minutes
+  const inventoryLabels = {}
+  for (const [key, label] of Object.entries(raw.inventoryLabels || {}).slice(0, 30))
+    if (text(label, 80)) inventoryLabels[key] = text(label, 80)
+  const mainJob = text(raw.mainJob?.title) ? {
+    title: text(raw.mainJob.title),
+    steps: list(raw.mainJob.steps, 8, (s) => text(s, 80)),
+    metrics: list(raw.mainJob.metrics, 6, profileMetric),
+    note: text(raw.mainJob.note, 240),
+  } : null
+  const sections = list(raw.sections, 8, (section) => {
+    const title = text(section?.title, 100)
+    if (!title) return null
+    const metrics = list(section.metrics, 12, profileMetric)
+    const table = section.table ? profileTable(section.table) : null
+    if (!metrics.length && !table) return null
+    return { id: text(section.id, 64) || title, title, description: text(section.description, 240), metrics, table }
+  })
+  return { jobTargets, inventoryLabels, mainJob, sections }
 }

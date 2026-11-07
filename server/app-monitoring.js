@@ -89,9 +89,11 @@ export function createAppMonitoring({
           report.window?.days !== days ||
           !Number.isFinite(Date.parse(report.generatedAt)) ||
           Math.abs(now() - Date.parse(report.generatedAt)) > 120000 ||
-          !report.http ||
-          !report.ai ||
-          !report.runtime
+          // http/ai/runtime are optional: an app without AI or HTTP telemetry still reports its own profile.
+          ["http", "ai", "runtime", "profile"].some(
+            (k) => report[k] != null && (typeof report[k] !== "object" || Array.isArray(report[k])),
+          ) ||
+          !(report.http || report.ai || report.runtime || report.profile)
         )
           throw new Error("Invalid report")
         return {
