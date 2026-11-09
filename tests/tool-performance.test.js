@@ -56,14 +56,17 @@ test("runs give Vietnam-time windows, previous-period comparison and timeouts", 
     run("Batch", "2026-11-09T00:00:00Z", 6, "failed"),
     run("Batch", "2026-11-08T18:00:00Z", 0, "running"), // started 01:00 VN, 9h ago
     { job: "Batch", status: "success", startedAt: "bad-date" },
+    { job: "Batch", status: "failed", startedAt: null, endedAt: "2026-11-09T01:00:00Z" }, // outcome only
+    { job: "Batch", status: "running", startedAt: null, endedAt: null },
   ] } })
-  assert.equal(parseRuns(r).runs.length, 4)
+  assert.equal(parseRuns(r).runs.length, 5)
   const m = jobUnitsFor(r, 1, { now, targetFor: () => 60 })
   assert.equal(m.source, "runs")
   assert.equal(m.units[0].samples, 1)
   assert.equal(m.units[0].p95Ms, 10 * min)
   assert.equal(m.units[0].previousP95Ms, 4 * min)
-  assert.deepEqual(m.outcomes.get("Batch"), { executed: 3, failed: 2, timedOut: 1 }, "running past 3× target is a failure")
+  assert.equal(m.units[0].samples, 1, "a run without a start time adds no duration")
+  assert.deepEqual(m.outcomes.get("Batch"), { executed: 4, failed: 3, timedOut: 1 }, "running past 3× target is a failure")
   const noTarget = jobUnitsFor(r, 1, { now, targetFor: () => null })
   assert.equal(noTarget.outcomes.get("Batch").timedOut, 0, "without a target a running job is not timed out")
 })

@@ -54,11 +54,13 @@ export function parseRuns(report) {
   const runs = []
   for (const r of rows) {
     const job = text(r?.job)
-    const startedAt = Date.parse(r?.startedAt)
+    // startedAt may be null for a finished run: it then counts for error rates but not for time.
+    const startedAt = r?.startedAt == null ? null : Date.parse(r.startedAt)
     const endedAt = r?.endedAt == null ? null : Date.parse(r.endedAt)
-    if (!job || !Number.isFinite(startedAt) || (endedAt !== null && !(Number.isFinite(endedAt) && endedAt >= startedAt))) continue
-    if (!["success", "failed", "running"].includes(r.status)) continue
-    if (r.status !== "running" && endedAt === null) continue
+    if (!job || !["success", "failed", "running"].includes(r.status)) continue
+    if (startedAt !== null && !Number.isFinite(startedAt)) continue
+    if (endedAt !== null && !(Number.isFinite(endedAt) && (startedAt === null || endedAt >= startedAt))) continue
+    if (r.status === "running" ? startedAt === null || endedAt !== null : endedAt === null) continue
     runs.push({ job, workload: text(r.workload) || "", parent: text(r.parent), status: r.status, startedAt, endedAt })
   }
   return { runs, since: Date.parse(section?.since) || null, complete: section?.complete === true && rows.length === runs.length }
@@ -82,7 +84,7 @@ function runWindowStats(runs, start, end, targetFor) {
     if (r.status === "failed" || timedOut) o.failed++
     if (timedOut) o.timedOut++
     outcomes.set(r.job, o)
-    if (r.status !== "success" || r.endedAt === null) continue
+    if (r.status !== "success" || r.endedAt === null || r.startedAt === null) continue
     const key = r.job + "\u0000" + r.workload
     const g = groups.get(key) || { job: r.job, workload: r.workload, values: [] }
     g.values.push(r.endedAt - r.startedAt)
@@ -172,7 +174,7 @@ function allTimeUnits(report) {
   if (runs.length) {
     const groups = new Map()
     for (const r of runs) {
-      if (r.status !== "success" || r.endedAt === null) continue
+      if (r.status !== "success" || r.endedAt === null || r.startedAt === null) continue
       const g = groups.get(r.job) || []
       g.push(r.endedAt - r.startedAt)
       groups.set(r.job, g)

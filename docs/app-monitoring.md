@@ -110,7 +110,7 @@ Stored as `tool` (tool-config-v2) on the `monitoring-targets-v1` entry. `auto: f
 ] }
 ```
 
-Send runs that ended (or are still running) in the last 61 days, newest first, at most 5,000; set `complete: false` when truncated. `status` is `success`, `failed` (technical or business failure) or `running` (`endedAt: null`). `parent` names the enclosing job for sub-jobs. Runs carry no content or personal data. With `jobRuns`, Lab computes everything itself: calendar days in Vietnam time (today starts 00:00 GMT+7), the previous period of equal length, median and slowest run, runs over target, per-job error rates, and timeouts (a run still running after three times its target counts as failed). Without `jobRuns`, Lab uses the app's aggregated per-job history and its UTC windows.
+Send runs that ended (or are still running) in the last 61 days, newest first, at most 5,000; set `complete: false` when truncated. `status` is `success`, `failed` (technical or business failure) or `running` (`endedAt: null`). `parent` names the enclosing job for sub-jobs. `startedAt` may be null for a finished run whose start was not saved; it then counts for error rates but not for durations. Runs carry no content or personal data. With `jobRuns`, Lab computes everything itself: calendar days in Vietnam time (today starts 00:00 GMT+7), the previous period of equal length, median and slowest run, runs over target, per-job error rates, and timeouts (a run still running after three times its target counts as failed). Without `jobRuns`, Lab uses the app's aggregated per-job history and its UTC windows.
 
 ### Rules
 
