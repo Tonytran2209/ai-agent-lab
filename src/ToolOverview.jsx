@@ -1,7 +1,8 @@
-import React, { useEffect, useRef, useState } from "react"
-import { ChevronDown, ChevronRight, CircleCheck, CircleHelp, CircleAlert, GitCommitHorizontal, Plus, Settings2, ShieldCheck, ShieldAlert, Trash2, Layers, LoaderCircle } from "lucide-react"
+import React, { useLayoutEffect, useRef, useState } from "react"
+import { createPortal } from "react-dom"
+import { ChevronDown, ChevronRight, ChevronUp, CircleCheck, CircleDashed, CircleHelp, CircleAlert, ExternalLink, X, GitCommitHorizontal, Plus, Settings2, ShieldCheck, ShieldAlert, Trash2, Layers, LoaderCircle } from "lucide-react"
 import { evaluateTool, priorities, statusOrder } from "../server/tool-performance.js"
-import { formatTime, formatPercent, timeAgo, compactTime, clockDate } from "./tool-format.js"
+import { formatTime, formatPercent, timeAgo, compactTime, clockDate, stepAverages } from "./tool-format.js"
 import { ConnectToolForm, Drawer, ToolSettings } from "./ToolManager.jsx"
 import "./tool-overview.css"
 
@@ -115,40 +116,79 @@ function RunHistory({ tool }) {
   )
 }
 
-function SubJobMenu({ tool, label }) {
-  const [open, setOpen] = useState(false), ref = useRef(null)
-  useEffect(() => {
+function SubJobMenu({ tool, label, onOpenRuns }) {
+  const [open, setOpen] = useState(false), [pos, setPos] = useState(null)
+  const buttonRef = useRef(null), panelRef = useRef(null)
+  // The panel is portalled to <body> with fixed position: inside the table's scroll container it
+  // was clipped and made the whole Status table scroll.
+  const place = () => {
+    const b = buttonRef.current?.getBoundingClientRect()
+    if (!b) return
+    const width = Math.min(400, window.innerWidth - 16), height = panelRef.current?.offsetHeight || 360
+    const left = Math.max(8, Math.min(b.left, window.innerWidth - width - 8))
+    const below = window.innerHeight - b.bottom - 8 >= height || b.top < height + 16
+    setPos({ left, width, top: below ? b.bottom + 6 : Math.max(8, b.top - height - 6) })
+  }
+  useLayoutEffect(() => {
     if (!open) return undefined
-    const close = (e) => { if (!ref.current?.contains(e.target)) setOpen(false) }
-    const key = (e) => { if (e.key === "Escape") setOpen(false) }
+    place()
+    const close = (e) => { if (!panelRef.current?.contains(e.target) && !buttonRef.current?.contains(e.target)) setOpen(false) }
+    const key = (e) => { if (e.key === "Escape") { setOpen(false); buttonRef.current?.focus() } }
     document.addEventListener("mousedown", close)
     document.addEventListener("keydown", key)
-    return () => { document.removeEventListener("mousedown", close); document.removeEventListener("keydown", key) }
+    window.addEventListener("resize", place)
+    window.addEventListener("scroll", place, true)
+    return () => {
+      document.removeEventListener("mousedown", close)
+      document.removeEventListener("keydown", key)
+      window.removeEventListener("resize", place)
+      window.removeEventListener("scroll", place, true)
+    }
   }, [open])
+  useLayoutEffect(() => { if (open) place() }, [open, tool])
+  const { rows, totalMs, runs } = stepAverages(tool)
+  const hint = (r) => [r.name, r.job?.targetMinutes ? "Target ≤ " + minutesText(r.job.targetMinutes) : "Chưa có target",
+    r.job?.units?.[0]?.p95Ms != null ? "P95 trong kỳ " + compactTime(r.job.units[0].p95Ms) : null,
+    r.samples ? "Trung bình trên " + r.samples + " lần chạy gần nhất" : "Chưa có lần chạy đo được"].filter(Boolean).join(" · ")
+  const over = (r) => r.job?.targetMinutes && r.averageMs != null && r.averageMs > r.job.targetMinutes * 60000
   return (
-    <span className="tool-subjob-menu" ref={ref}>
-      <button type="button" className="tool-subjobs" aria-expanded={open} onClick={() => setOpen(!open)}>
-        <Layers size={13} aria-hidden="true" /> {label} <ChevronDown size={12} aria-hidden="true" />
+    <span className="tool-subjob-menu">
+      <button ref={buttonRef} type="button" className="tool-subjobs" aria-expanded={open} aria-haspopup="dialog" onClick={() => setOpen(!open)}>
+        <Layers size={13} aria-hidden="true" /> {label} {open ? <ChevronUp size={12} aria-hidden="true" /> : <ChevronDown size={12} aria-hidden="true" />}
       </button>
-      {open && (
-        <div className="tool-subjob-panel" role="dialog" aria-label={"Sub-job của " + tool.name}>
+      {open && createPortal(
+        <div ref={panelRef} className="tool-subjob-panel" role="dialog" aria-label={"Thời lượng trung bình từng bước của " + tool.name}
+          style={pos ? { top: pos.top, left: pos.left, width: pos.width } : { visibility: "hidden" }}>
+          <header>
+            <Layers size={16} aria-hidden="true" />
+            <b>Thời lượng trung bình từng bước</b>
+            <span className="tool-dim">{runs} lượt chạy</span>
+            <button type="button" className="icon-button" aria-label="Đóng" onClick={() => { setOpen(false); buttonRef.current?.focus() }}><X size={15} /></button>
+          </header>
           <ul>
-            {tool.jobs.map((j) => {
-              const u = j.units?.[0]
+            {rows.map((r) => {
+              const Icon = r.averageMs == null ? CircleDashed : over(r) ? CircleAlert : CircleCheck
               return (
-                <li key={j.name}>
-                  <span>{j.role === "main" && <span className="tool-tag">MAIN</span>}<b>{j.name}</b>
-                    <small className="tool-dim">{j.unmeasured ? "Chưa có lần chạy trong kỳ" : u.samples + " mẫu" + (j.error?.executed ? " · " + formatPercent(100 - j.error.rate) + " thành công" : "")}</small>
-                  </span>
-                  <span className="tool-subjob-time">
-                    <span className={"tool-metric " + toneOf(u?.status)}>{j.unmeasured ? "—" : compactTime(u.p95Ms)}</span>
-                    <small className="tool-dim">{j.targetMinutes ? "≤ " + minutesText(j.targetMinutes) : "Chưa có target"}</small>
-                  </span>
+                <li key={r.name} className={r.averageMs == null ? "empty" : over(r) ? "slow" : ""}>
+                  <Icon size={16} aria-hidden="true" />
+                  <span className="tool-subjob-name"><b>{r.name}</b><Hint text={hint(r)} /></span>
+                  <span className="tool-subjob-share">{r.share == null ? "" : Math.round(r.share * 100) + "%"}</span>
+                  <span className="tool-subjob-avg">{r.averageMs == null ? "—" : compactTime(r.averageMs)}</span>
                 </li>
               )
             })}
           </ul>
-        </div>
+          <footer>
+            <span>Tổng trung bình các bước:</span>
+            <b>{compactTime(totalMs)}</b>
+          </footer>
+          {onOpenRuns && (
+            <button type="button" className="text-button tool-subjob-link" onClick={() => { setOpen(false); onOpenRuns() }}>
+              Xem lịch sử chi tiết các lần chạy <ExternalLink size={13} aria-hidden="true" />
+            </button>
+          )}
+        </div>,
+        document.body,
       )}
     </span>
   )
@@ -321,7 +361,7 @@ export default function ToolOverview({ data, days = 7, api, onOpenReport, onChan
                             target={timeTarget ? "Mục tiêu: ≤ " + minutesText(timeTarget) : "Chưa có mục tiêu"}
                             note={u ? u.samples + " mẫu" + (u.samples < t.minSamples ? " (cần ≥ " + t.minSamples + ")" : "") + (!t.hasMain && t.jobCount > 1 ? " · " + u.job : "") : t.reason} />
                           <Trend unit={u} />
-                          {t.jobs.length > 0 && <SubJobMenu tool={t} label={t.hasMain && subCount ? subCount + " sub-jobs" : t.jobs.length + " jobs"} />}
+                          {t.jobs.length > 0 && <SubJobMenu tool={t} label={t.hasMain && subCount ? subCount + " sub-jobs" : t.jobs.length + " jobs"} onOpenRuns={() => setOpen({ id: t.id, tab: "runs" })} />}
                         </td>
                         <td>
                           <MetricCell value={t.success.rate == null ? "—" : formatPercent(t.success.rate) + (t.success.status === "ok" ? " OK" : "")} tone={toneOf(t.success.status)}

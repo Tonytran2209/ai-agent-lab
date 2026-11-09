@@ -456,56 +456,114 @@
   font-size: 12px;
 }
 .tool-subjob-menu {
-  position: relative;
   display: inline-block;
 }
+/* Sub-job popover: portalled to <body>, fixed position (see SubJobMenu). */
 .tool-subjob-panel {
-  position: absolute;
-  z-index: 25;
-  top: calc(100% + 6px);
-  left: 0;
-  min-width: 300px;
-  max-width: 380px;
-  padding: 6px;
+  position: fixed;
+  z-index: 70;
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
+  padding: 14px;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 14px;
   background: var(--card);
+  color: var(--text);
   box-shadow: var(--shadow);
+  font-size: 13px;
+}
+.tool-subjob-panel > header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 12px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.tool-subjob-panel > header > svg {
+  color: var(--signal-success-text);
+  flex-shrink: 0;
+}
+.tool-subjob-panel > header > b {
+  font-weight: 600;
+}
+.tool-subjob-panel > header > span {
+  margin-left: auto;
+  font-size: 12px;
+}
+.tool-subjob-panel > header .icon-button {
+  width: 26px;
+  height: 26px;
 }
 .tool-subjob-panel ul {
   list-style: none;
   margin: 0;
   padding: 0;
   display: grid;
-  gap: 2px;
+  gap: 8px;
 }
 .tool-subjob-panel li {
   display: flex;
-  justify-content: space-between;
-  gap: var(--space-3);
-  padding: 8px 10px;
-  border-radius: 8px;
-  font-size: 13px;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
 }
-.tool-subjob-panel li:hover {
-  background: var(--surface-soft);
+.tool-subjob-panel li > svg {
+  flex-shrink: 0;
+  color: var(--signal-success-text);
 }
-.tool-subjob-panel li small,
-.tool-subjob-time small {
-  display: block;
-  margin-top: 2px;
+.tool-subjob-panel li.slow > svg { color: var(--danger); }
+.tool-subjob-panel li.empty > svg { color: var(--muted); }
+.tool-subjob-name {
+  flex: 1;
+  min-width: 0;
+}
+.tool-subjob-name b {
+  font-weight: 600;
+}
+.tool-subjob-share {
   font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
 }
-.tool-subjob-time {
+.tool-subjob-avg {
+  min-width: 52px;
   text-align: right;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-weight: 600;
+  color: var(--signal-success-text);
   white-space: nowrap;
 }
-.tool-subjob-panel .tool-metric {
-  display: inline;
-  font-size: 13px;
+.tool-subjob-panel li.slow .tool-subjob-avg { color: var(--danger); }
+.tool-subjob-panel li.empty .tool-subjob-avg { color: var(--muted); }
+.tool-subjob-panel .tool-hint [role="tooltip"] {
+  left: 0;
+  transform: none;
 }
-.tool-subjob-panel .tool-tag {
-  margin-right: 6px;
+.tool-subjob-panel > footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  color: var(--secondary);
+}
+.tool-subjob-panel > footer b {
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.tool-subjob-link {
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  margin-top: 12px;
+  color: var(--signal-success-text) !important;
+  font-size: 12px !important;
 }
 .tool-tabs button {
   display: inline-flex;

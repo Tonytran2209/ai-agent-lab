@@ -288,3 +288,23 @@ test("document names after ' · ' stay in run history while stats and profiles u
   assert.doesNotThrow(() => toolConfigSchema.parse(profile), "a profile built from long article titles is storable")
   assert.ok(recentRuns(r)[0].workload.endsWith(title + " 3"), "run history keeps the article title")
 })
+
+test("sub-job popover averages measured steps over recent runs and shows each step's share", async () => {
+  const { stepAverages } = await import("../src/tool-format.js")
+  const step = (job, ms, extra = {}) => ({ job, status: "success", durationMs: ms, ...extra })
+  const tool = {
+    jobs: [{ name: "Lead", role: "main" }, { name: "Clean", role: "sub" }, { name: "Write", role: "sub", targetMinutes: 0.5 }, { name: "Review", role: "sub" }],
+    runs: [
+      { job: "Lead", steps: [step("Clean", 50), step("Write", 20000)] },
+      { job: "Lead", steps: [step("Clean", 70), step("Write", 40000), step("Review", 1000, { status: "failed" })] },
+      { job: "Lead", steps: [step("Write", 99999, { estimated: true })] },
+    ],
+  }
+  const { rows, totalMs, runs } = stepAverages(tool)
+  assert.deepEqual(rows.map((r) => [r.name, r.averageMs, r.samples]), [["Clean", 60, 2], ["Write", 30000, 2], ["Review", null, 0]],
+    "failed and estimated steps are not averaged")
+  assert.equal(totalMs, 30060)
+  assert.equal(runs, 2)
+  assert.equal(Math.round(rows[1].share * 100), 100)
+  assert.equal(stepAverages({ jobs: [{ name: "Only", role: "main" }], runs: [] }).totalMs, null)
+})
