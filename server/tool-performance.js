@@ -24,6 +24,9 @@ export const statusLabels = {
 }
 export const statusOrder = { bad: 0, insufficient: 1, notarget: 2, nodata: 3, ok: 4 }
 export const defaultMinSamples = 20
+// Success target (failure-rate %) used when a tool has no admin, app or baseline target, so every
+// tool's summary is judged the same way.
+export const defaultErrorRateTarget = 5
 // An unfinished run older than this multiple of its target counts as a failure (timeout).
 export const timeoutFactor = 3
 export const reportTimeZone = "Asia/Ho_Chi_Minh"
@@ -372,7 +375,8 @@ export function evaluateTool({ id, name, tool, connected = true, result = null, 
   const minSamples = Number.isSafeInteger(config.minSamples) && config.minSamples > 0 ? config.minSamples : defaultMinSamples
   const report = result?.report || null
   const profile = report?.profile || null
-  const errorTarget = config.errorRateTarget ?? appErrorRateTarget(report)
+  const ownErrorTarget = config.errorRateTarget ?? appErrorRateTarget(report)
+  const errorTarget = ownErrorTarget ?? (report ? defaultErrorRateTarget : null)
   const declared = Array.isArray(config.jobs) ? config.jobs : []
   const targetFor = (job) => {
     const own = declared.find((j) => j.name === job)
@@ -433,6 +437,7 @@ export function evaluateTool({ id, name, tool, connected = true, result = null, 
     executed: error.executed, succeeded: error.executed == null ? null : error.executed - error.failed,
     rate: error.rate == null ? null : 100 - error.rate, target: error.target == null ? null : 100 - error.target,
     status: error.status, timedOut: error.timedOut || 0, unverified: error.unverified || 0,
+    targetDefault: ownErrorTarget == null && error.target != null,
   }
   const kpis = report?.performanceKpis
   const response = uxMetric(kpis?.responseTime, positive(config.responseTargetMs) ? config.responseTargetMs : defaultResponseTargetMs, minSamples)
@@ -469,8 +474,19 @@ export function evaluateTool({ id, name, tool, connected = true, result = null, 
     if (r.status === "success" && r.startedAt !== null && r.endedAt !== null && (!latest || r.endedAt > latest.at))
       latest = { workload: r.workload, durationMs: r.endedAt - r.startedAt, at: r.endedAt }
 
+  // Completion-time target for the summary: the headline job's, else the Main Job's, else a
+  // provisional one from the P95 of every recorded successful Main Job run (rounded up).
+  let timeTarget = headline?.targetMinutes || (declaredMain && positive(declaredMain.targetMinutes) ? declaredMain.targetMinutes : null)
+  let timeTargetProvisional = false
+  if (!timeTarget) {
+    const durations = mainRuns.filter((r) => r.status === "success" && r.startedAt !== null && r.endedAt !== null)
+      .map((r) => r.endedAt - r.startedAt).sort((a, b) => a - b)
+    const provisional = durations.length ? niceTargetMinutes(percentile(durations, 0.95)) : null
+    if (provisional) { timeTarget = provisional; timeTargetProvisional = true }
+  }
+
   return {
-    id, name, connected, status, reason, minSamples, source: measured.source, latest, windowDays, widened: windowDays !== days, recordedDays,
+    id, name, connected, status, reason, minSamples, source: measured.source, latest, timeTarget, timeTargetProvisional, windowDays, widened: windowDays !== days, recordedDays,
     owner: config.owner || "", mainJob: config.mainJob || declaredMain?.name || (jobs.length === 1 ? jobs[0].name : ""),
     hasMain: Boolean(declaredMain), jobCount: jobs.length,
     // Shown when the period has no measured run: the Main Job's declared/detected target.

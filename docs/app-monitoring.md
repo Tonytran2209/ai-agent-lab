@@ -96,6 +96,12 @@ Opening a row shows **Lịch sử các lần chạy** with its run count and the
 
 Summary columns show only the value and target (plus the run count for the success rate). Details such as the workload, P95 and sample count, and what a browser KPI measures move into the value's tooltip.
 
+Summary style, the same for every tool including newly connected ones:
+- **Thời gian hoàn thành** and **Tỷ lệ thành công** show the value only, with no "OK" suffix. The value is green when it meets its target, red when it does not, and white only without a value.
+- **Every tool has a target.**
+  - Completion time uses the tool's own target. Without one, it uses a provisional target from the P95 of every recorded successful Main Job run, rounded up and labelled "tạm tính".
+  - The success rate uses the admin, app or baseline target. Without one, it uses the Lab default of ≥ 95%, labelled "mặc định".
+
 Summary columns:
 - **Thời gian hoàn thành.** The value is the duration of the latest workload that finished successfully: the newest successful Main Job run with start and end. Running, unfinished (awaiting approval) and failed runs are left out. Its label reads "Workload hoàn thành gần nhất · <time ago>". The window P95 and sample count follow on the next line.
 - **Tỷ lệ thành công.** Measured over every recorded Main Job run the app reports in `jobRuns`, up to its 61-day horizon, not only the window. Labelled "Đo trên N lượt chạy đã ghi nhận · D ngày".

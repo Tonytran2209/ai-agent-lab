@@ -370,3 +370,19 @@ test("browser KPIs show what the app says it measures", () => {
   assert.equal(t.response.measures, "Bấm 'Tạo outline' → outline đã lưu hiển thị")
   assert.equal(t.click.measures, null, "malformed descriptions are dropped")
 })
+
+test("every tool's summary has targets: a default success target and a provisional time target", async () => {
+  const { defaultErrorRateTarget } = await import("../server/tool-performance.js")
+  const runs = [
+    { job: "Tạo 2 phiên bản script", runId: "a", status: "success", startedAt: "2026-11-08T10:00:00Z", endedAt: "2026-11-08T10:00:27.6Z" },
+    { job: "Tạo 2 phiên bản script", runId: "b", status: "success", startedAt: "2026-11-08T11:00:00Z", endedAt: "2026-11-08T11:00:20Z" },
+  ]
+  const r = report({ profile: { version: "profile-v1", mainJob: { job: "Tạo 2 phiên bản script", steps: [] } }, jobRuns: { complete: true, runs } })
+  const profile = detectToolProfile(r, null, { now })
+  const t = evaluateTool({ id: "se", name: "Script Engine", days: 7, now, result: { status: "ready", report: r }, tool: profile })
+  assert.deepEqual([t.success.target, t.success.targetDefault], [100 - defaultErrorRateTarget, true], "no admin/app/baseline target: the Lab default applies")
+  assert.deepEqual([t.timeTarget, t.timeTargetProvisional], [0.5, true], "P95 27.6s rounded up to 30s")
+  const own = evaluateTool({ id: "se", name: "Script Engine", days: 7, now, result: { status: "ready", report: r },
+    tool: { ...profile, errorRateTarget: 1, jobs: profile.jobs.map((j) => (j.role === "main" ? { ...j, targetMinutes: 2 } : j)) } })
+  assert.deepEqual([own.success.target, own.success.targetDefault, own.timeTarget, own.timeTargetProvisional], [99, false, 2, false], "own targets win")
+})

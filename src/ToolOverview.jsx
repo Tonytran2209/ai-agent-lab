@@ -48,6 +48,14 @@ function OpPill({ op }) {
   return <span className={"tool-op " + op.tone}><Icon size={15} aria-hidden="true" />{op.label}</span>
 }
 
+// One style for the summary's Thời gian hoàn thành and Tỷ lệ thành công, for every tool:
+// green when the value meets its target, red when it does not, white without a value.
+function summaryTone(value, target, kind) {
+  if (value == null || target == null) return "muted"
+  return (kind === "max" ? value <= target : value >= target) ? "good" : "bad"
+}
+const summaryTarget = (text, has, qualifier) => (has ? "Mục tiêu: " + text + (qualifier ? " · " + qualifier : "") : "Chưa có mục tiêu")
+
 function MetricCell({ value, tone, target, note, title }) {
   return (
     <>
@@ -293,7 +301,7 @@ export default function ToolOverview({ data, days = 7, api, onOpenReport, onChan
               <tbody>
                 {tools.map((t) => {
                   const op = operational(t), u = t.headline, deploys = data.deploys?.[t.id]
-                  const timeTarget = u?.targetMinutes || t.mainTargetMinutes
+                  const timeTarget = t.timeTarget
                   const subCount = t.jobs.filter((j) => j.role !== "main").length
                   return (
                     <React.Fragment key={t.id}>
@@ -316,12 +324,12 @@ export default function ToolOverview({ data, days = 7, api, onOpenReport, onChan
                           {(() => {
                             // Headline: the latest run, finished or not; the period P95 follows.
                             const l = t.latest
-                            const tone = !l ? "muted" : timeTarget && l.durationMs > timeTarget * 60000 ? "bad" : timeTarget ? "good" : "muted"
+                            const tone = summaryTone(l ? l.durationMs : null, timeTarget == null ? null : timeTarget * 60000, "max")
                             return (
                               <MetricCell value={l ? compactTime(l.durationMs) : "—"} tone={tone}
                                 title={[l ? "Workload hoàn thành gần nhất: " + (l.workload || "—") + " · " + timeAgo(new Date(l.at).toISOString()) : t.reason,
                                   u ? "P95 " + (t.widened ? t.windowDays + " ngày gần nhất" : "trong kỳ") + ": " + compactTime(u.p95Ms) + " · " + u.samples + " mẫu" : null].filter(Boolean).join("\n")}
-                                target={timeTarget ? "Mục tiêu: ≤ " + minutesText(timeTarget) : "Chưa có mục tiêu"} />
+                                target={summaryTarget("≤ " + minutesText(timeTarget), timeTarget != null, t.timeTargetProvisional ? "tạm tính" : null)} />
                             )
                           })()}
                           {t.jobs.length > 0 && <SubJobMenu tool={t} label={t.hasMain && subCount ? subCount + " sub-jobs" : t.jobs.length + " jobs"} onOpenRuns={() => setOpen({ id: t.id, tab: "runs" })} />}
@@ -329,10 +337,10 @@ export default function ToolOverview({ data, days = 7, api, onOpenReport, onChan
                         <td>
                           {/* Same style for every tool (Writer Studio's): coloured and "OK" by the rate against its
                               target; a small sample is noted in the tooltip instead of greying the value. */}
-                          <MetricCell value={t.success.rate == null ? "—" : formatPercent(t.success.rate) + (t.success.rate != null && t.success.target != null && t.success.rate >= t.success.target ? " OK" : "")}
-                            tone={t.success.rate == null || t.success.target == null ? "muted" : t.success.rate >= t.success.target ? "good" : "bad"}
+                          <MetricCell value={t.success.rate == null ? "—" : formatPercent(t.success.rate)}
+                            tone={summaryTone(t.success.rate, t.success.target, "min")}
                             title={t.success.executed != null && t.success.executed < t.minSamples ? "Mới có " + t.success.executed + " lượt chạy (cần ≥ " + t.minSamples + " để chấm chính thức)" : undefined}
-                            target={t.success.target == null ? "Chưa có mục tiêu" : "Mục tiêu: ≥ " + formatPercent(t.success.target)}
+                            target={summaryTarget("≥ " + formatPercent(t.success.target), t.success.target != null, t.success.targetDefault ? "mặc định" : null)}
                             note={t.success.executed ? "Đo trên " + t.success.executed + " lượt chạy đã ghi nhận" : null} />
                         </td>
                         <td>
