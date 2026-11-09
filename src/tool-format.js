@@ -25,3 +25,19 @@ export function timeAgo(iso, now = Date.now()) {
 export function dateTime(ms) {
   return Number.isFinite(ms) ? new Date(ms).toLocaleString("vi-VN", { dateStyle: "short", timeStyle: "medium" }) : "—"
 }
+
+// Compact duration for the Status tab: 55ms, 14.1s, 1m 32s.
+export function compactTime(ms) {
+  if (ms == null || !Number.isFinite(ms)) return "—"
+  if (ms < 1000) return Math.round(ms) + "ms"
+  if (ms < 60000) return (Math.round(ms / 100) / 10).toString() + "s"
+  const s = Math.round(ms / 1000)
+  return Math.floor(s / 60) + "m " + (s % 60) + "s"
+}
+
+// 17:53:01 09/11/2026 in the viewer's local time.
+export function clockDate(ms) {
+  if (!Number.isFinite(ms)) return "—"
+  const d = new Date(ms), p = (n) => String(n).padStart(2, "0")
+  return p(d.getHours()) + ":" + p(d.getMinutes()) + ":" + p(d.getSeconds()) + " " + p(d.getDate()) + "/" + p(d.getMonth() + 1) + "/" + d.getFullYear()
+}

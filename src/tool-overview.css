@@ -8,7 +8,7 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: var(--space-3);
 }
 .tool-toolbar > .button {
@@ -16,26 +16,6 @@
   align-items: center;
   gap: 6px;
 }
-.tool-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-}
-.tool-chip {
-  border: 1px solid var(--border);
-  background: var(--card);
-  color: var(--text);
-  border-radius: 999px;
-  padding: 6px 12px;
-  font: inherit;
-  font-size: 13px;
-  cursor: pointer;
-}
-.tool-chip[aria-pressed="true"] {
-  background: var(--surface-selected);
-  border-color: var(--control-border);
-}
-.tool-chip:focus-visible,
 .tool-name:focus-visible,
 .tool-subjobs:focus-visible,
 .tool-hint:focus-visible,
@@ -74,13 +54,8 @@
   font-weight: 400;
 }
 .tool-table > tbody > tr.tool-row > th:first-child {
-  border-left: 3px solid transparent;
   width: 26%;
 }
-.tool-row.result-ok > th:first-child { border-left-color: var(--signal-success-dot); }
-.tool-row.result-bad > th:first-child { border-left-color: var(--danger); }
-.tool-row.result-insufficient > th:first-child { border-left-color: var(--signal-info-border); }
-.tool-row.result-notarget > th:first-child { border-left-color: var(--signal-warning-border); }
 .tool-row.selected > * {
   background: var(--surface-soft);
 }
@@ -148,22 +123,13 @@
   font-size: 13px;
   font-weight: 500;
 }
-.tool-op::before {
-  content: "";
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: currentColor;
+.tool-op svg {
+  flex-shrink: 0;
 }
 .tool-op.good { color: var(--signal-success-text); background: var(--signal-success-fill); border-color: var(--signal-success-border); }
 .tool-op.warn { color: var(--signal-warning-text); background: var(--signal-warning-fill); border-color: var(--signal-warning-border); }
 .tool-op.bad { color: var(--signal-error-text); background: var(--signal-error-fill); border-color: var(--signal-error-border); }
 .tool-op.muted { color: var(--secondary); background: var(--surface-soft); }
-.tool-result {
-  font-weight: 500;
-}
-.tool-result.bad { color: var(--danger) !important; }
-.tool-result.ok { color: var(--signal-success-text) !important; }
 .tool-subjobs {
   display: inline-flex;
   align-items: center;
@@ -482,4 +448,132 @@
     padding-left: var(--space-4);
     padding-right: var(--space-4);
   }
+}
+
+/* Status tab layout (sample: outlined pills, mono numbers, boxed sub-jobs) */
+.tool-row > td small,
+.tool-row > th small {
+  font-size: 12px;
+}
+.tool-subjob-menu {
+  position: relative;
+  display: inline-block;
+}
+.tool-subjob-panel {
+  position: absolute;
+  z-index: 25;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 300px;
+  max-width: 380px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--card);
+  box-shadow: var(--shadow);
+}
+.tool-subjob-panel ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+}
+.tool-subjob-panel li {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 13px;
+}
+.tool-subjob-panel li:hover {
+  background: var(--surface-soft);
+}
+.tool-subjob-panel li small,
+.tool-subjob-time small {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+}
+.tool-subjob-time {
+  text-align: right;
+  white-space: nowrap;
+}
+.tool-subjob-panel .tool-metric {
+  display: inline;
+  font-size: 13px;
+}
+.tool-subjob-panel .tool-tag {
+  margin-right: 6px;
+}
+.tool-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.tool-id {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--muted);
+  background: none;
+  padding: 0;
+}
+.tool-detail {
+  justify-items: stretch;
+}
+.tool-runs thead th {
+  background: var(--surface-soft);
+  border-bottom: 0;
+}
+.tool-runs thead th:first-child { border-radius: 8px 0 0 8px; }
+.tool-runs thead th:last-child { border-radius: 0 8px 8px 0; }
+.tool-runs tbody tr:hover > td {
+  background: var(--surface-soft);
+}
+.tool-end {
+  text-align: right;
+}
+.tool-when > span {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.tool-steps li {
+  align-items: center;
+  background: var(--card);
+}
+.tool-steps li b {
+  font-weight: 600;
+}
+.tool-steps li .tool-hint {
+  vertical-align: -2px;
+}
+.tool-run-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.tool-run-status.success,
+.tool-run-status.failed,
+.tool-run-status.running {
+  background: transparent;
+}
+.tool-report-link {
+  justify-self: start;
+  font-size: 12px;
+}
+/* Hidden tooltips must not enlarge the scroll area of the run table. */
+.tool-hint [role="tooltip"] {
+  display: none;
+}
+.tool-hint:hover [role="tooltip"],
+.tool-hint:focus-visible [role="tooltip"] {
+  display: block;
+}
+.tool-steps li .tool-hint [role="tooltip"] {
+  top: 50%;
+  left: calc(100% + 8px);
+  transform: translateY(-50%);
+  width: 240px;
 }

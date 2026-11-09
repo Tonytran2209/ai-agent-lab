@@ -1,13 +1,13 @@
-import React, { useState } from "react"
-import { ChevronDown, ChevronRight, CircleHelp, Plus, Settings2, Trash2, Layers } from "lucide-react"
-import { evaluateTool, priorities, statusLabels, statusOrder, summarize } from "../server/tool-performance.js"
-import { formatTime, formatPercent, timeAgo, dateTime } from "./tool-format.js"
+import React, { useEffect, useRef, useState } from "react"
+import { ChevronDown, ChevronRight, CircleCheck, CircleHelp, CircleAlert, GitCommitHorizontal, Plus, Settings2, ShieldCheck, ShieldAlert, Trash2, Layers, LoaderCircle } from "lucide-react"
+import { evaluateTool, priorities, statusOrder } from "../server/tool-performance.js"
+import { formatTime, formatPercent, timeAgo, compactTime, clockDate } from "./tool-format.js"
 import { ConnectToolForm, Drawer, ToolSettings } from "./ToolManager.jsx"
 import "./tool-overview.css"
 
 export { formatTime }
 
-const minutesText = (m) => (m == null ? null : formatTime(m * 60000))
+const minutesText = (m) => (m == null ? null : compactTime(m * 60000))
 const sourceLabels = {
   runs: "Tính từ từng lần chạy, theo giờ VN",
   history: "Từ lịch sử job app đã lưu (kỳ theo ngày UTC)",
@@ -15,7 +15,7 @@ const sourceLabels = {
 }
 const hints = {
   tool: "Tool và Main Job: công việc trọn vẹn mà người dùng nhận được kết quả. Lab tự nhận diện từ dữ liệu thật.",
-  status: "Trạng thái vận hành: Lab đọc được báo cáo của tool hay không, và lần báo cáo gần nhất. Viền màu đầu dòng là kết quả so với target.",
+  status: "Trạng thái vận hành: Lab đọc được báo cáo của tool hay không, và lần báo cáo gần nhất. Màu của từng chỉ số cho biết đạt (xanh) hay chưa đạt (đỏ) target.",
   time: "P95 thời gian hoàn thành Main Job trong kỳ: 95% lần chạy xong nhanh hơn mức này. Chỉ chấm khi đủ số mẫu tối thiểu.",
   success: "Tỷ lệ lần chạy thành công: không lỗi kỹ thuật, không thất bại nghiệp vụ, không quá thời gian chờ (3 × target).",
   response: "P95 từ lúc người dùng gửi yêu cầu đến phản hồi có ý nghĩa đầu tiên.",
@@ -41,6 +41,12 @@ function operational(t) {
   return { label: "Mất tín hiệu", tone: "bad" }
 }
 
+const opIcons = { good: CircleCheck, warn: CircleAlert, bad: CircleAlert, muted: CircleHelp }
+function OpPill({ op }) {
+  const Icon = opIcons[op.tone] || CircleHelp
+  return <span className={"tool-op " + op.tone}><Icon size={15} aria-hidden="true" />{op.label}</span>
+}
+
 function MetricCell({ value, tone, target, note }) {
   return (
     <>
@@ -55,85 +61,95 @@ function Trend({ unit }) {
   if (unit?.previousP95Ms == null || unit.p95Ms == null) return null
   const d = unit.p95Ms - unit.previousP95Ms
   if (Math.abs(d) < 500) return <small className="tool-dim">So với kỳ trước: không đổi</small>
-  return <small className={d > 0 ? "tool-worse" : "tool-better"}>So với kỳ trước: {d > 0 ? "+" : "−"}{formatTime(Math.abs(d))}</small>
+  return <small className={d > 0 ? "tool-worse" : "tool-better"}>So với kỳ trước: {d > 0 ? "+" : "−"}{compactTime(Math.abs(d))}</small>
 }
 
 function RunHistory({ tool }) {
   if (!tool.runs.length)
     return <p className="tool-note">{tool.source === "runs" ? "Chưa có lần chạy nào trong 61 ngày gần đây." : "App chưa gửi từng lần chạy (jobRuns), nên chưa có lịch sử."}</p>
-  const targets = new Map(tool.jobs.map((j) => [j.name, j.targetMinutes]))
-  const over = (job, ms) => targets.get(job) && ms > targets.get(job) * 60000
+  const jobs = new Map(tool.jobs.map((j) => [j.name, j]))
+  const over = (job, ms) => jobs.get(job)?.targetMinutes && ms > jobs.get(job).targetMinutes * 60000
+  const stepHint = (name) => {
+    const j = jobs.get(name), u = j?.units?.[0]
+    return [name, j?.targetMinutes ? "Target ≤ " + minutesText(j.targetMinutes) : "Chưa có target",
+      u?.p95Ms != null ? "P95 trong kỳ " + compactTime(u.p95Ms) + " · " + u.samples + " mẫu" : null].filter(Boolean).join(" · ")
+  }
+  const statusIcon = { success: ShieldCheck, failed: ShieldAlert, running: LoaderCircle }
   return (
     <div className="perf-table-scroll">
       <table className="tool-runs">
         <thead>
-          <tr><th scope="col">Thời gian</th><th scope="col">Workload / Tài liệu</th><th scope="col">Thời lượng</th><th scope="col">Chi tiết từng sub-job</th><th scope="col">Trạng thái</th></tr>
+          <tr><th scope="col">Thời gian</th><th scope="col">Workload / Tài liệu</th><th scope="col">Thời lượng</th><th scope="col">Chi tiết từng Sub-job</th><th scope="col" className="tool-end">Trạng thái</th></tr>
         </thead>
         <tbody>
-          {tool.runs.map((r, i) => (
-            <tr key={(r.runId || "") + i}>
-              <td>{dateTime(r.endedAt ?? r.startedAt)}<small className="tool-dim">{timeAgo(new Date(r.endedAt ?? r.startedAt).toISOString())}{r.job && tool.jobs.length > 1 && !r.steps.length ? " · " + r.job : ""}</small></td>
-              <td className="tool-workload" title={r.workload}>{r.workload || "—"}</td>
-              <td>
-                <span className={!r.group && over(r.job, r.durationMs) ? "tool-metric bad" : "tool-metric good"}>{formatTime(r.durationMs)}</span>
-                {r.group && <small className="tool-dim">Tổng thời gian các bước</small>}
-              </td>
-              <td>
-                {r.steps.length ? (
-                  <ul className="tool-steps">
-                    {r.steps.map((s, k) => (
-                      <li key={k} className={s.status === "failed" ? "failed" : over(s.job, s.durationMs) ? "slow" : ""}>
-                        <span>{s.job}{s.workload && s.workload !== r.workload ? <small className="tool-dim"> · {s.workload}</small> : null}</span>
-                        <span>{s.status === "failed" ? "Lỗi" : s.status === "running" ? "Đang chạy" : formatTime(s.durationMs)}</span>
-                      </li>
-                    ))}
-                  </ul>
-                ) : <span className="tool-dim">—</span>}
-              </td>
-              <td><span className={"tool-run-status " + r.status}>{r.status === "success" ? "Thành công" : r.status === "failed" ? "Thất bại" : "Đang chạy"}</span></td>
-            </tr>
-          ))}
+          {tool.runs.map((r, i) => {
+            const Icon = statusIcon[r.status] || LoaderCircle, at = r.endedAt ?? r.startedAt
+            return (
+              <tr key={(r.runId || "") + i}>
+                <td className="tool-when"><span>{clockDate(at)}</span><small className="tool-dim">{timeAgo(new Date(at).toISOString())}{r.job && tool.jobs.length > 1 && !r.steps.length ? " · " + r.job : ""}</small></td>
+                <td className="tool-workload" title={r.workload}>{r.workload || "—"}</td>
+                <td>
+                  <span className={!r.group && over(r.job, r.durationMs) ? "tool-metric bad" : "tool-metric good"}>{compactTime(r.durationMs)}</span>
+                  {r.group && <small className="tool-dim">Tổng các bước</small>}
+                </td>
+                <td>
+                  {r.steps.length ? (
+                    <ul className="tool-steps">
+                      {r.steps.map((s, k) => (
+                        <li key={k} className={s.status === "failed" ? "failed" : over(s.job, s.durationMs) ? "slow" : ""}>
+                          <span><b>{s.job}</b><Hint text={stepHint(s.job)} />{s.workload && s.workload !== r.workload ? <small className="tool-dim"> · {s.workload}</small> : null}</span>
+                          <span>{s.status === "failed" ? "Lỗi" : s.status === "running" ? "Đang chạy" : compactTime(s.durationMs)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : <span className="tool-dim">—</span>}
+                </td>
+                <td className="tool-end"><span className={"tool-run-status " + r.status}><Icon size={14} aria-hidden="true" />{r.status === "success" ? "Thành công" : r.status === "failed" ? "Thất bại" : "Đang chạy"}</span></td>
+              </tr>
+            )
+          })}
         </tbody>
       </table>
     </div>
   )
 }
 
-function SubJobs({ tool }) {
-  if (!tool.jobs.length)
-    return <p className="tool-note">{tool.source ? "Không có lần chạy nào kết thúc trong kỳ này." : "App chưa gửi số liệu thời gian theo job (jobRuns hoặc jobHistory.completion)."}</p>
+function SubJobMenu({ tool, label }) {
+  const [open, setOpen] = useState(false), ref = useRef(null)
+  useEffect(() => {
+    if (!open) return undefined
+    const close = (e) => { if (!ref.current?.contains(e.target)) setOpen(false) }
+    const key = (e) => { if (e.key === "Escape") setOpen(false) }
+    document.addEventListener("mousedown", close)
+    document.addEventListener("keydown", key)
+    return () => { document.removeEventListener("mousedown", close); document.removeEventListener("keydown", key) }
+  }, [open])
   return (
-    <div className="perf-table-scroll">
-      <table className="tool-jobs">
-        <thead><tr><th scope="col">Job</th><th scope="col">P95 / target</th><th scope="col">Mẫu</th><th scope="col">Thành công</th><th scope="col">Trạng thái</th></tr></thead>
-        <tbody>
-          {tool.jobs.map((j) => {
-            const name = <>{j.role === "main" && <span className="tool-tag">MAIN JOB</span>}{j.name}</>
-            if (j.unmeasured)
+    <span className="tool-subjob-menu" ref={ref}>
+      <button type="button" className="tool-subjobs" aria-expanded={open} onClick={() => setOpen(!open)}>
+        <Layers size={13} aria-hidden="true" /> {label} <ChevronDown size={12} aria-hidden="true" />
+      </button>
+      {open && (
+        <div className="tool-subjob-panel" role="dialog" aria-label={"Sub-job của " + tool.name}>
+          <ul>
+            {tool.jobs.map((j) => {
+              const u = j.units?.[0]
               return (
-                <tr key={j.name} className="tool-unmeasured">
-                  <th scope="row">{name}<small>{j.role === "main" || j.baselineSamples > 0 || tool.source === "runs" ? "Không có lần chạy nào kết thúc trong kỳ này." : "Chưa có điểm đo riêng; đang tính chung trong Main Job."}</small></th>
-                  <td>— / {minutesText(j.targetMinutes) || "Chưa có target"}</td><td>—</td><td>—</td><td>—</td>
-                </tr>
+                <li key={j.name}>
+                  <span>{j.role === "main" && <span className="tool-tag">MAIN</span>}<b>{j.name}</b>
+                    <small className="tool-dim">{j.unmeasured ? "Chưa có lần chạy trong kỳ" : u.samples + " mẫu" + (j.error?.executed ? " · " + formatPercent(100 - j.error.rate) + " thành công" : "")}</small>
+                  </span>
+                  <span className="tool-subjob-time">
+                    <span className={"tool-metric " + toneOf(u?.status)}>{j.unmeasured ? "—" : compactTime(u.p95Ms)}</span>
+                    <small className="tool-dim">{j.targetMinutes ? "≤ " + minutesText(j.targetMinutes) : "Chưa có target"}</small>
+                  </span>
+                </li>
               )
-            return j.units.map((u, i) => (
-              <tr key={j.name + i}>
-                <th scope="row">{name}{u.workload && <small>Workload: {u.workload}</small>}</th>
-                <td>
-                  <span className={"tool-metric " + toneOf(u.status)}>{formatTime(u.p95Ms)}</span> <span className="tool-dim">/ {minutesText(u.targetMinutes) || "Chưa có target"}</span>
-                  {u.medianMs != null && <small className="tool-dim">Trung vị {formatTime(u.medianMs)} · chậm nhất {formatTime(u.maxMs)}</small>}
-                  {u.overRuns > 0 && <small className="tool-worse">{u.overRuns} lần vượt target</small>}
-                  <Trend unit={u} />
-                </td>
-                <td>{u.samples}</td>
-                <td>{i === 0 && j.error?.executed ? formatPercent(100 - j.error.rate) + " · " + (j.error.executed - j.error.failed) + "/" + j.error.executed : i === 0 ? "—" : ""}</td>
-                <td><span className={"tool-badge " + u.status}>{statusLabels[u.status]}</span></td>
-              </tr>
-            ))
-          })}
-        </tbody>
-      </table>
-    </div>
+            })}
+          </ul>
+        </div>
+      )}
+    </span>
   )
 }
 
@@ -148,7 +164,7 @@ function Deploys({ deploys, linked }) {
         <tbody>
           {deploys.items.map((d) => (
             <tr key={d.id}>
-              <td>{dateTime(Date.parse(d.createdAt))}<small className="tool-dim">{timeAgo(d.createdAt)}</small></td>
+              <td className="tool-when"><span>{clockDate(Date.parse(d.createdAt))}</span><small className="tool-dim">{timeAgo(d.createdAt)}</small></td>
               <td><span className={"tool-run-status " + (d.status === "SUCCESS" ? "success" : ["FAILED", "CRASHED"].includes(d.status) ? "failed" : "running")}>{d.status}</span></td>
               <td>{d.commitHash ? <code>{d.commitHash.slice(0, 7)}</code> : "—"} {d.commitMessage && <span className="tool-dim">{d.commitMessage}</span>}</td>
             </tr>
@@ -160,24 +176,22 @@ function Deploys({ deploys, linked }) {
 }
 
 function ToolDetail({ tool, deploys, onOpenReport, initialTab }) {
-  const [tab, setTab] = useState(initialTab)
+  const [tab, setTab] = useState(initialTab === "deploys" ? "deploys" : "runs")
   const tabs = [
-    ["runs", "Lịch sử các lần chạy gần đây (" + tool.runs.length + ")"],
-    ["jobs", "Sub-job (" + tool.jobs.length + ")"],
-    ["deploys", "Sự kiện deploy" + (deploys?.items ? " (" + deploys.items.length + ")" : "")],
+    ["runs", Layers, "Lịch sử các lần chạy gần đây (" + tool.runs.length + ")"],
+    ["deploys", GitCommitHorizontal, "Sự kiện Railway Webhook" + (deploys?.items ? " (" + deploys.items.length + ")" : "")],
   ]
   return (
     <div className="tool-detail">
       <div className="tool-tabs" role="tablist">
-        {tabs.map(([id, label]) => (
-          <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => setTab(id)}>{label}</button>
+        {tabs.map(([id, Icon, label]) => (
+          <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => setTab(id)}><Icon size={15} aria-hidden="true" />{label}</button>
         ))}
-        <span className="tool-dim">{sourceLabels[tool.source] || ""}</span>
+        <code className="tool-id" title={sourceLabels[tool.source] || ""}>Tool ID: {tool.id}</code>
       </div>
       {tab === "runs" && <RunHistory tool={tool} />}
-      {tab === "jobs" && <SubJobs tool={tool} />}
       {tab === "deploys" && <Deploys deploys={deploys} linked={tool.railwayLinked} />}
-      {tool.connected && tool.appStatus && <button type="button" className="button" onClick={() => onOpenReport(tool.id)}>Xem báo cáo kỹ thuật của app</button>}
+      {tool.connected && tool.appStatus && <button type="button" className="text-button tool-report-link" onClick={() => onOpenReport(tool.id)}>Xem báo cáo kỹ thuật của app →</button>}
     </div>
   )
 }
@@ -206,7 +220,7 @@ function PriorityList({ items, kind, decisions, api, onChanged, busy, setBusy, s
             <span className="tool-metric bad">{kind === "time" ? "+" + Math.round(p.overPercent) + "%" : formatPercent(100 - p.rate)}</span>
             <small className="tool-dim">
               {kind === "time"
-                ? formatTime(p.p95Ms) + " / target " + minutesText(p.targetMinutes) + " · " + p.samples + " mẫu" + (p.overRuns ? " · " + p.overRuns + " lần vượt" : "")
+                ? compactTime(p.p95Ms) + " / target " + minutesText(p.targetMinutes) + " · " + p.samples + " mẫu" + (p.overRuns ? " · " + p.overRuns + " lần vượt" : "")
                 : (p.executed - p.failed) + "/" + p.executed + " lượt thành công · mục tiêu ≥ " + formatPercent(100 - p.target)}
             </small>
             {api && (
@@ -227,8 +241,7 @@ function PriorityList({ items, kind, decisions, api, onChanged, busy, setBusy, s
 }
 
 export default function ToolOverview({ data, days = 7, api, onOpenReport, onChanged = () => {} }) {
-  const [filter, setFilter] = useState(null),
-    [open, setOpen] = useState(null),
+  const [open, setOpen] = useState(null),
     [drawer, setDrawer] = useState(null),
     [confirmDelete, setConfirmDelete] = useState(null),
     [busy, setBusy] = useState(false),
@@ -238,10 +251,8 @@ export default function ToolOverview({ data, days = 7, api, onOpenReport, onChan
   const tools = listed
     .map((t) => ({ ...evaluateTool({ ...t, result: results.get(t.id), days }), listed: t, railwayLinked: Boolean(t.railway) }))
     .sort((a, b) => statusOrder[a.status] - statusOrder[b.status] || a.name.localeCompare(b.name))
-  const counts = summarize(tools)
   const todo = priorities(tools)
   const decisions = data.priorities || []
-  const shown = tools.filter((t) => !filter || t.status === filter)
   const full = listed.length >= (data.max || 12)
   async function remove(t) {
     setBusy(true)
@@ -261,13 +272,6 @@ export default function ToolOverview({ data, days = 7, api, onOpenReport, onChan
   return (
     <section className="tool-overview" aria-labelledby="tool-overview-title">
       <div className="tool-toolbar">
-        <div className="tool-chips" role="group" aria-label="Lọc theo kết quả so với target">
-          {["bad", "insufficient", "ok", "notarget", "nodata"].map((s) => (
-            <button key={s} type="button" className={"tool-chip " + s} aria-pressed={filter === s} onClick={() => setFilter(filter === s ? null : s)}>
-              <b>{counts[s]}</b> {statusLabels[s]}
-            </button>
-          ))}
-        </div>
         {api && <button type="button" className="button primary" disabled={full} onClick={() => setDrawer("new")}><Plus size={15} aria-hidden="true" /> Kết nối tool</button>}
       </div>
       {error && <p className="perf-error" role="alert">{error}</p>}
@@ -290,38 +294,33 @@ export default function ToolOverview({ data, days = 7, api, onOpenReport, onChan
                 </tr>
               </thead>
               <tbody>
-                {shown.map((t) => {
+                {tools.map((t) => {
                   const op = operational(t), u = t.headline, deploys = data.deploys?.[t.id]
                   const timeTarget = u?.targetMinutes || t.mainTargetMinutes
                   const subCount = t.jobs.filter((j) => j.role !== "main").length
                   return (
                     <React.Fragment key={t.id}>
-                      <tr className={"tool-row result-" + t.status + (open?.id === t.id ? " selected" : "")}>
+                      <tr className={"tool-row" + (open?.id === t.id ? " selected" : "")}>
                         <th scope="row">
                           <button type="button" className="tool-name" aria-expanded={open?.id === t.id} onClick={() => setOpen(open?.id === t.id ? null : { id: t.id, tab: "runs" })}>
                             {open?.id === t.id ? <ChevronDown size={16} aria-hidden="true" /> : <ChevronRight size={16} aria-hidden="true" />}
                             <span>
                               <b>{t.name}</b>
                               <small>{t.description || t.mainJob || (t.jobCount > 1 ? "Chưa có job tổng · chấm theo " + t.jobCount + " job" : "Chưa có dữ liệu để nhận diện")}</small>
-                              <code>{(t.success.executed ?? 0) + " lượt"}{deploys?.items ? " · " + deploys.items.length + " deploy" : ""}{t.owner ? " · " + t.owner : ""}</code>
+                              <code>{(t.success.executed ?? 0) + " runs"}{deploys?.items ? " · " + deploys.items.length + " deploys" : ""}{t.owner ? " · " + t.owner : ""}</code>
                             </span>
                           </button>
                         </th>
                         <td>
-                          <span className={"tool-op " + op.tone}>{op.label}</span>
+                          <OpPill op={op} />
                           <small className="tool-dim">{t.reportedAt ? timeAgo(t.reportedAt) : t.reason || ""}</small>
-                          <small className={"tool-result " + t.status}>{statusLabels[t.status]}</small>
                         </td>
                         <td>
-                          <MetricCell value={u ? formatTime(u.p95Ms) : "—"} tone={toneOf(u?.status)}
+                          <MetricCell value={u ? compactTime(u.p95Ms) : "—"} tone={toneOf(u?.status)}
                             target={timeTarget ? "Mục tiêu: ≤ " + minutesText(timeTarget) : "Chưa có mục tiêu"}
                             note={u ? u.samples + " mẫu" + (u.samples < t.minSamples ? " (cần ≥ " + t.minSamples + ")" : "") + (!t.hasMain && t.jobCount > 1 ? " · " + u.job : "") : t.reason} />
                           <Trend unit={u} />
-                          {t.jobs.length > 0 && (
-                            <button type="button" className="tool-subjobs" onClick={() => setOpen({ id: t.id, tab: "jobs" })}>
-                              <Layers size={13} aria-hidden="true" /> {t.hasMain && subCount ? subCount + " sub-job" : t.jobs.length + " job"} <ChevronDown size={12} aria-hidden="true" />
-                            </button>
-                          )}
+                          {t.jobs.length > 0 && <SubJobMenu tool={t} label={t.hasMain && subCount ? subCount + " sub-jobs" : t.jobs.length + " jobs"} />}
                         </td>
                         <td>
                           <MetricCell value={t.success.rate == null ? "—" : formatPercent(t.success.rate) + (t.success.status === "ok" ? " OK" : "")} tone={toneOf(t.success.status)}
@@ -329,11 +328,11 @@ export default function ToolOverview({ data, days = 7, api, onOpenReport, onChan
                             note={t.success.executed ? "Đo trên " + t.success.executed + " lượt chạy" + (t.success.timedOut ? " · " + t.success.timedOut + " quá thời gian chờ" : "") : null} />
                         </td>
                         <td>
-                          <MetricCell value={formatTime(t.response.p95Ms)} tone={toneOf(t.response.status)} target={"Mục tiêu: ≤ " + formatTime(t.response.targetMs)}
+                          <MetricCell value={compactTime(t.response.p95Ms)} tone={toneOf(t.response.status)} target={"Mục tiêu: ≤ " + compactTime(t.response.targetMs)}
                             note={t.response.samples ? t.response.samples + " mẫu" : "App chưa đo"} />
                         </td>
                         <td>
-                          <MetricCell value={formatTime(t.click.p95Ms)} tone={toneOf(t.click.status)} target={"Mục tiêu: ≤ " + formatTime(t.click.targetMs)}
+                          <MetricCell value={compactTime(t.click.p95Ms)} tone={toneOf(t.click.status)} target={"Mục tiêu: ≤ " + compactTime(t.click.targetMs)}
                             note={t.click.samples ? t.click.samples + " mẫu" : "App chưa đo"} />
                         </td>
                         <td className="tool-actions">
@@ -353,7 +352,6 @@ export default function ToolOverview({ data, days = 7, api, onOpenReport, onChan
                     </React.Fragment>
                   )
                 })}
-                {tools.length > 0 && !shown.length && <tr><td colSpan={7} className="perf-empty">Không có tool nào ở trạng thái này.</td></tr>}
               </tbody>
             </table>
           </div>
