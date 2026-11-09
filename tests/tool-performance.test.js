@@ -329,3 +329,21 @@ test("run history groups repeated sub-job runs into one chip with count and summ
   assert.deepEqual(groups.map((g) => [g.job, g.count, g.totalMs, g.failed, g.estimated]), [
     ["Brief", 1, 2700, false, false], ["Spec", 3, 17400, true, false], ["Draft", 1, 7400, false, false], ["Channel", 1, 5000, false, true]])
 })
+
+test("an empty period shows the latest Main Job run, and an app-declared success target applies without a baseline", async () => {
+  const runs = [
+    { job: "EB V2 package", runId: "p1", status: "success", startedAt: "2026-10-26T03:59:00Z", endedAt: "2026-10-26T04:00:15Z" },
+    { job: "EB V2 package", runId: "p0", status: "success", startedAt: "2026-10-23T09:53:00Z", endedAt: "2026-10-23T09:54:07Z" },
+  ]
+  const r = report({ profile: { version: "profile-v1", mainJob: { job: "EB V2 package", steps: [] }, errorRateTarget: 1 }, jobRuns: { complete: true, runs } })
+  const profile = detectToolProfile(r, null, { now })
+  assert.deepEqual([profile.errorRateTarget, profile.errorRateTargetSource], [1, "app"], "fewer runs than the minimum: the app's target is used")
+  const t = evaluateTool({ id: "ic", name: "Intercom", days: 7, now, result: { status: "ready", report: r }, tool: profile })
+  assert.equal(t.headline, null, "nothing finished in the last 7 days")
+  assert.deepEqual(t.latestRun, { job: "EB V2 package", durationMs: 75000, endedAt: Date.parse("2026-10-26T04:00:15Z") })
+  assert.equal(t.success.target, 99)
+  const manual = evaluateTool({ id: "ic", name: "Intercom", days: 7, now, result: { status: "ready", report: r }, tool: { ...profile, errorRateTarget: 5, errorRateTargetSource: "manual" } })
+  assert.equal(manual.success.target, 95, "an admin target wins")
+  const withRun = evaluateTool({ id: "ic", name: "Intercom", days: 30, now, result: { status: "ready", report: r }, tool: profile })
+  assert.equal(withRun.latestRun, null, "not needed when the period has runs")
+})

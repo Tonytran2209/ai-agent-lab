@@ -93,7 +93,7 @@ export const toolConfigSchema = z
     mainJobSource: source.default("auto"),
     driver: z.object({ factor: shortText(100).default(""), unit: shortText(40).default("") }).strict().default({}),
     errorRateTarget: z.number().min(0).max(100).nullable().default(null),
-    errorRateTargetSource: z.enum(["baseline", "manual"]).nullable().default(null),
+    errorRateTargetSource: z.enum(["baseline", "app", "manual"]).nullable().default(null),
     minSamples: z.number().int().min(1).max(1000).default(20),
     auto: z.boolean().default(true),
     detectedAt: z.string().datetime().nullable().default(null),

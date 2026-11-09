@@ -70,7 +70,7 @@ export function ProfileSummary({ tool, connected = true }) {
     <div className="monitoring-profile">
       <dl>
         <div><dt>Main Job</dt><dd>{tool.mainJob || "—"}{main && main.name !== tool.mainJob ? " (job " + main.name + ")" : ""}{!main && tool.jobs.length > 1 ? " · chưa có job tổng; chấm theo tất cả job" : ""}</dd></div>
-        <div><dt>Mục tiêu tỷ lệ thành công</dt><dd>{tool.errorRateTarget == null ? "Chưa có (cần ≥ " + tool.minSamples + " lần chạy)" : "≥ " + pct(100 - tool.errorRateTarget) + " · " + (tool.errorRateTargetSource === "manual" ? "Admin điều chỉnh" : "Baseline từ lịch sử")}</dd></div>
+        <div><dt>Mục tiêu tỷ lệ thành công</dt><dd>{tool.errorRateTarget == null ? "Chưa có (cần ≥ " + tool.minSamples + " lần chạy)" : "≥ " + pct(100 - tool.errorRateTarget) + " · " + (tool.errorRateTargetSource === "manual" ? "Admin điều chỉnh" : tool.errorRateTargetSource === "app" ? "App khai báo" : "Baseline từ lịch sử")}</dd></div>
         <div><dt>Tốc độ phản hồi · độ nhạy thao tác</dt><dd>≤ {formatTime(tool.responseTargetMs || 2500)} · ≤ {formatTime(tool.clickTargetMs || 200)}</dd></div>
         <div><dt>Số mẫu tối thiểu</dt><dd>{tool.minSamples} lần chạy</dd></div>
       </dl>

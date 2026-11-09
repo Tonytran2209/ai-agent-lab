@@ -394,6 +394,11 @@ export default function ToolOverview({ data, days = 7, api, onOpenReport, onChan
                           <MetricCell value={u ? compactTime(u.p95Ms) : "—"} tone={toneOf(u?.status)}
                             target={timeTarget ? "Mục tiêu: ≤ " + minutesText(timeTarget) : "Chưa có mục tiêu"}
                             note={u ? u.samples + " mẫu" + (u.samples < t.minSamples ? " (cần ≥ " + t.minSamples + ")" : "") + (!t.hasMain && t.jobCount > 1 ? " · " + u.job : "") : t.reason} />
+                          {!u && t.latestRun && (
+                            <small className="tool-latest" title={"Lần chạy gần nhất kết thúc " + clockDate(t.latestRun.endedAt)}>
+                              Gần nhất: <b className="tool-metric muted">{compactTime(t.latestRun.durationMs)}</b> · {timeAgo(new Date(t.latestRun.endedAt).toISOString())} ({clockDate(t.latestRun.endedAt).slice(9, 14)})
+                            </small>
+                          )}
                           <Trend unit={u} />
                           {t.jobs.length > 0 && <SubJobMenu tool={t} label={t.hasMain && subCount ? subCount + " sub-jobs" : t.jobs.length + " jobs"} onOpenRuns={() => setOpen({ id: t.id, tab: "runs" })} />}
                         </td>

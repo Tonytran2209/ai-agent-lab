@@ -281,6 +281,9 @@ export function detectToolProfile(report, previous = null, { now = Date.now(), m
     if (executed >= minSamples) {
       errorRateTarget = Math.max(1, Math.ceil(((100 * failed) / executed) * 2) / 2)
       errorRateTargetSource = "baseline"
+    } else if (appErrorRateTarget(report) !== null) {
+      errorRateTarget = appErrorRateTarget(report)
+      errorRateTargetSource = "app"
     }
   }
   return {
@@ -357,11 +360,19 @@ const ratio = (u) => (positive(u.targetMinutes) && Number.isFinite(u.p95Ms) ? u.
 const worst = (units) => [...units].sort((a, b) => ratio(b) - ratio(a) || (b.samples || 0) - (a.samples || 0))[0] || null
 
 // Evaluate one tool for a window. `result` is the monitoring read (may be missing).
+// Failure-rate target (percent) an app may declare in profile-v1 as `errorRateTarget`, used when
+// no admin target or baseline exists (e.g. fewer Main Job runs than the minimum sample count).
+export function appErrorRateTarget(report) {
+  const v = report?.profile?.errorRateTarget
+  return Number.isFinite(v) && v >= 0 && v <= 100 ? v : null
+}
+
 export function evaluateTool({ id, name, tool, connected = true, result = null, days = 7, now = Date.now() }) {
   const config = tool || {}
   const minSamples = Number.isSafeInteger(config.minSamples) && config.minSamples > 0 ? config.minSamples : defaultMinSamples
   const report = result?.report || null
   const profile = report?.profile || null
+  const errorTarget = config.errorRateTarget ?? appErrorRateTarget(report)
   const declared = Array.isArray(config.jobs) ? config.jobs : []
   const targetFor = (job) => {
     const own = declared.find((j) => j.name === job)
@@ -376,7 +387,7 @@ export function evaluateTool({ id, name, tool, connected = true, result = null, 
   const jobError = (job) => {
     const o = measured.outcomes?.get(job)
     if (!o) return null
-    const target = config.errorRateTarget ?? null
+    const target = errorTarget
     return { ...o, rate: o.executed ? (100 * o.failed) / o.executed : null, target, status: errorStatus({ ...o, target }, minSamples) }
   }
 
@@ -395,8 +406,8 @@ export function evaluateTool({ id, name, tool, connected = true, result = null, 
 
   const outcomes = jobOutcomes(report, measured.outcomes, declaredMain?.name)
   const error = outcomes
-    ? { ...outcomes, rate: outcomes.executed ? (100 * outcomes.failed) / outcomes.executed : null, target: config.errorRateTarget ?? null }
-    : { executed: null, failed: null, timedOut: 0, rate: null, target: config.errorRateTarget ?? null, unverified: 0, complete: false }
+    ? { ...outcomes, rate: outcomes.executed ? (100 * outcomes.failed) / outcomes.executed : null, target: errorTarget }
+    : { executed: null, failed: null, timedOut: 0, rate: null, target: errorTarget, unverified: 0, complete: false }
   error.status = errorStatus(error, minSamples)
   // Displayed as a success rate (BA): success = 100% − failure rate; same counts and rules.
   const success = {
@@ -428,8 +439,17 @@ export function evaluateTool({ id, name, tool, connected = true, result = null, 
         ? measured.source ? "Không có lần chạy nào kết thúc trong kỳ" : "App chưa gửi số liệu theo job"
         : null
 
+  // When the period has no measured Main Job run, the latest one ever reported (time and date).
+  let latestRun = null
+  if (!headline && report) {
+    const main = declaredMain?.name || null
+    for (const r of parseRuns(report).runs)
+      if ((!main || r.job === main) && r.status === "success" && r.startedAt !== null && r.endedAt !== null && (!latestRun || r.endedAt > latestRun.endedAt))
+        latestRun = { job: r.job, durationMs: r.endedAt - r.startedAt, endedAt: r.endedAt }
+  }
+
   return {
-    id, name, connected, status, reason, minSamples, source: measured.source,
+    id, name, connected, status, reason, minSamples, source: measured.source, latestRun,
     owner: config.owner || "", mainJob: config.mainJob || declaredMain?.name || (jobs.length === 1 ? jobs[0].name : ""),
     hasMain: Boolean(declaredMain), jobCount: jobs.length,
     // Shown when the period has no measured run: the Main Job's declared/detected target.
