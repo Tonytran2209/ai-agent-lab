@@ -271,3 +271,20 @@ test("sub-jobs the app declares are listed in pipeline order before they have ru
   const t = evaluateTool({ id: "ws", name: "Writer", days: 7, now, result: { status: "ready", report: r }, tool: profile })
   assert.equal(t.jobs.filter((j) => j.unmeasured).length, 6, "declared steps without runs show as not yet measured")
 })
+
+test("document names after ' · ' stay in run history while stats and profiles use the workload class", async () => {
+  const { workloadClass, recentRuns } = await import("../server/tool-performance.js")
+  const { toolConfigSchema } = await import("../server/app-monitoring.js")
+  const title = "When to Remake a Video vs Refresh It: A Practical Decision Guide for Marketing and Brand Teams in 2026"
+  assert.equal(workloadClass("1 SEO article · " + title), "1 SEO article")
+  assert.equal(workloadClass("B2B brief.docx"), "B2B brief.docx")
+  const runs = [1, 2, 3].map((i) => run("Writer batch article", "2026-11-08T0" + i + ":00:00Z", 3 + i, "success",
+    { runId: "a" + i, workload: "1 SEO article · " + title + " " + i }))
+  const r = report({ jobRuns: { complete: true, runs } })
+  const units = jobUnitsFor(r, 7, { now }).units
+  assert.deepEqual(units.map((u) => [u.workload, u.samples]), [["1 SEO article", 3]], "one unit with every article, not one per title")
+  const profile = detectToolProfile(r, null, { now })
+  assert.deepEqual(profile.jobs[0].workloads, ["1 SEO article"])
+  assert.doesNotThrow(() => toolConfigSchema.parse(profile), "a profile built from long article titles is storable")
+  assert.ok(recentRuns(r)[0].workload.endsWith(title + " 3"), "run history keeps the article title")
+})

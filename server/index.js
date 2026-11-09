@@ -168,7 +168,8 @@ export function createApp(config, options = {}) {
     // tools: every declared tool (connected or not) with its detected/overridden profile.
     // Profiles are detected from real reports and refreshed at most once a day.
     const snapshot=await appMonitoring.snapshot(days);
-    for(const t of snapshot.targets)if(t.report&&monitoringRegistry.needsDetection(t.id,undefined,t.report))monitoringRegistry.applyDetection(t.id,t.report,detectToolProfile);
+    // A profile that fails validation must not break the whole Status tab: keep the stored one.
+    for(const t of snapshot.targets)if(t.report&&monitoringRegistry.needsDetection(t.id,undefined,t.report)){try{monitoringRegistry.applyDetection(t.id,t.report,detectToolProfile);}catch(e){console.warn('[monitoring] profile detection failed for '+t.id+': '+String(e?.message||e).slice(0,300));}}
     const listed=monitoringRegistry.list();
     res.set('Cache-Control','private, no-store').json({...snapshot,tools:listed.targets,max:listed.max,deploys:await deployEvents.snapshot(),priorities:monitoringRegistry.priorities()});
   });

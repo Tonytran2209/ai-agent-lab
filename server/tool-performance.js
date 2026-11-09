@@ -32,6 +32,9 @@ const vnOffsetMs = 7 * 3600000
 const count = (v) => Number.isSafeInteger(v) && v >= 0
 const positive = (v) => Number.isFinite(v) && v > 0
 const text = (v, max = 100) => (typeof v === "string" && v.trim() ? v.trim().slice(0, max) : null)
+// A run's workload may name its document after " · " ("1 SEO article · <title>"). Statistics,
+// targets and the stored profile use the class before it; run history shows the full name.
+export const workloadClass = (w) => (typeof w === "string" ? w.split(" · ")[0].trim().slice(0, 100) : "")
 
 // Nearest-rank percentile over sorted values.
 export function percentile(sorted, p) {
@@ -92,8 +95,9 @@ function runWindowStats(runs, start, end, targetFor) {
     if (timedOut) o.timedOut++
     outcomes.set(r.job, o)
     if (r.status !== "success" || r.endedAt === null || r.startedAt === null) continue
-    const key = r.job + "\u0000" + r.workload
-    const g = groups.get(key) || { job: r.job, workload: r.workload, values: [] }
+    const workload = workloadClass(r.workload)
+    const key = r.job + "\u0000" + workload
+    const g = groups.get(key) || { job: r.job, workload, values: [] }
     g.values.push(r.endedAt - r.startedAt)
     groups.set(key, g)
   }
@@ -125,7 +129,7 @@ export function jobUnitsFor(report, days, { now = Date.now(), targetFor = () => 
   const units = rows
     .filter((r) => text(r?.job) && count(r.samples))
     .slice(0, 50)
-    .map((r) => ({ job: text(r.job), workload: text(r.workload) || "", samples: r.samples,
+    .map((r) => ({ job: text(r.job), workload: workloadClass(text(r.workload, 200) || ""), samples: r.samples,
       p95Ms: Number.isFinite(r.p95Ms) && r.p95Ms >= 0 ? r.p95Ms : null, medianMs: null, maxMs: null, overRuns: null, previousP95Ms: null }))
   return { source: history?.length ? "history" : kpis ? "instrumented" : null, units, outcomes: null, previousOutcomes: null }
 }
@@ -203,9 +207,9 @@ function allTimeUnits(report) {
 
 function workloadsOf(report, job) {
   const names = new Set()
-  for (const r of parseRuns(report).runs) if (r.job === job && r.workload) names.add(r.workload)
+  for (const r of parseRuns(report).runs) if (r.job === job && workloadClass(r.workload)) names.add(workloadClass(r.workload))
   for (const rows of [report?.jobHistoryAllTime?.completion, report?.jobHistory?.completion, report?.performanceKpis?.jobCompletion])
-    if (Array.isArray(rows)) for (const r of rows) if (text(r?.job) === job && text(r.workload)) names.add(text(r.workload))
+    if (Array.isArray(rows)) for (const r of rows) if (text(r?.job) === job && workloadClass(text(r.workload, 200))) names.add(workloadClass(text(r.workload, 200)))
   return [...names].slice(0, 10)
 }
 
