@@ -179,6 +179,8 @@ test("empty windows say whether the app sends job data at all", () => {
   assert.equal(withRuns.status, "nodata")
   assert.equal(withRuns.reason, "Không có lần chạy nào kết thúc trong kỳ")
   assert.equal(withRuns.jobs[0].unmeasured, true)
+  assert.equal(withRuns.headline, null)
+  assert.equal(withRuns.mainTargetMinutes, 10, "the Main Job target is still shown without runs in the period")
   const nothing = evaluateTool({ id: "x", name: "X", tool: null, result: { status: "ready", report: report({ runtime: {} }) } })
   assert.equal(nothing.reason, "App chưa gửi số liệu theo job")
 })

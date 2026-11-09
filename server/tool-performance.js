@@ -339,6 +339,8 @@ export function evaluateTool({ id, name, tool, connected = true, result = null, 
     id, name, connected, status, reason, minSamples, source: measured.source,
     owner: config.owner || "", mainJob: config.mainJob || declaredMain?.name || (jobs.length === 1 ? jobs[0].name : ""),
     hasMain: Boolean(declaredMain), jobCount: jobs.length,
+    // Shown when the period has no measured run: the Main Job's declared/detected target.
+    mainTargetMinutes: declaredMain && positive(declaredMain.targetMinutes) ? declaredMain.targetMinutes : null,
     driver: config.driver || null, headline, jobs, error, appStatus: result?.status || null,
   }
 }

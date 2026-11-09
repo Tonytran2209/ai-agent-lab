@@ -18,8 +18,11 @@ function Badge({ status }) {
   return <span className={"tool-badge " + status}>{statusLabels[status]}</span>
 }
 
-function TimeCell({ unit, minSamples, jobName = null }) {
-  if (!unit || unit.p95Ms == null) return <><span className="tool-dim">—</span><small>{unit?.targetMinutes ? "target " + minutesText(unit.targetMinutes) : "Chưa có target"}</small></>
+function TimeCell({ unit, minSamples, jobName = null, fallbackTarget = null }) {
+  if (!unit || unit.p95Ms == null) {
+    const target = unit?.targetMinutes || fallbackTarget
+    return <><span className="tool-dim">—</span><small>{target ? "target " + minutesText(target) : "Chưa có target"}</small></>
+  }
   const over = unit.targetMinutes && unit.p95Ms > unit.targetMinutes * 60000
   return (
     <>
@@ -183,7 +186,7 @@ export default function ToolOverview({ data, days = 7, onOpenReport }) {
                         </span>
                       </button>
                     </th>
-                    <td><TimeCell unit={t.headline} minSamples={t.minSamples} jobName={!t.hasMain && t.jobCount > 1 ? t.headline?.job : null} /></td>
+                    <td><TimeCell unit={t.headline} minSamples={t.minSamples} jobName={!t.hasMain && t.jobCount > 1 ? t.headline?.job : null} fallbackTarget={t.mainTargetMinutes} /></td>
                     <td><ErrorCell error={t.error} minSamples={t.minSamples} /></td>
                     <td>
                       <Badge status={t.status} />
