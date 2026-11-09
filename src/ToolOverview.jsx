@@ -1,7 +1,7 @@
 import React, { useLayoutEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
-import { ChevronDown, ChevronRight, ChevronUp, CircleCheck, CircleDashed, CircleHelp, CircleAlert, ExternalLink, X, GitCommitHorizontal, Plus, Settings2, ShieldCheck, ShieldAlert, Trash2, Layers, LoaderCircle } from "lucide-react"
-import { evaluateTool, priorities, statusOrder } from "../server/tool-performance.js"
+import { ChevronDown, ChevronRight, ChevronUp, CircleCheck, CircleDashed, CircleHelp, CircleAlert, ExternalLink, X, Plus, Settings2, ShieldCheck, ShieldAlert, Trash2, Layers, LoaderCircle } from "lucide-react"
+import { evaluateTool, statusOrder } from "../server/tool-performance.js"
 import { formatTime, formatPercent, timeAgo, compactTime, clockDate, stepAverages, groupSteps } from "./tool-format.js"
 import { ConnectToolForm, Drawer, ToolSettings } from "./ToolManager.jsx"
 import "./tool-overview.css"
@@ -103,7 +103,6 @@ function RunHistory({ tool }) {
                       g.count > 1 ? g.count + " lần chạy: " + g.runs.map((x) => x.status === "failed" ? "lỗi" : compactTime(x.durationMs)).join(", ") : null].filter(Boolean).join(" · ")
                     return (
                       <div className="tool-steps-cell">
-                        {!open && (
                           <ul className="tool-step-chips" aria-label="Sub-job của lần chạy">
                             {groups.map((g) => (
                               <li key={g.job} title={chipTitle(g)} aria-label={chipTitle(g)}
@@ -114,9 +113,8 @@ function RunHistory({ tool }) {
                               </li>
                             ))}
                           </ul>
-                        )}
                         {open && (
-                    <ul className="tool-steps">
+                    <ul className="tool-steps" id={"steps-" + key}>
                       {r.steps.map((s, k) => (
                         <li key={k} className={s.estimated ? "estimated" : s.status === "failed" ? "failed" : over(s.job, s.durationMs) ? "slow" : ""}>
                           <span><b>{s.job}</b><Hint text={stepHint(s.job, s.estimated)} />{s.estimated && <small className="tool-dim"> · ước tính</small>}{s.workload && s.workload !== r.workload ? <small className="tool-dim"> · {s.workload}</small> : null}</span>
@@ -125,8 +123,9 @@ function RunHistory({ tool }) {
                       ))}
                     </ul>
                         )}
-                        {(open || groups.some((g) => g.count > 1)) && (
-                          <button type="button" className="text-button tool-steps-toggle" aria-expanded={open} onClick={toggle}>
+                        {groups.some((g) => g.count > 1) && (
+                          <button type="button" className="tool-steps-toggle" aria-expanded={open} aria-controls={"steps-" + key} onClick={toggle}>
+                            {open ? <ChevronUp size={13} aria-hidden="true" /> : <ChevronDown size={13} aria-hidden="true" />}
                             {open ? "Thu gọn" : "Xem " + r.steps.length + " lần chạy theo thứ tự"}
                           </button>
                         )}
@@ -228,90 +227,16 @@ function SubJobMenu({ tool, label, onOpenRuns }) {
   )
 }
 
-function Deploys({ deploys, linked }) {
-  if (!linked) return <p className="tool-note">Chưa liên kết Railway service. Mở ⚙ → Kết nối → Railway service để hiện sự kiện deploy.</p>
-  if (deploys?.error) return <p className="tool-note">Không đọc được sự kiện deploy: {deploys.error}</p>
-  if (!deploys?.items?.length) return <p className="tool-note">Chưa có lần deploy nào.</p>
-  return (
-    <div className="perf-table-scroll">
-      <table className="tool-runs">
-        <thead><tr><th scope="col">Thời gian</th><th scope="col">Trạng thái</th><th scope="col">Commit</th></tr></thead>
-        <tbody>
-          {deploys.items.map((d) => (
-            <tr key={d.id}>
-              <td className="tool-when"><span>{clockDate(Date.parse(d.createdAt))}</span><small className="tool-dim">{timeAgo(d.createdAt)}</small></td>
-              <td><span className={"tool-run-status " + (d.status === "SUCCESS" ? "success" : ["FAILED", "CRASHED"].includes(d.status) ? "failed" : "running")}>{d.status}</span></td>
-              <td>{d.commitHash ? <code>{d.commitHash.slice(0, 7)}</code> : "—"} {d.commitMessage && <span className="tool-dim">{d.commitMessage}</span>}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  )
-}
-
-function ToolDetail({ tool, deploys, onOpenReport, initialTab }) {
-  const [tab, setTab] = useState(initialTab === "deploys" ? "deploys" : "runs")
-  const tabs = [
-    ["runs", Layers, "Lịch sử các lần chạy gần đây (" + tool.runs.length + ")"],
-    ["deploys", GitCommitHorizontal, "Sự kiện Railway Webhook" + (deploys?.items ? " (" + deploys.items.length + ")" : "")],
-  ]
+function ToolDetail({ tool, onOpenReport }) {
   return (
     <div className="tool-detail">
-      <div className="tool-tabs" role="tablist">
-        {tabs.map(([id, Icon, label]) => (
-          <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => setTab(id)}><Icon size={15} aria-hidden="true" />{label}</button>
-        ))}
+      <div className="tool-detail-head">
+        <h4><Layers size={15} aria-hidden="true" />Lịch sử các lần chạy <span className="tool-count">{tool.runs.length}</span></h4>
         <code className="tool-id" title={sourceLabels[tool.source] || ""}>Tool ID: {tool.id}</code>
       </div>
-      {tab === "runs" && <RunHistory tool={tool} />}
-      {tab === "deploys" && <Deploys deploys={deploys} linked={tool.railwayLinked} />}
+      <RunHistory tool={tool} />
       {tool.connected && tool.appStatus && <button type="button" className="text-button tool-report-link" onClick={() => onOpenReport(tool.id)}>Xem báo cáo kỹ thuật của app →</button>}
     </div>
-  )
-}
-
-function PriorityList({ items, kind, decisions, api, onChanged, busy, setBusy, setError }) {
-  const keyOf = (p) => [kind, p.toolId, p.job || ""].join("|")
-  async function decide(p, status) {
-    setBusy(true)
-    try {
-      await api("/monitoring/priorities", { method: "POST", body: JSON.stringify({ key: keyOf(p), toolId: p.toolId, job: p.job || "", kind, status }) })
-      onChanged()
-    } catch (e) {
-      setError(e.message)
-    } finally {
-      setBusy(false)
-    }
-  }
-  if (!items.length) return <p className="tool-dim">{kind === "time" ? "Không có job nào chậm hơn target." : "Không có tool nào dưới mục tiêu thành công."}</p>
-  return (
-    <ol className="tool-priority">
-      {items.map((p, i) => {
-        const d = decisions.find((x) => x.key === keyOf(p) && x.status === "open")
-        return (
-          <li key={keyOf(p) + i} className={d ? "decided" : ""}>
-            <span><b>{p.job || "Main Job"}</b> · {p.tool}{p.workload ? " · " + p.workload : ""}</span>
-            <span className="tool-metric bad">{kind === "time" ? "+" + Math.round(p.overPercent) + "%" : formatPercent(100 - p.rate)}</span>
-            <small className="tool-dim">
-              {kind === "time"
-                ? compactTime(p.p95Ms) + " / target " + minutesText(p.targetMinutes) + " · " + p.samples + " mẫu" + (p.overRuns ? " · " + p.overRuns + " lần vượt" : "")
-                : (p.executed - p.failed) + "/" + p.executed + " lượt thành công · mục tiêu ≥ " + formatPercent(100 - p.target)}
-            </small>
-            {api && (
-              <span className="tool-priority-actions">
-                {d ? (
-                  <>
-                    <small>Đã ưu tiên bởi {d.decidedBy} · {timeAgo(d.decidedAt)}</small>
-                    <button type="button" className="text-button" disabled={busy} onClick={() => decide(p, "done")}>Hoàn tất</button>
-                  </>
-                ) : <button type="button" className="text-button" disabled={busy} onClick={() => decide(p, "open")}>Ghi nhận ưu tiên</button>}
-              </span>
-            )}
-          </li>
-        )
-      })}
-    </ol>
   )
 }
 
@@ -326,8 +251,6 @@ export default function ToolOverview({ data, days = 7, api, onOpenReport, onChan
   const tools = listed
     .map((t) => ({ ...evaluateTool({ ...t, result: results.get(t.id), days }), listed: t, railwayLinked: Boolean(t.railway) }))
     .sort((a, b) => statusOrder[a.status] - statusOrder[b.status] || a.name.localeCompare(b.name))
-  const todo = priorities(tools)
-  const decisions = data.priorities || []
   const full = listed.length >= (data.max || 12)
   async function remove(t) {
     setBusy(true)
@@ -435,7 +358,7 @@ export default function ToolOverview({ data, days = 7, api, onOpenReport, onChan
                       </tr>
                       {open?.id === t.id && (
                         <tr className="tool-detail-row">
-                          <td colSpan={7}><ToolDetail key={open.tab} tool={t} deploys={deploys} initialTab={open.tab} onOpenReport={onOpenReport} /></td>
+                          <td colSpan={7}><ToolDetail tool={t} onOpenReport={onOpenReport} /></td>
                         </tr>
                       )}
                     </React.Fragment>
@@ -445,25 +368,6 @@ export default function ToolOverview({ data, days = 7, api, onOpenReport, onChan
             </table>
           </div>
         )}
-      </article>
-
-      <article className="perf-card">
-        <div className="perf-card-heading">
-          <div>
-            <h3>Điểm cần tối ưu · {todo.time.length + todo.errors.length}</h3>
-            <p>Lab liệt kê từ số liệu; Tech/Lead chọn điểm sẽ tối ưu bằng "Ghi nhận ưu tiên". Thời gian và thành công xếp riêng vì không so sánh trực tiếp được.</p>
-          </div>
-        </div>
-        <div className="tool-priority-grid">
-          <div>
-            <h4>Chậm hơn target <small className="tool-dim">· xếp theo % vượt</small></h4>
-            <PriorityList items={todo.time} kind="time" decisions={decisions} api={api} onChanged={onChanged} busy={busy} setBusy={setBusy} setError={setError} />
-          </div>
-          <div>
-            <h4>Dưới mục tiêu thành công <small className="tool-dim">· xếp theo số lần lỗi</small></h4>
-            <PriorityList items={todo.errors} kind="error" decisions={decisions} api={api} onChanged={onChanged} busy={busy} setBusy={setBusy} setError={setError} />
-          </div>
-        </div>
       </article>
 
       {drawer === "new" && (

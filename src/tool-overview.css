@@ -721,9 +721,47 @@
 .tool-step-chips li.estimated { border-style: dashed; }
 .tool-step-chips li.estimated::before { background: transparent; box-shadow: inset 0 0 0 1.5px var(--signal-success-dot); }
 .tool-step-chips li.estimated .tool-step-time { color: var(--secondary); }
+/* Simple text toggle under the chips. */
 .tool-steps-toggle {
-  font-size: 12px !important;
-  color: var(--signal-success-text) !important;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 0;
+  border: 0;
+  background: none;
+  color: var(--secondary);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.tool-steps-toggle:hover { color: var(--text); }
+.tool-steps-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+
+/* Expanded run detail: one title with the run count. */
+.tool-detail-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+}
+.tool-detail-head h4 {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+.tool-count {
+  min-width: 22px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--surface-soft);
+  color: var(--secondary);
+  font-size: 12px;
+  font-weight: 500;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
 }
 
 .tool-metric.inline {
