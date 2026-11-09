@@ -234,3 +234,25 @@ test("steps of an unmeasured parent are grouped for display with summed processi
   const profile = detectToolProfile(r, null, { now })
   assert.ok(!profile.jobs.some((j) => j.name.startsWith("package")), "a display group is never detected as a job")
 })
+
+test("estimated steps show in run history but never in stats, targets or job detection", async () => {
+  const { recentRuns } = await import("../server/tool-performance.js")
+  const article = { job: "Writer batch article", runId: "a1", status: "success", workload: "1 SEO article · Old", startedAt: "2026-11-08T10:00:00Z", endedAt: "2026-11-08T10:03:00Z" }
+  const step = (job, from, to, extra = {}) => ({ job, runId: "a1:" + job, parentRunId: "a1", parent: "Writer batch article", status: "success",
+    workload: article.workload, startedAt: from, endedAt: to, ...extra })
+  const r = report({ jobRuns: { complete: true, runs: [
+    article,
+    step("Lập outline", "2026-11-08T10:00:40Z", "2026-11-08T10:01:20Z", { estimated: true }),
+    step("Viết draft & kiểm tra chất lượng", "2026-11-08T10:01:20Z", "2026-11-08T10:03:00Z", { estimated: true }),
+  ] } })
+  const history = recentRuns(r, { mainJob: "Writer batch article" })
+  assert.deepEqual(history[0].steps.map((s) => [s.job, s.durationMs, s.estimated]), [
+    ["Lập outline", 40000, true], ["Viết draft & kiểm tra chất lượng", 100000, true]])
+  assert.equal(parseRuns(r).runs.length, 1, "stats read measured runs only")
+  assert.equal(parseRuns(r).complete, true, "estimated runs are accepted, not dropped")
+  const profile = detectToolProfile(r, null, { now })
+  assert.deepEqual(profile.jobs.map((j) => j.name), ["Writer batch article"], "estimated step names never become jobs")
+  const t = evaluateTool({ id: "ws", name: "Writer", days: 7, now, result: { status: "ready", report: r }, tool: profile })
+  assert.equal(t.success.executed, 1)
+  assert.equal(t.runs[0].steps.length, 2)
+})

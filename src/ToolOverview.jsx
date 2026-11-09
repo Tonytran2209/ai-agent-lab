@@ -69,7 +69,8 @@ function RunHistory({ tool }) {
     return <p className="tool-note">{tool.source === "runs" ? "Chưa có lần chạy nào trong 61 ngày gần đây." : "App chưa gửi từng lần chạy (jobRuns), nên chưa có lịch sử."}</p>
   const jobs = new Map(tool.jobs.map((j) => [j.name, j]))
   const over = (job, ms) => jobs.get(job)?.targetMinutes && ms > jobs.get(job).targetMinutes * 60000
-  const stepHint = (name) => {
+  const stepHint = (name, estimated) => {
+    if (estimated) return name + " · Ước tính từ thời điểm gọi AI của bài (bài chạy trước khi app lưu thời gian từng bước). Không tính vào P95 và target."
     const j = jobs.get(name), u = j?.units?.[0]
     return [name, j?.targetMinutes ? "Target ≤ " + minutesText(j.targetMinutes) : "Chưa có target",
       u?.p95Ms != null ? "P95 trong kỳ " + compactTime(u.p95Ms) + " · " + u.samples + " mẫu" : null].filter(Boolean).join(" · ")
@@ -96,9 +97,9 @@ function RunHistory({ tool }) {
                   {r.steps.length ? (
                     <ul className="tool-steps">
                       {r.steps.map((s, k) => (
-                        <li key={k} className={s.status === "failed" ? "failed" : over(s.job, s.durationMs) ? "slow" : ""}>
-                          <span><b>{s.job}</b><Hint text={stepHint(s.job)} />{s.workload && s.workload !== r.workload ? <small className="tool-dim"> · {s.workload}</small> : null}</span>
-                          <span>{s.status === "failed" ? "Lỗi" : s.status === "running" ? "Đang chạy" : compactTime(s.durationMs)}</span>
+                        <li key={k} className={s.estimated ? "estimated" : s.status === "failed" ? "failed" : over(s.job, s.durationMs) ? "slow" : ""}>
+                          <span><b>{s.job}</b><Hint text={stepHint(s.job, s.estimated)} />{s.estimated && <small className="tool-dim"> · ước tính</small>}{s.workload && s.workload !== r.workload ? <small className="tool-dim"> · {s.workload}</small> : null}</span>
+                          <span>{s.status === "failed" ? "Lỗi" : s.status === "running" ? "Đang chạy" : (s.estimated ? "~" : "") + compactTime(s.durationMs)}</span>
                         </li>
                       ))}
                     </ul>

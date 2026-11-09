@@ -48,10 +48,13 @@ export function periodBounds(days, now = Date.now()) {
 }
 
 // Bounded, type-checked run list (optional `jobRuns` section of app-monitoring-v1).
-export function parseRuns(report) {
+// Runs marked `estimated` were reconstructed by the app, not measured: they appear only in run
+// history (includeEstimated) and never in P95, targets, success rates or job detection.
+export function parseRuns(report, { includeEstimated = false } = {}) {
   const section = report?.jobRuns
   const rows = Array.isArray(section?.runs) ? section.runs.slice(0, 5000) : []
   const runs = []
+  let accepted = 0
   for (const r of rows) {
     const job = text(r?.job)
     // startedAt may be null for a finished run: it then counts for error rates but not for time.
@@ -61,10 +64,13 @@ export function parseRuns(report) {
     if (startedAt !== null && !Number.isFinite(startedAt)) continue
     if (endedAt !== null && !(Number.isFinite(endedAt) && (startedAt === null || endedAt >= startedAt))) continue
     if (r.status === "running" ? startedAt === null || endedAt !== null : endedAt === null) continue
+    accepted++
+    const estimated = r.estimated === true
+    if (estimated && !includeEstimated) continue
     runs.push({ job, workload: text(r.workload, 200) || "", parent: text(r.parent), runId: text(r.runId),
-      parentRunId: text(r.parentRunId), status: r.status, startedAt, endedAt })
+      parentRunId: text(r.parentRunId), status: r.status, startedAt, endedAt, ...(estimated ? { estimated: true } : {}) })
   }
-  return { runs, since: Date.parse(section?.since) || null, complete: section?.complete === true && rows.length === runs.length }
+  return { runs, since: Date.parse(section?.since) || null, complete: section?.complete === true && rows.length === accepted }
 }
 
 function durationStats(values) {
@@ -286,7 +292,7 @@ export function uxMetric(kpi, targetMs, minSamples = defaultMinSamples) {
 // Recent runs for the history tab, newest first. Child runs (parentRunId) are attached to their
 // parent run so each run shows its sub-job breakdown; runs without a parent are listed on their own.
 export function recentRuns(report, { limit = 50, mainJob = null } = {}) {
-  const { runs } = parseRuns(report)
+  const { runs } = parseRuns(report, { includeEstimated: true })
   const byId = new Map(runs.filter((r) => r.runId).map((r) => [r.runId, { ...r, steps: [] }]))
   const top = [], groups = new Map()
   for (const r of runs) {

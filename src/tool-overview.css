@@ -577,3 +577,18 @@
   transform: translateY(-50%);
   width: 240px;
 }
+/* Steps estimated by the app (not measured): dashed box, hollow dot, muted time. */
+.tool-steps li.estimated {
+  border-style: dashed;
+}
+.tool-steps li.estimated::before {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--signal-success-dot);
+}
+.tool-steps li.estimated > span:last-child {
+  color: var(--secondary);
+}
+.tool-steps li small {
+  display: inline;
+  margin-top: 0;
+}
