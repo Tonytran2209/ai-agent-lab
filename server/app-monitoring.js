@@ -2,7 +2,7 @@ import crypto from "node:crypto"
 import net from "node:net"
 import { z } from "zod"
 import { fail } from "./schemas.js"
-import { detectToolProfile } from "./tool-performance.js"
+import { detectToolProfile, reportJobNames } from "./tool-performance.js"
 import { railwayBinding } from "./deploy-onboarding.js"
 
 // Read-only monitoring targets are separate from Lab project execution/release permissions.
@@ -345,11 +345,14 @@ export function createMonitoringRegistry(db, config, { clock = () => Date.now() 
       this.saveProfile(id, tool)
       return tool
     },
-    // Detected profiles older than a day are refreshed from the latest successful read.
-    needsDetection(id, now = clock()) {
+    // Detected profiles are refreshed daily, and at once when the report shows a job the stored
+    // profile does not list yet (a new sub-job, or steps the app has just declared).
+    needsDetection(id, now = clock(), report = null) {
       const listed = this.list().targets.find((t) => t.id === id)
       if (!listed || !listed.connected || listed.tool?.auto === false) return false
-      return !listed.tool?.detectedAt || now - Date.parse(listed.tool.detectedAt) > 86400000
+      if (!listed.tool?.detectedAt || now - Date.parse(listed.tool.detectedAt) > 86400000) return true
+      const known = new Set((listed.tool.jobs || []).map((j) => j.name))
+      return Boolean(report) && reportJobNames(report).some((name) => !known.has(name))
     },
     remove(id) {
       const list = read()

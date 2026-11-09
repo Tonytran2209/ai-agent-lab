@@ -293,3 +293,25 @@ test("railway links are sealed and deploy events are read-only, scoped and cache
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test("a stored profile is re-detected at once when the report shows a job it does not list", async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "lab-redetect-"))
+  const db = openDatabase(dir)
+  try {
+    const { detectToolProfile } = await import("../server/tool-performance.js")
+    const registry = createMonitoringRegistry(db, { SESSION_SECRET: "s".repeat(40) })
+    registry.add({ name: "Writer", origin: "https://writer.up.railway.app", appId: "writer-studio", token: "w".repeat(40) }, "admin")
+    const id = registry.list().targets[0].id
+    const base = { protocol: "app-monitoring-v1", appId: "writer-studio", jobRuns: { complete: true, runs: [
+      { job: "Writer batch article", status: "success", startedAt: "2026-11-08T10:00:00Z", endedAt: "2026-11-08T10:03:00Z" }] } }
+    registry.applyDetection(id, base, detectToolProfile)
+    assert.equal(registry.needsDetection(id, Date.now(), base), false, "same jobs: wait for the daily refresh")
+    const declared = { ...base, profile: { version: "profile-v1", mainJob: { job: "Writer batch article", steps: ["Lập outline"] } } }
+    assert.equal(registry.needsDetection(id, Date.now(), declared), true, "a newly declared step triggers detection")
+    registry.applyDetection(id, declared, detectToolProfile)
+    assert.equal(registry.needsDetection(id, Date.now(), declared), false)
+  } finally {
+    db.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

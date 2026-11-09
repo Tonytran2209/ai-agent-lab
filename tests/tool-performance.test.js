@@ -256,3 +256,18 @@ test("estimated steps show in run history but never in stats, targets or job det
   assert.equal(t.success.executed, 1)
   assert.equal(t.runs[0].steps.length, 2)
 })
+
+test("sub-jobs the app declares are listed in pipeline order before they have runs", async () => {
+  const { reportJobNames } = await import("../server/tool-performance.js")
+  const steps = ["Nhận bài từ Content Plan", "Nghiên cứu từ khóa SEO", "Article Spec & Core Idea", "Lập outline", "Viết draft", "Kiểm tra chất lượng"]
+  const r = report({
+    profile: { version: "profile-v1", mainJob: { job: "Writer batch article", steps } },
+    jobRuns: { complete: true, runs: [run("Writer batch article", "2026-11-08T10:00:00Z", 3)] },
+  })
+  assert.deepEqual(reportJobNames(r), ["Writer batch article", ...steps])
+  const profile = detectToolProfile(r, null, { now })
+  assert.deepEqual(profile.jobs.map((j) => [j.name, j.role, j.parent]), [
+    ["Writer batch article", "main", null], ...steps.map((s) => [s, "sub", "Writer batch article"])])
+  const t = evaluateTool({ id: "ws", name: "Writer", days: 7, now, result: { status: "ready", report: r }, tool: profile })
+  assert.equal(t.jobs.filter((j) => j.unmeasured).length, 6, "declared steps without runs show as not yet measured")
+})

@@ -213,13 +213,30 @@ function workloadsOf(report, job) {
 // Main Job: declared by the app (profile.mainJob.job), else the single parent of other runs, else
 // the only job. Otherwise no job is guessed as main and every job is scored. Targets: app-declared → built-in → baseline P95 of saved history (rounded
 // up, only with enough samples). Error-rate target: baseline failure rate rounded up to 0.5%.
+// Sub-jobs the app declares for its Main Job (profile.mainJob.job + steps), listed even before
+// they have measured runs.
+function declaredSteps(report) {
+  const main = text(report?.profile?.mainJob?.job)
+  const steps = Array.isArray(report?.profile?.mainJob?.steps) ? report.profile.mainJob.steps : []
+  return main ? { main, steps: [...new Set(steps.map((s) => text(s, 80)).filter(Boolean))].slice(0, 12) } : { main: null, steps: [] }
+}
+
+// Every job name a report knows: measured runs, saved history, and the app's declared Main Job/steps.
+export function reportJobNames(report) {
+  const base = allTimeUnits(report), declared = declaredSteps(report)
+  // Declared Main Job and steps first, in the app's order, so sub-jobs read as a pipeline.
+  return [...new Set([...(declared.main ? [declared.main, ...declared.steps] : []),
+    ...base.jobs.map((j) => j.job), ...parseRuns(report).runs.map((r) => r.job)])].slice(0, 20)
+}
+
 export function detectToolProfile(report, previous = null, { now = Date.now(), minSamples = defaultMinSamples } = {}) {
   const prior = previous || {}
   const priorJobs = new Map((prior.jobs || []).map((j) => [j.name, j]))
   const base = allTimeUnits(report)
   const { runs } = parseRuns(report)
-  const names = [...new Set([...base.jobs.map((j) => j.job), ...runs.map((r) => r.job)])].slice(0, 20)
-  const declaredMain = text(report?.profile?.mainJob?.job)
+  const declared = declaredSteps(report)
+  const names = reportJobNames(report)
+  const declaredMain = declared.main
   const parents = new Set(runs.map((r) => r.parent).filter((p) => p && names.includes(p)))
   const manualMain = (prior.jobs || []).find((j) => j.role === "main" && j.roleSource === "manual" && names.includes(j.name))?.name
   const main = manualMain || (declaredMain && names.includes(declaredMain) ? declaredMain : null) ||
@@ -242,7 +259,7 @@ export function detectToolProfile(report, previous = null, { now = Date.now(), m
       targetMinutes, targetSource,
       baselineP95Ms: stats?.p95Ms ?? null, baselineSamples: stats?.samples ?? 0,
       workloads: workloadsOf(report, name),
-      parent: runs.find((r) => r.job === name && r.parent)?.parent || null,
+      parent: runs.find((r) => r.job === name && r.parent)?.parent || (declared.steps.includes(name) ? declared.main : null),
       startEvent: old.startEvent || "", endEvent: old.endEvent || "", successCondition: old.successCondition || "",
       perItem: old.perItem === true,
     }
