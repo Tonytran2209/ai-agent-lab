@@ -66,3 +66,19 @@ export function stepAverages(tool) {
   return { rows: rows.map((r) => ({ ...r, share: totalMs && r.averageMs != null ? r.averageMs / totalMs : null })), totalMs: totalMs || null, runs: counted.size }
 }
 
+
+// Steps of one run grouped by sub-job, in first-run order: repeated runs (retries, regenerations)
+// become one entry with a count and their summed time.
+export function groupSteps(steps) {
+  const groups = new Map()
+  for (const s of steps) {
+    const g = groups.get(s.job) || { job: s.job, runs: [], totalMs: 0, measured: 0, failed: false, running: false, estimated: true }
+    g.runs.push(s)
+    if (Number.isFinite(s.durationMs)) { g.totalMs += s.durationMs; g.measured++ }
+    if (s.status === "failed") g.failed = true
+    if (s.status === "running") g.running = true
+    if (!s.estimated) g.estimated = false
+    groups.set(s.job, g)
+  }
+  return [...groups.values()].map((g) => ({ ...g, count: g.runs.length, totalMs: g.measured ? g.totalMs : null }))
+}

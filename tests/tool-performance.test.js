@@ -321,3 +321,11 @@ test("with a Main Job, run history also lists unscored groups such as packages a
   assert.deepEqual(history.map((h) => [h.runId, h.group === true]), [["package:wait", true], ["package:done", false]])
   assert.equal(history[0].durationMs, 4000, "a group shows its summed processing time")
 })
+
+test("run history groups repeated sub-job runs into one chip with count and summed time", async () => {
+  const { groupSteps } = await import("../src/tool-format.js")
+  const s = (job, ms, extra = {}) => ({ job, status: "success", durationMs: ms, ...extra })
+  const groups = groupSteps([s("Brief", 2700), s("Spec", 9300), s("Spec", 8100), s("Draft", 7400), s("Spec", null, { status: "failed" }), s("Channel", 5000, { estimated: true })])
+  assert.deepEqual(groups.map((g) => [g.job, g.count, g.totalMs, g.failed, g.estimated]), [
+    ["Brief", 1, 2700, false, false], ["Spec", 3, 17400, true, false], ["Draft", 1, 7400, false, false], ["Channel", 1, 5000, false, true]])
+})

@@ -515,7 +515,6 @@
   color: var(--signal-success-text);
 }
 .tool-subjob-panel li.slow > svg { color: var(--danger); }
-.tool-subjob-panel li.empty > svg { color: var(--muted); }
 .tool-subjob-name {
   flex: 1;
   min-width: 0;
@@ -537,7 +536,6 @@
   white-space: nowrap;
 }
 .tool-subjob-panel li.slow .tool-subjob-avg { color: var(--danger); }
-.tool-subjob-panel li.empty .tool-subjob-avg { color: var(--muted); }
 .tool-subjob-panel .tool-hint [role="tooltip"] {
   left: 0;
   transform: none;
@@ -649,4 +647,81 @@
 .tool-steps li small {
   display: inline;
   margin-top: 0;
+}
+
+/* Compact popover: tighter rows, unmeasured steps on one line. */
+.tool-subjob-panel { padding: 12px; }
+.tool-subjob-panel > header { padding-bottom: 10px; margin-bottom: 10px; }
+.tool-subjob-panel ul { gap: 6px; }
+.tool-subjob-panel li { padding: 7px 10px; }
+.tool-subjob-panel > footer { margin-top: 10px; padding-top: 10px; }
+.tool-subjob-link { margin-top: 8px; }
+.tool-subjob-unmeasured {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 8px 2px 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--secondary);
+}
+.tool-subjob-unmeasured svg { flex-shrink: 0; margin-top: 2px; color: var(--muted); }
+
+/* Run history: sub-jobs as wrapping chips, one per sub-job; the full ordered list on demand. */
+.tool-steps-cell {
+  display: grid;
+  gap: 6px;
+  justify-items: start;
+  min-width: 260px;
+  max-width: 560px;
+}
+.tool-step-chips {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.tool-step-chips li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--card);
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+.tool-step-chips li::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--signal-success-dot);
+  flex-shrink: 0;
+}
+.tool-step-name { font-weight: 500; }
+.tool-step-count {
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.tool-step-time {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-weight: 600;
+  color: var(--signal-success-text);
+}
+.tool-step-chips li.slow::before,
+.tool-step-chips li.failed::before { background: var(--danger); }
+.tool-step-chips li.slow .tool-step-time,
+.tool-step-chips li.failed .tool-step-time { color: var(--danger); }
+.tool-step-chips li.estimated { border-style: dashed; }
+.tool-step-chips li.estimated::before { background: transparent; box-shadow: inset 0 0 0 1.5px var(--signal-success-dot); }
+.tool-step-chips li.estimated .tool-step-time { color: var(--secondary); }
+.tool-steps-toggle {
+  font-size: 12px !important;
+  color: var(--signal-success-text) !important;
 }

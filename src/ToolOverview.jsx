@@ -2,7 +2,7 @@ import React, { useLayoutEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { ChevronDown, ChevronRight, ChevronUp, CircleCheck, CircleDashed, CircleHelp, CircleAlert, ExternalLink, X, GitCommitHorizontal, Plus, Settings2, ShieldCheck, ShieldAlert, Trash2, Layers, LoaderCircle } from "lucide-react"
 import { evaluateTool, priorities, statusOrder } from "../server/tool-performance.js"
-import { formatTime, formatPercent, timeAgo, compactTime, clockDate, stepAverages } from "./tool-format.js"
+import { formatTime, formatPercent, timeAgo, compactTime, clockDate, stepAverages, groupSteps } from "./tool-format.js"
 import { ConnectToolForm, Drawer, ToolSettings } from "./ToolManager.jsx"
 import "./tool-overview.css"
 
@@ -66,6 +66,7 @@ function Trend({ unit }) {
 }
 
 function RunHistory({ tool }) {
+  const [expanded, setExpanded] = useState(() => new Set())
   if (!tool.runs.length)
     return <p className="tool-note">{tool.source === "runs" ? "Chưa có lần chạy nào trong 61 ngày gần đây." : "App chưa gửi từng lần chạy (jobRuns), nên chưa có lịch sử."}</p>
   const jobs = new Map(tool.jobs.map((j) => [j.name, j]))
@@ -95,7 +96,26 @@ function RunHistory({ tool }) {
                   {r.group && <small className="tool-dim">Tổng các bước</small>}
                 </td>
                 <td>
-                  {r.steps.length ? (
+                  {r.steps.length ? (() => {
+                    const key = (r.runId || "") + i, open = expanded.has(key), groups = groupSteps(r.steps)
+                    const toggle = () => setExpanded((old) => { const next = new Set(old); next.has(key) ? next.delete(key) : next.add(key); return next })
+                    const chipTitle = (g) => [stepHint(g.job, g.estimated),
+                      g.count > 1 ? g.count + " lần chạy: " + g.runs.map((x) => x.status === "failed" ? "lỗi" : compactTime(x.durationMs)).join(", ") : null].filter(Boolean).join(" · ")
+                    return (
+                      <div className="tool-steps-cell">
+                        {!open && (
+                          <ul className="tool-step-chips" aria-label="Sub-job của lần chạy">
+                            {groups.map((g) => (
+                              <li key={g.job} title={chipTitle(g)} aria-label={chipTitle(g)}
+                                className={g.estimated ? "estimated" : g.failed ? "failed" : g.runs.some((x) => over(x.job, x.durationMs)) ? "slow" : ""}>
+                                <span className="tool-step-name">{g.job}</span>
+                                {g.count > 1 && <span className="tool-step-count">×{g.count}</span>}
+                                <span className="tool-step-time">{g.running && g.totalMs == null ? "…" : (g.estimated ? "~" : "") + compactTime(g.totalMs)}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                        {open && (
                     <ul className="tool-steps">
                       {r.steps.map((s, k) => (
                         <li key={k} className={s.estimated ? "estimated" : s.status === "failed" ? "failed" : over(s.job, s.durationMs) ? "slow" : ""}>
@@ -104,7 +124,15 @@ function RunHistory({ tool }) {
                         </li>
                       ))}
                     </ul>
-                  ) : <span className="tool-dim">—</span>}
+                        )}
+                        {(open || groups.some((g) => g.count > 1)) && (
+                          <button type="button" className="text-button tool-steps-toggle" aria-expanded={open} onClick={toggle}>
+                            {open ? "Thu gọn" : "Xem " + r.steps.length + " lần chạy theo thứ tự"}
+                          </button>
+                        )}
+                      </div>
+                    )
+                  })() : <span className="tool-dim">—</span>}
                 </td>
                 <td className="tool-end"><span className={"tool-run-status " + r.status}><Icon size={14} aria-hidden="true" />{r.status === "success" ? "Thành công" : r.status === "failed" ? "Thất bại" : "Đang chạy"}</span></td>
               </tr>
@@ -166,10 +194,10 @@ function SubJobMenu({ tool, label, onOpenRuns }) {
             <button type="button" className="icon-button" aria-label="Đóng" onClick={() => { setOpen(false); buttonRef.current?.focus() }}><X size={15} /></button>
           </header>
           <ul>
-            {rows.map((r) => {
-              const Icon = r.averageMs == null ? CircleDashed : over(r) ? CircleAlert : CircleCheck
+            {rows.filter((r) => r.averageMs != null).map((r) => {
+              const Icon = over(r) ? CircleAlert : CircleCheck
               return (
-                <li key={r.name} className={r.averageMs == null ? "empty" : over(r) ? "slow" : ""}>
+                <li key={r.name} className={over(r) ? "slow" : ""}>
                   <Icon size={16} aria-hidden="true" />
                   <span className="tool-subjob-name"><b>{r.name}</b><Hint text={hint(r)} /></span>
                   <span className="tool-subjob-share">{r.share == null ? "" : Math.round(r.share * 100) + "%"}</span>
@@ -178,6 +206,12 @@ function SubJobMenu({ tool, label, onOpenRuns }) {
               )
             })}
           </ul>
+          {rows.some((r) => r.averageMs == null) && (
+            <p className="tool-subjob-unmeasured">
+              <CircleDashed size={13} aria-hidden="true" />
+              <span>Chưa có lần chạy đo được: {rows.filter((r) => r.averageMs == null).map((r) => r.name).join(", ")}</span>
+            </p>
+          )}
           <footer>
             <span>Tổng trung bình các bước:</span>
             <b>{compactTime(totalMs)}</b>
