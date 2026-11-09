@@ -812,3 +812,6 @@
 .tool-step-clock { display: block !important; margin-top: 2px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }
 /* .settings-page centres itself with margin:auto; drawers must stay on the right edge. */
 .tool-drawer.settings-page { margin: 0 0 0 auto; }
+/* Ordered list rows: fixed index badge, name takes the remaining width, time on the right. */
+.tool-steps.tool-steps-ordered li > span.tool-step-index { flex: 0 0 22px; }
+.tool-steps.tool-steps-ordered li > span:nth-child(2) { flex: 1; min-width: 0; text-align: left; }

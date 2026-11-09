@@ -327,7 +327,11 @@ export default function ToolOverview({ data, days = 7, api, onOpenReport, onChan
                           {t.jobs.length > 0 && <SubJobMenu tool={t} label={t.hasMain && subCount ? subCount + " sub-jobs" : t.jobs.length + " jobs"} onOpenRuns={() => setOpen({ id: t.id, tab: "runs" })} />}
                         </td>
                         <td>
-                          <MetricCell value={t.success.rate == null ? "—" : formatPercent(t.success.rate) + (t.success.status === "ok" ? " OK" : "")} tone={toneOf(t.success.status)}
+                          {/* Same style for every tool (Writer Studio's): coloured and "OK" by the rate against its
+                              target; a small sample is noted in the tooltip instead of greying the value. */}
+                          <MetricCell value={t.success.rate == null ? "—" : formatPercent(t.success.rate) + (t.success.rate != null && t.success.target != null && t.success.rate >= t.success.target ? " OK" : "")}
+                            tone={t.success.rate == null || t.success.target == null ? "muted" : t.success.rate >= t.success.target ? "good" : "bad"}
+                            title={t.success.executed != null && t.success.executed < t.minSamples ? "Mới có " + t.success.executed + " lượt chạy (cần ≥ " + t.minSamples + " để chấm chính thức)" : undefined}
                             target={t.success.target == null ? "Chưa có mục tiêu" : "Mục tiêu: ≥ " + formatPercent(t.success.target)}
                             note={t.success.executed ? "Đo trên " + t.success.executed + " lượt chạy đã ghi nhận" : null} />
                         </td>
