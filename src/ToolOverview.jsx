@@ -400,12 +400,13 @@ export default function ToolOverview({ data, days = 7, api, onOpenReport, onChan
                             </small>
                           )}
                           <Trend unit={u} />
+                          {t.widened && <small className="tool-window" title="Kỳ đang chọn không có lượt chạy nào kết thúc">Kỳ này chưa có lượt chạy · số liệu {t.windowDays} ngày gần nhất</small>}
                           {t.jobs.length > 0 && <SubJobMenu tool={t} label={t.hasMain && subCount ? subCount + " sub-jobs" : t.jobs.length + " jobs"} onOpenRuns={() => setOpen({ id: t.id, tab: "runs" })} />}
                         </td>
                         <td>
                           <MetricCell value={t.success.rate == null ? "—" : formatPercent(t.success.rate) + (t.success.status === "ok" ? " OK" : "")} tone={toneOf(t.success.status)}
                             target={t.success.target == null ? "Chưa có mục tiêu" : "Mục tiêu: ≥ " + formatPercent(t.success.target)}
-                            note={t.success.executed ? "Đo trên " + t.success.executed + " lượt chạy" + (t.success.timedOut ? " · " + t.success.timedOut + " quá thời gian chờ" : "") : null} />
+                            note={t.success.executed ? "Đo trên " + t.success.executed + " lượt chạy" + (t.widened ? " · " + t.windowDays + " ngày gần nhất" : "") + (t.success.timedOut ? " · " + t.success.timedOut + " quá thời gian chờ" : "") : null} />
                         </td>
                         <td>
                           <MetricCell value={compactTime(t.response.p95Ms)} tone={toneOf(t.response.status)} target={"Mục tiêu: ≤ " + compactTime(t.response.targetMs)}

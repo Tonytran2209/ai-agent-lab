@@ -175,8 +175,8 @@ test("missing targets, small samples and empty windows get distinct statuses", (
 
 test("empty windows say whether the app sends job data at all", () => {
   const withRuns = evaluateTool({ id: "w", name: "W", days: 1, now, tool: { jobs: [{ name: "Batch", role: "main", targetMinutes: 10, baselineSamples: 30 }] },
-    result: { status: "ready", report: report({ jobRuns: { runs: [run("Batch", "2026-10-01T00:00:00Z", 5)] } }) } })
-  assert.equal(withRuns.status, "nodata")
+    result: { status: "ready", report: report({ jobRuns: { runs: [run("Batch", "2026-08-01T00:00:00Z", 5)] } }) } })
+  assert.equal(withRuns.status, "nodata", "the only run is older than the widest (61-day) fallback window")
   assert.equal(withRuns.reason, "Không có lần chạy nào kết thúc trong kỳ")
   assert.equal(withRuns.jobs[0].unmeasured, true)
   assert.equal(withRuns.headline, null)
@@ -339,9 +339,13 @@ test("an empty period shows the latest Main Job run, and an app-declared success
   const profile = detectToolProfile(r, null, { now })
   assert.deepEqual([profile.errorRateTarget, profile.errorRateTargetSource], [1, "app"], "fewer runs than the minimum: the app's target is used")
   const t = evaluateTool({ id: "ic", name: "Intercom", days: 7, now, result: { status: "ready", report: r }, tool: profile })
-  assert.equal(t.headline, null, "nothing finished in the last 7 days")
-  assert.deepEqual(t.latestRun, { job: "EB V2 package", durationMs: 75000, endedAt: Date.parse("2026-10-26T04:00:15Z") })
+  assert.deepEqual([t.widened, t.windowDays, t.headline?.samples, t.success.executed, t.latestRun], [true, 30, 2, 2, null],
+    "nothing finished in the last 7 days: the row uses the last 30 days")
   assert.equal(t.success.target, 99)
+  const old = report({ ...r, jobRuns: { complete: true, runs: runs.map((x) => ({ ...x, startedAt: x.startedAt.replace("2026-10", "2026-08"), endedAt: x.endedAt.replace("2026-10", "2026-08") })) } })
+  const stale = evaluateTool({ id: "ic", name: "Intercom", days: 7, now, result: { status: "ready", report: old }, tool: profile })
+  assert.deepEqual([stale.headline, stale.widened], [null, false], "older than 61 days: no metrics")
+  assert.deepEqual(stale.latestRun, { job: "EB V2 package", durationMs: 75000, endedAt: Date.parse("2026-08-26T04:00:15Z") })
   const manual = evaluateTool({ id: "ic", name: "Intercom", days: 7, now, result: { status: "ready", report: r }, tool: { ...profile, errorRateTarget: 5, errorRateTargetSource: "manual" } })
   assert.equal(manual.success.target, 95, "an admin target wins")
   const withRun = evaluateTool({ id: "ic", name: "Intercom", days: 30, now, result: { status: "ready", report: r }, tool: profile })

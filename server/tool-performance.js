@@ -379,7 +379,19 @@ export function evaluateTool({ id, name, tool, connected = true, result = null, 
     if (own && positive(own.targetMinutes)) return own.targetMinutes
     return report ? jobCompletionTarget(report.appId, job, profile) : null
   }
-  const measured = report ? jobUnitsFor(report, days, { now, targetFor }) : { source: null, units: [], outcomes: null }
+  let measured = report ? jobUnitsFor(report, days, { now, targetFor }) : { source: null, units: [], outcomes: null }
+  // When the selected period has no finished Main Job run, use the shortest wider window (30, then
+  // 61 days, the jobRuns horizon) that has one, so the row still shows real metrics; the UI labels
+  // the window. Only run-level data can be re-windowed.
+  let windowDays = days
+  const mainName = declared.find((j) => j.role === "main")?.name
+  if (report && measured.source === "runs" && mainName && !measured.units.some((u) => u.job === mainName)) {
+    for (const wider of [30, 61]) {
+      if (wider <= days) continue
+      const m = jobUnitsFor(report, wider, { now, targetFor })
+      if (m.units.some((u) => u.job === mainName)) { measured = m; windowDays = wider; break }
+    }
+  }
   const withStatus = (u) => {
     const targetMinutes = targetFor(u.job)
     return { ...u, targetMinutes, status: timeStatus({ ...u, targetMinutes }, minSamples) }
@@ -449,7 +461,7 @@ export function evaluateTool({ id, name, tool, connected = true, result = null, 
   }
 
   return {
-    id, name, connected, status, reason, minSamples, source: measured.source, latestRun,
+    id, name, connected, status, reason, minSamples, source: measured.source, latestRun, windowDays, widened: windowDays !== days,
     owner: config.owner || "", mainJob: config.mainJob || declaredMain?.name || (jobs.length === 1 ? jobs[0].name : ""),
     hasMain: Boolean(declaredMain), jobCount: jobs.length,
     // Shown when the period has no measured run: the Main Job's declared/detected target.
