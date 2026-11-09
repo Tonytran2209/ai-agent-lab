@@ -61,7 +61,8 @@ export function parseRuns(report) {
     if (startedAt !== null && !Number.isFinite(startedAt)) continue
     if (endedAt !== null && !(Number.isFinite(endedAt) && (startedAt === null || endedAt >= startedAt))) continue
     if (r.status === "running" ? startedAt === null || endedAt !== null : endedAt === null) continue
-    runs.push({ job, workload: text(r.workload) || "", parent: text(r.parent), status: r.status, startedAt, endedAt })
+    runs.push({ job, workload: text(r.workload, 200) || "", parent: text(r.parent), runId: text(r.runId),
+      parentRunId: text(r.parentRunId), status: r.status, startedAt, endedAt })
   }
   return { runs, since: Date.parse(section?.since) || null, complete: section?.complete === true && rows.length === runs.length }
 }
@@ -257,6 +258,8 @@ export function detectToolProfile(report, previous = null, { now = Date.now(), m
   }
   return {
     owner: prior.owner || "",
+    description: prior.description || text(report?.profile?.mainJob?.description, 300) || "",
+    responseTargetMs: prior.responseTargetMs ?? null, clickTargetMs: prior.clickTargetMs ?? null,
     mainJob: prior.mainJobSource === "manual" ? prior.mainJob : text(report?.profile?.mainJob?.title, 200) || main || "",
     mainJobSource: prior.mainJobSource === "manual" ? "manual" : "auto",
     driver: prior.driver || { factor: "", unit: "" },
@@ -267,6 +270,57 @@ export function detectToolProfile(report, previous = null, { now = Date.now(), m
     detectedAt: new Date(now).toISOString(),
     detectedFrom: base.source,
   }
+}
+
+export const defaultResponseTargetMs = 2500
+export const defaultClickTargetMs = 200
+
+// User-facing latency (BA): P95 from performanceKpis against a per-tool target.
+export function uxMetric(kpi, targetMs, minSamples = defaultMinSamples) {
+  const samples = count(kpi?.samples) ? kpi.samples : 0
+  const p95Ms = samples > 0 && Number.isFinite(kpi?.p95Ms) && kpi.p95Ms >= 0 ? kpi.p95Ms : null
+  const status = p95Ms === null ? "nodata" : samples < minSamples ? "insufficient" : p95Ms > targetMs ? "bad" : "ok"
+  return { p95Ms, samples, targetMs, status }
+}
+
+// Recent runs for the history tab, newest first. Child runs (parentRunId) are attached to their
+// parent run so each run shows its sub-job breakdown; runs without a parent are listed on their own.
+export function recentRuns(report, { limit = 50, mainJob = null } = {}) {
+  const { runs } = parseRuns(report)
+  const byId = new Map(runs.filter((r) => r.runId).map((r) => [r.runId, { ...r, steps: [] }]))
+  const top = [], groups = new Map()
+  for (const r of runs) {
+    const parent = r.parentRunId && byId.get(r.parentRunId)
+    if (parent && parent !== byId.get(r.runId)) parent.steps.push(r)
+    else if (r.parentRunId && !parent) {
+      // Children whose parent is not a measured run (e.g. a package with human approval between
+      // steps) are grouped for display only; the group is never a job and has no measured time.
+      const g = groups.get(r.parentRunId) || { job: null, group: true, runId: r.parentRunId, workload: r.workload, status: "success", startedAt: null, endedAt: null, steps: [] }
+      g.steps.push(r)
+      if (r.status === "failed") g.status = "failed"
+      else if (r.status === "running" && g.status !== "failed") g.status = "running"
+      if (r.startedAt !== null && (g.startedAt === null || r.startedAt < g.startedAt)) g.startedAt = r.startedAt
+      const end = r.endedAt ?? r.startedAt
+      if (end !== null && (g.endedAt === null || end > g.endedAt)) g.endedAt = end
+      groups.set(r.parentRunId, g)
+    } else top.push(r.runId && byId.has(r.runId) ? byId.get(r.runId) : { ...r, steps: [] })
+  }
+  top.push(...groups.values())
+  const at = (r) => r.endedAt ?? r.startedAt ?? 0
+  // With a Main Job, history lists its runs (sub-jobs appear inside them); otherwise every run.
+  const listed = mainJob && top.some((r) => r.job === mainJob) ? top.filter((r) => r.job === mainJob) : top
+  return listed
+    .sort((a, b) => at(b) - at(a))
+    .slice(0, limit)
+    .map((r) => ({
+      ...r,
+      // A display group shows the summed processing time of its steps, not wall-clock time.
+      durationMs: r.group
+        ? r.steps.reduce((sum, x) => (x.startedAt !== null && x.endedAt !== null ? sum + x.endedAt - x.startedAt : sum), 0) || null
+        : r.startedAt !== null && r.endedAt !== null ? r.endedAt - r.startedAt : null,
+      steps: r.steps.sort((a, b) => (a.startedAt ?? a.endedAt ?? 0) - (b.startedAt ?? b.endedAt ?? 0))
+        .map((x) => ({ ...x, durationMs: x.startedAt !== null && x.endedAt !== null ? x.endedAt - x.startedAt : null })),
+    }))
 }
 
 const ratio = (u) => (positive(u.targetMinutes) && Number.isFinite(u.p95Ms) ? u.p95Ms / (u.targetMinutes * 60000) : -1)
@@ -314,6 +368,15 @@ export function evaluateTool({ id, name, tool, connected = true, result = null, 
     ? { ...outcomes, rate: outcomes.executed ? (100 * outcomes.failed) / outcomes.executed : null, target: config.errorRateTarget ?? null }
     : { executed: null, failed: null, timedOut: 0, rate: null, target: config.errorRateTarget ?? null, unverified: 0, complete: false }
   error.status = errorStatus(error, minSamples)
+  // Displayed as a success rate (BA): success = 100% − failure rate; same counts and rules.
+  const success = {
+    executed: error.executed, succeeded: error.executed == null ? null : error.executed - error.failed,
+    rate: error.rate == null ? null : 100 - error.rate, target: error.target == null ? null : 100 - error.target,
+    status: error.status, timedOut: error.timedOut || 0, unverified: error.unverified || 0,
+  }
+  const kpis = report?.performanceKpis
+  const response = uxMetric(kpis?.responseTime, positive(config.responseTargetMs) ? config.responseTargetMs : defaultResponseTargetMs, minSamples)
+  const click = uxMetric(kpis?.clickLatency, positive(config.clickTargetMs) ? config.clickTargetMs : defaultClickTargetMs, minSamples)
 
   // Status uses the Main Job when there is one; sub-jobs feed the priority list.
   const scored = declaredMain ? declaredMain.units : allUnits
@@ -341,7 +404,9 @@ export function evaluateTool({ id, name, tool, connected = true, result = null, 
     hasMain: Boolean(declaredMain), jobCount: jobs.length,
     // Shown when the period has no measured run: the Main Job's declared/detected target.
     mainTargetMinutes: declaredMain && positive(declaredMain.targetMinutes) ? declaredMain.targetMinutes : null,
-    driver: config.driver || null, headline, jobs, error, appStatus: result?.status || null,
+    driver: config.driver || null, headline, jobs, error, success, response, click, appStatus: result?.status || null,
+    description: config.description || "", reportedAt: report?.generatedAt || null,
+    runs: report ? recentRuns(report, { mainJob: declaredMain?.name || null }) : [],
   }
 }
 

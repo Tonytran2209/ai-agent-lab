@@ -3,6 +3,7 @@ import net from "node:net"
 import { z } from "zod"
 import { fail } from "./schemas.js"
 import { detectToolProfile } from "./tool-performance.js"
+import { railwayBinding } from "./deploy-onboarding.js"
 
 // Read-only monitoring targets are separate from Lab project execution/release permissions.
 export const maxMonitoringTargets = 12
@@ -85,6 +86,9 @@ const targetSource = z.enum(["app", "builtin", "baseline", "manual"]).nullable()
 export const toolConfigSchema = z
   .object({
     owner: shortText(100).default(""),
+    description: shortText(300).default(""),
+    responseTargetMs: z.number().positive().max(600000).nullable().default(null),
+    clickTargetMs: z.number().positive().max(60000).nullable().default(null),
     mainJob: shortText(200).default(""),
     mainJobSource: source.default("auto"),
     driver: z.object({ factor: shortText(100).default(""), unit: shortText(40).default("") }).strict().default({}),
@@ -173,6 +177,13 @@ export function createMonitoringRegistry(db, config, { clock = () => Date.now() 
     db
       .prepare("INSERT INTO settings(key,value) VALUES ('monitoring-profiles-v1',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value")
       .run(JSON.stringify(map))
+  // Optional Railway link per tool (deploy events) and Tech/Lead optimisation decisions.
+  const readKey = (key, fallback) => {
+    const row = db.prepare("SELECT value FROM settings WHERE key=?").get(key)
+    return row ? JSON.parse(row.value) : fallback
+  }
+  const writeKey = (key, value) =>
+    db.prepare("INSERT INTO settings(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(key, JSON.stringify(value))
   const env = () => {
     try {
       return { targets: monitoringTargets(config.LAB_MONITORING_TARGETS || "[]"), error: false }
@@ -220,18 +231,20 @@ export function createMonitoringRegistry(db, config, { clock = () => Date.now() 
       const stored = read()
       const ids = new Set(stored.map((t) => t.id))
       const fromEnv = env(),
-        profiles = readProfiles()
+        profiles = readProfiles(),
+        railway = readKey("monitoring-railway-v1", {})
+      const link = (id) => (railway[id] ? { url: railway[id].url } : null)
       return {
         max: maxMonitoringTargets,
         environmentError: fromEnv.error,
         targets: [
           ...stored.map((t) => ({
             id: t.id, name: t.name, origin: t.origin || null, appId: t.appId || null, source: "settings",
-            connected: Boolean(t.origin), tokenReadable: !t.origin || unseal(t) !== null, tool: t.tool || null, createdAt: t.createdAt, updatedAt: t.updatedAt, updatedBy: t.updatedBy,
+            connected: Boolean(t.origin), tokenReadable: !t.origin || unseal(t) !== null, tool: t.tool || null, railway: link(t.id), createdAt: t.createdAt, updatedAt: t.updatedAt, updatedBy: t.updatedBy,
           })),
           ...fromEnv.targets
             .filter((t) => !ids.has(t.id))
-            .map((t) => ({ id: t.id, name: t.name, origin: t.origin, appId: t.appId, source: "environment", connected: true, tokenReadable: true, tool: profiles[t.id] || null })),
+            .map((t) => ({ id: t.id, name: t.name, origin: t.origin, appId: t.appId, source: "environment", connected: true, tokenReadable: true, tool: profiles[t.id] || null, railway: link(t.id) })),
         ],
       }
     },
@@ -262,6 +275,47 @@ export function createMonitoringRegistry(db, config, { clock = () => Date.now() 
       }
       write(list)
       return this.list()
+    },
+    // Link a Railway service (URL with project, service and environmentId) and a read-only project
+    // token. The token is sealed and never listed; an empty URL removes the link.
+    setRailway(id, input) {
+      if (!this.list().targets.some((t) => t.id === id)) fail("Không tìm thấy ứng dụng.")
+      const v = z.object({ url: z.string().trim().max(700), token: z.string().trim().min(10).max(512).optional() }).strict().parse(input || {})
+      const map = readKey("monitoring-railway-v1", {})
+      if (!v.url) delete map[id]
+      else {
+        const binding = railwayBinding(v.url)
+        const token = v.token ? seal(v.token) : map[id] && map[id].projectId === binding.projectId && map[id].environmentId === binding.environmentId ? map[id].token : null
+        if (!token) fail("Cần Railway project token của đúng project/environment.")
+        map[id] = { ...binding, token }
+      }
+      writeKey("monitoring-railway-v1", map)
+      return this.list()
+    },
+    // Railway links with their unsealed token, for the server-side deploy reader only.
+    railwayLinks() {
+      const map = readKey("monitoring-railway-v1", {})
+      const ids = new Set(this.list().targets.map((t) => t.id))
+      return Object.entries(map)
+        .filter(([id]) => ids.has(id))
+        .map(([id, l]) => ({ id, projectId: l.projectId, serviceId: l.serviceId, environmentId: l.environmentId, token: unseal(l) }))
+        .filter((l) => l.token)
+    },
+    priorities() {
+      return readKey("monitoring-priorities-v1", [])
+    },
+    // Tech/Lead decision on an optimisation point: "open" records it, "done" closes it.
+    setPriority(input, actor) {
+      const v = z.object({
+        key: z.string().max(300), toolId: z.string().regex(idPattern), job: z.string().max(200).default(""),
+        kind: z.enum(["time", "error"]), status: z.enum(["open", "done"]),
+      }).strict().parse(input)
+      if (!this.list().targets.some((t) => t.id === v.toolId)) fail("Không tìm thấy ứng dụng.")
+      const at = new Date(clock()).toISOString()
+      const list = readKey("monitoring-priorities-v1", []).filter((p) => !(p.key === v.key && p.status === "open"))
+      list.unshift(v.status === "open" ? { ...v, decidedBy: actor, decidedAt: at } : { ...v, decidedBy: actor, decidedAt: at, doneAt: at })
+      writeKey("monitoring-priorities-v1", list.slice(0, 200))
+      return list.slice(0, 200)
     },
     // Current profile of any listed tool (Settings entry or environment tool), or undefined.
     profile(id) {
@@ -304,6 +358,11 @@ export function createMonitoringRegistry(db, config, { clock = () => Date.now() 
           ? "Ứng dụng này cấu hình qua LAB_MONITORING_TARGETS; xóa trong biến môi trường Railway."
           : "Không tìm thấy ứng dụng.")
       write(list.filter((t) => t.id !== id))
+      const links = readKey("monitoring-railway-v1", {})
+      if (links[id] && !env().targets.some((t) => t.id === id)) {
+        delete links[id]
+        writeKey("monitoring-railway-v1", links)
+      }
       const profiles = readProfiles()
       if (profiles[id] && !env().targets.some((t) => t.id === id)) {
         delete profiles[id]
@@ -449,6 +508,57 @@ export function createAppMonitoring({
         detected: result.report ? detectToolProfile(result.report, null, { now: now() }) : null,
         hasRuns: Array.isArray(result.report?.jobRuns?.runs),
       }
+    },
+    clear() {
+      cache = new Map()
+    },
+  }
+}
+
+const deployQuery = `query LabToolDeploys($input: DeploymentListInput!) { deployments(input: $input, first: 20) { edges { node { id status createdAt meta } } } }`
+
+// Read-only Railway deployments per linked tool, cached five minutes; failures stay per tool.
+export function createDeployEvents({ links = () => [], fetcher = fetch, now = Date.now } = {}) {
+  let cache = new Map()
+  async function read(link) {
+    const query = async (q, variables = {}) => {
+      const r = await fetcher("https://backboard.railway.com/graphql/v2", {
+        method: "POST", redirect: "error", signal: AbortSignal.timeout(15000),
+        headers: { "Content-Type": "application/json", "Project-Access-Token": link.token },
+        body: JSON.stringify({ query: q, variables }),
+      })
+      if (!r.ok) throw new Error("Railway trả HTTP " + r.status)
+      const b = await r.json()
+      if (b.errors?.length || !b.data) throw new Error("Railway từ chối truy vấn; kiểm tra token và quyền đọc.")
+      return b.data
+    }
+    try {
+      const scope = await query("query LabTokenScope{projectToken{projectId environmentId}}")
+      if (scope.projectToken?.projectId !== link.projectId || scope.projectToken?.environmentId !== link.environmentId)
+        return { error: "Token Railway không thuộc project/environment đã liên kết." }
+      const data = await query(deployQuery, { input: { projectId: link.projectId, serviceId: link.serviceId, environmentId: link.environmentId } })
+      const text = (v, max) => (typeof v === "string" ? v.slice(0, max) : null)
+      return {
+        items: (data.deployments?.edges || []).map((e) => e.node).filter((n) => n && typeof n.id === "string").slice(0, 20).map((n) => ({
+          id: n.id.slice(0, 64), status: text(n.status, 30), createdAt: text(n.createdAt, 40),
+          commitHash: text(n.meta?.commitHash, 40), commitMessage: text(n.meta?.commitMessage?.split("\n")[0], 120),
+        })),
+      }
+    } catch (e) {
+      return { error: e.name === "TimeoutError" ? "Railway không phản hồi." : String(e.message || "Không đọc được Railway").slice(0, 160) }
+    }
+  }
+  return {
+    async snapshot() {
+      const result = {}
+      await Promise.all(links().map(async (l) => {
+        const key = [l.id, l.projectId, l.serviceId, l.environmentId, crypto.createHash("sha256").update(l.token).digest("hex")].join(":")
+        const prior = cache.get(key)
+        if (!prior || prior.until <= now()) cache.set(key, { until: now() + 300000, promise: read(l) })
+        result[l.id] = await cache.get(key).promise
+      }))
+      if (cache.size > 100) cache = new Map()
+      return result
     },
     clear() {
       cache = new Map()

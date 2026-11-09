@@ -86,7 +86,19 @@ Outreach (`Tonytran2209/Project-test`, Python/FastAPI) is the first app connecte
 
 ## Tool status (tool-status-v2)
 
-Performance has three tabs: AI Agent Lab, Projects (technical report of each app: HTTP, AI, runtime, content) and Status (overview of every tool, judged by its Main Job, with the optimisation priority lists). "Xem báo cáo kỹ thuật của app" in Status opens that app in Projects.
+Performance has three tabs: AI Agent Lab, Projects (technical report of each app: HTTP, AI, runtime, content) and Status. "Xem báo cáo kỹ thuật của app" in Status opens that app in Projects.
+
+### Status tab
+
+One row per tool: Công cụ & Nghiệp vụ (name, description, runs in the period, deploys, owner), Trạng thái (operational state — Operational, Degraded, Sai token, Mất tín hiệu, Chưa kết nối — and the last report time; the coloured left edge and the line under it are the BA target result), Thời gian hoàn thành (P95 of the Main Job against its target, samples, previous period, sub-job count), Tỷ lệ thành công (100% − failure rate against 100% − the failure-rate target; every failure counts, timeouts included), Tốc độ phản hồi and Độ nhạy thao tác (P95 from `performanceKpis.responseTime` / `clickLatency` against 2.5 s / 200 ms by default, adjustable per tool; coloured but not part of the BA status), and actions: ⚙ opens the tool settings (information, connection, Railway link, jobs & targets, removal) and 🗑 removes a tool after confirmation (environment tools are removed in Railway). Every column header has a tooltip.
+
+Opening a row shows three tabs: recent runs (time, workload / document, duration, per-step breakdown, status), sub-jobs (P95, samples, success rate, previous period) and deploy events. "+ Kết nối tool" connects a tool from the Status tab; Settings → Monitoring lists tools and opens the same panels.
+
+Runs are grouped by `runId`/`parentRunId`. A parent that is itself a measured run (Writer batch) shows its wall-clock duration. Children whose parent is not a run (Intercom gates of one package, with approval in between) are grouped for display only, with the summed processing time of their steps; the group is never a job.
+
+Deploy events: link a Railway service URL and a read-only Project Access Token per tool (`PUT /api/settings/monitoring/:id/railway`, settings key `monitoring-railway-v1`, token sealed). Lab checks the token scope, then reads the latest 20 deployments (status, time, commit) with a fixed read-only query, cached five minutes; failures are shown per tool. No Railway mutation is ever sent.
+
+Optimisation priorities: Lab lists jobs slower than target and tools or sub-jobs below the success target. "Ghi nhận ưu tiên" records the decision with who and when (`POST /api/monitoring/priorities`, settings key `monitoring-priorities-v1`, last 200 entries); "Hoàn tất" closes it.
 
 ### Connecting a tool and automatic detection
 
@@ -106,11 +118,12 @@ Stored as `tool` (tool-config-v2) on the `monitoring-targets-v1` entry for tools
 
 ```json
 "jobRuns": { "since": "2026-09-10T00:00:00Z", "complete": true, "runs": [
-  { "job": "Bid pack", "workload": ">15 trang", "parent": null, "status": "success", "startedAt": "…", "endedAt": "…" }
+  { "job": "Bid pack", "runId": "r1", "workload": "2 file / 35 trang ToR UNIDO", "status": "success", "startedAt": "…", "endedAt": "…" },
+  { "job": "Đọc hiểu tài liệu", "runId": "r1-read", "parentRunId": "r1", "parent": "Bid pack", "workload": "2 file / 35 trang ToR UNIDO", "status": "success", "startedAt": "…", "endedAt": "…" }
 ] }
 ```
 
-Send runs that ended (or are still running) in the last 61 days, newest first, at most 5,000; set `complete: false` when truncated. `status` is `success`, `failed` (technical or business failure) or `running` (`endedAt: null`). `parent` names the enclosing job for sub-jobs. `startedAt` may be null for a finished run whose start was not saved; it then counts for error rates but not for durations. Runs carry no content or personal data. With `jobRuns`, Lab computes everything itself: calendar days in Vietnam time (today starts 00:00 GMT+7), the previous period of equal length, median and slowest run, runs over target, per-job error rates, and timeouts (a run still running after three times its target counts as failed). Without `jobRuns`, Lab uses the app's aggregated per-job history and its UTC windows.
+Send runs that ended (or are still running) in the last 61 days, newest first, at most 5,000; set `complete: false` when truncated. `status` is `success`, `failed` (technical or business failure) or `running` (`endedAt: null`). `parent` names the enclosing job for sub-jobs; `runId` and `parentRunId` link a step to the run it belongs to. `workload` may name the document or item (up to 200 characters); it is shown in the run history. `startedAt` may be null for a finished run whose start was not saved; it then counts for error rates but not for durations. Runs carry no document content; names of documents/items are allowed in `workload`. With `jobRuns`, Lab computes everything itself: calendar days in Vietnam time (today starts 00:00 GMT+7), the previous period of equal length, median and slowest run, runs over target, per-job error rates, and timeouts (a run still running after three times its target counts as failed). Without `jobRuns`, Lab uses the app's aggregated per-job history and its UTC windows.
 
 ### Rules
 

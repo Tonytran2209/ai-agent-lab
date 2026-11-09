@@ -246,3 +246,50 @@ test("tools from LAB_MONITORING_TARGETS get detected, adjustable profiles too", 
     rmSync(dir, { recursive: true, force: true })
   }
 })
+test("railway links are sealed and deploy events are read-only, scoped and cached", async () => {
+  const { createDeployEvents } = await import("../server/app-monitoring.js")
+  const dir = mkdtempSync(path.join(os.tmpdir(), "lab-monitoring-"))
+  const db = openDatabase(dir)
+  try {
+    const registry = createMonitoringRegistry(db, { SESSION_SECRET: "s".repeat(40), LAB_MONITORING_TARGETS: JSON.stringify([target]) })
+    const p = "11111111-1111-1111-1111-111111111111", sv = "22222222-2222-2222-2222-222222222222", e = "33333333-3333-3333-3333-333333333333"
+    const url = `https://railway.com/project/${p}/service/${sv}?environmentId=${e}`
+    assert.throws(() => registry.setRailway("writer-studio", { url }), /token/)
+    assert.throws(() => registry.setRailway("writer-studio", { url: "https://evil.example.com/x", token: "t".repeat(20) }))
+    const list = registry.setRailway("writer-studio", { url, token: "railway-token-123" })
+    assert.deepEqual(list.targets[0].railway, { url })
+    assert.ok(!db.prepare("SELECT value FROM settings WHERE key='monitoring-railway-v1'").get().value.includes("railway-token-123"))
+    let calls = 0
+    const events = createDeployEvents({
+      links: () => registry.railwayLinks(),
+      fetcher: async (u, o) => {
+        calls++
+        assert.equal(u, "https://backboard.railway.com/graphql/v2")
+        assert.equal(o.headers["Project-Access-Token"], "railway-token-123")
+        const q = JSON.parse(o.body).query
+        assert.ok(!/mutation/i.test(q), "queries only")
+        if (q.includes("projectToken")) return Response.json({ data: { projectToken: { projectId: p, environmentId: e } } })
+        return Response.json({ data: { deployments: { edges: [{ node: { id: "d1", status: "SUCCESS", createdAt: "2026-11-09T01:00:00Z", meta: { commitHash: "abc1234def", commitMessage: "Fix\nbody" } } }] } } })
+      },
+    })
+    const first = await events.snapshot()
+    await events.snapshot()
+    assert.equal(calls, 2, "second read comes from the cache")
+    assert.deepEqual(first["writer-studio"].items[0], { id: "d1", status: "SUCCESS", createdAt: "2026-11-09T01:00:00Z", commitHash: "abc1234def", commitMessage: "Fix" })
+    const wrong = createDeployEvents({ links: () => registry.railwayLinks(),
+      fetcher: async () => Response.json({ data: { projectToken: { projectId: "other", environmentId: e } } }) })
+    assert.match((await wrong.snapshot())["writer-studio"].error, /không thuộc/)
+    registry.setRailway("writer-studio", { url: "" })
+    assert.equal(registry.list().targets[0].railway, null)
+    // Priorities record who decided and close when done.
+    const open = registry.setPriority({ key: "time|writer-studio|Batch", toolId: "writer-studio", job: "Batch", kind: "time", status: "open" }, "tony")
+    assert.equal(open[0].decidedBy, "tony")
+    const done = registry.setPriority({ key: "time|writer-studio|Batch", toolId: "writer-studio", job: "Batch", kind: "time", status: "done" }, "tony")
+    assert.equal(done.filter((x) => x.status === "open").length, 0)
+    assert.ok(done[0].doneAt)
+    assert.throws(() => registry.setPriority({ key: "x", toolId: "missing", kind: "time", status: "open" }, "tony"), /Không tìm thấy/)
+  } finally {
+    db.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

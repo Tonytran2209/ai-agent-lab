@@ -1,4 +1,4 @@
-import {createAppMonitoring,createMonitoringRegistry} from './app-monitoring.js';
+import {createAppMonitoring,createMonitoringRegistry,createDeployEvents} from './app-monitoring.js';
 import {detectToolProfile} from './tool-performance.js';
 import {createPerformance} from './performance.js';
 import {createNotificationCenter} from './notifications.js';
@@ -99,6 +99,7 @@ export function createApp(config, options = {}) {
   const performanceReport = createPerformance(db, service, config);
   const monitoringRegistry = createMonitoringRegistry(db, config);
   const appMonitoring = createAppMonitoring({targets:()=>monitoringRegistry.targets()});
+  const deployEvents = createDeployEvents({links:()=>monitoringRegistry.railwayLinks()});
   const app = express();
   app.use(['/api', '/runner', '/mcp'], performanceReport.middleware);
   // Railway edge proxy adds one trusted hop; app is designed for one replica.
@@ -168,8 +169,8 @@ export function createApp(config, options = {}) {
     // Profiles are detected from real reports and refreshed at most once a day.
     const snapshot=await appMonitoring.snapshot(days);
     for(const t of snapshot.targets)if(t.report&&monitoringRegistry.needsDetection(t.id))monitoringRegistry.applyDetection(t.id,t.report,detectToolProfile);
-    const tools=monitoringRegistry.list().targets.map(t=>({id:t.id,name:t.name,connected:t.connected,tool:t.tool}));
-    res.set('Cache-Control','private, no-store').json({...snapshot,tools});
+    const listed=monitoringRegistry.list();
+    res.set('Cache-Control','private, no-store').json({...snapshot,tools:listed.targets,max:listed.max,deploys:await deployEvents.snapshot(),priorities:monitoringRegistry.priorities()});
   });
   app.get('/api/settings/monitoring',auth.admin,(req,res)=>res.set('Cache-Control','private, no-store').json(monitoringRegistry.list()));
   // Saving a connected tool reads its real report once and detects jobs, Main Job and targets.
@@ -177,6 +178,8 @@ export function createApp(config, options = {}) {
   app.post('/api/settings/monitoring',auth.admin,limiter(20),async(req,res)=>{const before=new Set(monitoringRegistry.list().targets.map(t=>t.id));monitoringRegistry.add(req.body,req.user.name);const added=monitoringRegistry.list().targets.find(t=>!before.has(t.id));if(added?.connected)await detectNow(added.id);appMonitoring.clear();res.status(201).json(monitoringRegistry.list());});
   app.put('/api/settings/monitoring/:id',auth.admin,limiter(20),async(req,res)=>{const old=monitoringRegistry.list().targets.find(t=>t.id===req.params.id);monitoringRegistry.update(req.params.id,req.body,req.user.name);const now=monitoringRegistry.list().targets.find(t=>t.id===req.params.id);if(now?.connected&&(old?.origin!==now.origin||!now.tool?.detectedAt))await detectNow(now.id);appMonitoring.clear();res.json(monitoringRegistry.list());});
   app.put('/api/settings/monitoring/:id/profile',auth.admin,limiter(20),(req,res)=>{const r=monitoringRegistry.saveProfile(req.params.id,req.body);appMonitoring.clear();res.json(r);});
+  app.put('/api/settings/monitoring/:id/railway',auth.admin,limiter(20),(req,res)=>{const r=monitoringRegistry.setRailway(req.params.id,req.body);deployEvents.clear();res.json(r);});
+  app.post('/api/monitoring/priorities',auth.admin,limiter(30),(req,res)=>res.json(monitoringRegistry.setPriority(req.body,req.user.name)));
   app.post('/api/settings/monitoring/:id/detect',auth.admin,limiter(20),async(req,res)=>{monitoringRegistry.list().targets.some(t=>t.id===req.params.id&&t.connected)||fail('Tool chưa kết nối nguồn dữ liệu.');await detectNow(req.params.id);appMonitoring.clear();res.json(monitoringRegistry.list());});
   app.delete('/api/settings/monitoring/:id',auth.admin,limiter(20),(req,res)=>{const r=monitoringRegistry.remove(req.params.id);appMonitoring.clear();res.json(r);});
   app.post('/api/settings/monitoring/test',auth.admin,limiter(10),async(req,res)=>res.set('Cache-Control','private, no-store').json(await appMonitoring.probe(monitoringRegistry.probeTarget(req.body))));

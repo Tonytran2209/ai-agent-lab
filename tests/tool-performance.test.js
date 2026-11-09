@@ -184,3 +184,53 @@ test("empty windows say whether the app sends job data at all", () => {
   const nothing = evaluateTool({ id: "x", name: "X", tool: null, result: { status: "ready", report: report({ runtime: {} }) } })
   assert.equal(nothing.reason, "App chưa gửi số liệu theo job")
 })
+
+test("success rate, user latency and run history with sub-job breakdown", async () => {
+  const { uxMetric, recentRuns } = await import("../server/tool-performance.js")
+  assert.deepEqual(uxMetric({ p95Ms: 85, samples: 30 }, 2500), { p95Ms: 85, samples: 30, targetMs: 2500, status: "ok" })
+  assert.equal(uxMetric({ p95Ms: 240, samples: 30 }, 200).status, "bad")
+  assert.equal(uxMetric({ p95Ms: 240, samples: 3 }, 200).status, "insufficient")
+  assert.equal(uxMetric(null, 200).status, "nodata")
+  const runs = [
+    { job: "Bid pack", runId: "r1", status: "success", workload: "2 file / 35 trang ToR UNIDO", startedAt: "2026-11-08T18:00:00Z", endedAt: "2026-11-08T18:00:40Z" },
+    { job: "Đọc hiểu tài liệu", runId: "s2", parentRunId: "r1", status: "success", startedAt: "2026-11-08T18:00:05Z", endedAt: "2026-11-08T18:00:20Z" },
+    { job: "Kiểm tra file", runId: "s1", parentRunId: "r1", status: "success", startedAt: "2026-11-08T18:00:00Z", endedAt: "2026-11-08T18:00:01Z" },
+    { job: "Bid pack", runId: "r0", status: "failed", workload: "4 file / 86 trang", startedAt: "2026-11-08T17:00:00Z", endedAt: "2026-11-08T17:01:00Z" },
+    { job: "Orphan step", parentRunId: "missing", status: "success", startedAt: "2026-11-08T16:00:00Z", endedAt: "2026-11-08T16:00:01Z" },
+  ]
+  const r = report({ jobRuns: { runs } })
+  const history = recentRuns(r, { mainJob: "Bid pack" })
+  assert.deepEqual(history.map((x) => x.runId), ["r1", "r0"], "Main Job runs, newest first")
+  assert.deepEqual(history[0].steps.map((s) => [s.job, s.durationMs]), [["Kiểm tra file", 1000], ["Đọc hiểu tài liệu", 15000]])
+  assert.equal(history[0].workload, "2 file / 35 trang ToR UNIDO")
+  assert.equal(recentRuns(r).length, 3, "without a Main Job every top-level run is listed")
+  const t = evaluateTool({ id: "rfp", name: "RFP", days: 1, now, result: { status: "ready", report: { ...r, performanceKpis: { responseTime: { p95Ms: 85, samples: 30 } } } },
+    tool: { errorRateTarget: 5, minSamples: 1, responseTargetMs: 2000, jobs: [{ name: "Bid pack", role: "main", targetMinutes: 1 }] } })
+  assert.equal(t.success.executed, 2)
+  assert.equal(t.success.succeeded, 1)
+  assert.equal(t.success.rate, 50)
+  assert.equal(t.success.target, 95)
+  assert.equal(t.success.status, "bad")
+  assert.equal(t.response.targetMs, 2000)
+  assert.equal(t.click.status, "nodata")
+  assert.equal(t.runs[0].steps.length, 2)
+})
+
+test("steps of an unmeasured parent are grouped for display with summed processing time", async () => {
+  const { recentRuns } = await import("../server/tool-performance.js")
+  const gate = (job, start, seconds, status = "success") => ({ job, parentRunId: "package:p1", workload: "1 package · Ra mắt văn phòng mới", status,
+    startedAt: start, endedAt: new Date(Date.parse(start) + seconds * 1000).toISOString() })
+  const r = report({ jobRuns: { runs: [
+    gate("EB V2 brief", "2026-11-08T10:00:00Z", 10), gate("EB V2 article", "2026-11-08T15:00:00Z", 14, "failed"),
+    { job: "EB V2 brief", status: "success", startedAt: "2026-11-07T10:00:00Z", endedAt: "2026-11-07T10:00:09Z" },
+  ] } })
+  const history = recentRuns(r)
+  assert.equal(history.length, 2)
+  assert.equal(history[0].group, true)
+  assert.equal(history[0].workload, "1 package · Ra mắt văn phòng mới")
+  assert.equal(history[0].status, "failed")
+  assert.equal(history[0].durationMs, 24000, "summed step time, not the hours of human waiting in between")
+  assert.deepEqual(history[0].steps.map((x) => x.job), ["EB V2 brief", "EB V2 article"])
+  const profile = detectToolProfile(r, null, { now })
+  assert.ok(!profile.jobs.some((j) => j.name.startsWith("package")), "a display group is never detected as a job")
+})

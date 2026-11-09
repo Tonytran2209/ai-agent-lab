@@ -390,11 +390,12 @@ function Metric({
 function ProjectRuntime({ api, days, refresh, initialApp = "all", view = "projects", onOpenReport }) {
   const [data, setData] = useState(null),
     [error, setError] = useState(""),
-    [selected, setSelected] = useState(initialApp)
+    [selected, setSelected] = useState(initialApp),
+    [reload, setReload] = useState(0)
+  useEffect(() => setData(null), [days])
   useEffect(() => {
     let cancelled = false,
       inFlight = false
-    setData(null)
     async function load() {
       if (inFlight) return
       inFlight = true
@@ -416,7 +417,7 @@ function ProjectRuntime({ api, days, refresh, initialApp = "all", view = "projec
       cancelled = true
       polling.stop()
     }
-  }, [days, refresh])
+  }, [days, refresh, reload])
   return (
     <>
       <div className="perf-section-heading">
@@ -454,13 +455,13 @@ function ProjectRuntime({ api, days, refresh, initialApp = "all", view = "projec
       {data?.configurationError && (
         <p className="perf-error">Cấu hình kết nối monitoring không hợp lệ.</p>
       )}
-      {data && !data.configurationError && !data.targets.length && !data.tools?.length && (
+      {view === "projects" && data && !data.configurationError && !data.targets.length && (
         <p className="perf-card perf-empty">
           Chưa có ứng dụng nào. Admin thêm ứng dụng trong Cài đặt → Monitoring ứng dụng.
         </p>
       )}
-      {view === "status" && data && !data.configurationError && (data.tools?.length > 0 || data.targets.length > 0) && (
-        <ToolOverview data={data} days={days} onOpenReport={onOpenReport} />
+      {view === "status" && data && !data.configurationError && (
+        <ToolOverview data={data} days={days} api={api} onOpenReport={onOpenReport} onChanged={() => setReload((v) => v + 1)} />
       )}
       {view === "projects" && data?.targets
         .filter((t) => selected === "all" || selected === t.id)
