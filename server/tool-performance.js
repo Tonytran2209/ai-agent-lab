@@ -416,7 +416,14 @@ export function evaluateTool({ id, name, tool, connected = true, result = null, 
   const allUnits = jobs.flatMap((j) => j.units.map((u) => ({ ...u, role: j.role })))
   const headline = declaredMain ? worst(declaredMain.units) : worst(allUnits)
 
-  const outcomes = jobOutcomes(report, measured.outcomes, declaredMain?.name)
+  // Success rate counts every recorded Main Job run the app reports (jobRuns, up to its 61-day
+  // horizon), not only the selected window; other sources keep their own counts.
+  const parsed = report ? parseRuns(report) : { runs: [], since: null, complete: false }
+  const mainRuns = parsed.runs.filter((r) => r.status !== "running" && (!declaredMain || r.job === declaredMain.name))
+  const outcomes = measured.source === "runs" && mainRuns.length
+    ? { executed: mainRuns.length, failed: mainRuns.filter((r) => r.status === "failed").length, timedOut: 0, unverified: 0, complete: parsed.complete }
+    : jobOutcomes(report, measured.outcomes, declaredMain?.name)
+  const recordedDays = measured.source === "runs" && mainRuns.length && parsed.since ? Math.max(1, Math.round((now - parsed.since) / 86400000)) : null
   const error = outcomes
     ? { ...outcomes, rate: outcomes.executed ? (100 * outcomes.failed) / outcomes.executed : null, target: errorTarget }
     : { executed: null, failed: null, timedOut: 0, rate: null, target: errorTarget, unverified: 0, complete: false }
@@ -430,6 +437,9 @@ export function evaluateTool({ id, name, tool, connected = true, result = null, 
   const kpis = report?.performanceKpis
   const response = uxMetric(kpis?.responseTime, positive(config.responseTargetMs) ? config.responseTargetMs : defaultResponseTargetMs, minSamples)
   const click = uxMetric(kpis?.clickLatency, positive(config.clickTargetMs) ? config.clickTargetMs : defaultClickTargetMs, minSamples)
+  // profile.kpiDescriptions: what the app measures for each browser KPI (start → end event).
+  response.measures = text(profile?.kpiDescriptions?.responseTime, 160)
+  click.measures = text(profile?.kpiDescriptions?.clickLatency, 160)
 
   // Status uses the Main Job when there is one; sub-jobs feed the priority list.
   const scored = declaredMain ? declaredMain.units : allUnits
@@ -451,19 +461,16 @@ export function evaluateTool({ id, name, tool, connected = true, result = null, 
         ? measured.source ? "Không có lần chạy nào kết thúc trong kỳ" : "App chưa gửi số liệu theo job"
         : null
 
-  // The latest run, finished or not, headlines the row: the newest Main Job run or unscored group
-  // (e.g. a package awaiting approval) in run history. An unfinished run shows its time so far.
+  // Completion time headline: the latest Main Job run that finished successfully with a measured
+  // duration. Unfinished, running and failed runs are left out.
   const history = report ? recentRuns(report, { mainJob: declaredMain?.name || null }) : []
-  const top = history[0] || null
-  const latest = top ? {
-    workload: top.workload,
-    state: top.status === "failed" ? "failed" : top.group || top.status === "running" ? "pending" : "success",
-    durationMs: top.durationMs ?? (top.status === "running" && top.startedAt !== null ? Math.max(0, now - top.startedAt) : null),
-    at: top.endedAt ?? top.startedAt,
-  } : null
+  let latest = null
+  for (const r of mainRuns)
+    if (r.status === "success" && r.startedAt !== null && r.endedAt !== null && (!latest || r.endedAt > latest.at))
+      latest = { workload: r.workload, durationMs: r.endedAt - r.startedAt, at: r.endedAt }
 
   return {
-    id, name, connected, status, reason, minSamples, source: measured.source, latest, windowDays, widened: windowDays !== days,
+    id, name, connected, status, reason, minSamples, source: measured.source, latest, windowDays, widened: windowDays !== days, recordedDays,
     owner: config.owner || "", mainJob: config.mainJob || declaredMain?.name || (jobs.length === 1 ? jobs[0].name : ""),
     hasMain: Boolean(declaredMain), jobCount: jobs.length,
     // Shown when the period has no measured run: the Main Job's declared/detected target.

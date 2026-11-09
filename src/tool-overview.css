@@ -730,3 +730,11 @@
   display: inline;
   font-size: 12px;
 }
+
+.tool-measures {
+  max-width: 220px;
+  display: -webkit-box !important;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}

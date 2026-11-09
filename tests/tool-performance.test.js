@@ -176,8 +176,8 @@ test("missing targets, small samples and empty windows get distinct statuses", (
 test("empty windows say whether the app sends job data at all", () => {
   const withRuns = evaluateTool({ id: "w", name: "W", days: 1, now, tool: { jobs: [{ name: "Batch", role: "main", targetMinutes: 10, baselineSamples: 30 }] },
     result: { status: "ready", report: report({ jobRuns: { runs: [run("Batch", "2026-08-01T00:00:00Z", 5)] } }) } })
-  assert.equal(withRuns.status, "nodata", "the only run is older than the widest (61-day) fallback window")
-  assert.equal(withRuns.reason, "Không có lần chạy nào kết thúc trong kỳ")
+  assert.equal(withRuns.status, "notarget", "no run in any window, but the recorded run still counts for the success rate")
+  assert.deepEqual([withRuns.success.executed, withRuns.latest.durationMs], [1, 5 * min], "success rate and latest finished workload use every recorded run")
   assert.equal(withRuns.jobs[0].unmeasured, true)
   assert.equal(withRuns.headline, null)
   assert.equal(withRuns.mainTargetMinutes, 10, "the Main Job target is still shown without runs in the period")
@@ -341,7 +341,7 @@ test("an empty period shows the latest Main Job run, and an app-declared success
   const t = evaluateTool({ id: "ic", name: "Intercom", days: 7, now, result: { status: "ready", report: r }, tool: profile })
   assert.deepEqual([t.widened, t.windowDays, t.headline?.samples, t.success.executed], [true, 30, 2, 2],
     "nothing finished in the last 7 days: the summary uses the last 30 days")
-  assert.deepEqual(t.latest, { workload: "", state: "success", durationMs: 75000, at: Date.parse("2026-10-26T04:00:15Z") }, "the latest run headlines the row")
+  assert.deepEqual(t.latest, { workload: "", durationMs: 75000, at: Date.parse("2026-10-26T04:00:15Z") }, "the latest finished run headlines the row")
   assert.equal(t.success.target, 99)
   const old = report({ ...r, jobRuns: { complete: true, runs: runs.map((x) => ({ ...x, startedAt: x.startedAt.replace("2026-10", "2026-08"), endedAt: x.endedAt.replace("2026-10", "2026-08") })) } })
   const stale = evaluateTool({ id: "ic", name: "Intercom", days: 7, now, result: { status: "ready", report: old }, tool: profile })
@@ -353,9 +353,20 @@ test("an empty period shows the latest Main Job run, and an app-declared success
   assert.equal(withRun.widened, false)
   const pending = evaluateTool({ id: "ic", name: "Intercom", days: 7, now, tool: profile, result: { status: "ready", report: report({ ...r, jobRuns: { complete: true, runs: [...runs,
     { job: "Trích xuất brief", runId: "g9", parentRunId: "package:new", parent: "EB V2 package", status: "success", workload: "1 package · KPI test", startedAt: "2026-11-06T06:12:31Z", endedAt: "2026-11-06T06:12:34Z" }] } }) } })
-  assert.deepEqual(pending.latest, { workload: "1 package · KPI test", state: "pending", durationMs: 3000, at: Date.parse("2026-11-06T06:12:34Z") },
-    "an unfinished package awaiting approval is the latest run, with its time so far")
+  assert.equal(pending.latest.at, Date.parse("2026-10-26T04:00:15Z"), "a package awaiting approval is not a finished workload")
   const running = evaluateTool({ id: "ic", name: "Intercom", days: 7, now, tool: profile, result: { status: "ready", report: report({ ...r, jobRuns: { complete: true, runs: [...runs,
     { job: "EB V2 package", runId: "live", status: "running", startedAt: new Date(now - 30000).toISOString(), endedAt: null }] } }) } })
-  assert.deepEqual([running.latest.state, running.latest.durationMs], ["pending", 30000], "a running Main Job shows its elapsed time")
+  assert.equal(running.latest.durationMs, 75000, "a running Main Job is not a finished workload")
+  const failedLast = evaluateTool({ id: "ic", name: "Intercom", days: 7, now, tool: profile, result: { status: "ready", report: report({ ...r, jobRuns: { complete: true, runs: [...runs,
+    { job: "EB V2 package", runId: "bad", status: "failed", startedAt: "2026-11-08T10:00:00Z", endedAt: "2026-11-08T10:00:20Z" }] } }) } })
+  assert.deepEqual([failedLast.latest.durationMs, failedLast.success.executed, failedLast.success.succeeded], [75000, 3, 2],
+    "a failed run is not a completion, but counts in the success rate over every recorded run")
+})
+
+test("browser KPIs show what the app says it measures", () => {
+  const r = report({ profile: { version: "profile-v1", kpiDescriptions: { responseTime: "Bấm 'Tạo outline' → outline đã lưu hiển thị", clickLatency: 42 } },
+    performanceKpis: { responseTime: { p95Ms: 10000, samples: 1 }, clickLatency: { p95Ms: 500, samples: 2 } } })
+  const t = evaluateTool({ id: "w", name: "W", days: 7, now, result: { status: "ready", report: r }, tool: null })
+  assert.equal(t.response.measures, "Bấm 'Tạo outline' → outline đã lưu hiển thị")
+  assert.equal(t.click.measures, null, "malformed descriptions are dropped")
 })

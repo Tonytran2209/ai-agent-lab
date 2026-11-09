@@ -17,10 +17,10 @@ const sourceLabels = {
 const hints = {
   tool: "Tool và Main Job: công việc trọn vẹn mà người dùng nhận được kết quả. Lab tự nhận diện từ dữ liệu thật.",
   status: "Trạng thái vận hành: Lab đọc được báo cáo của tool hay không, và lần báo cáo gần nhất. Màu của từng chỉ số cho biết đạt (xanh) hay chưa đạt (đỏ) target.",
-  time: "P95 thời gian hoàn thành Main Job trong kỳ: 95% lần chạy xong nhanh hơn mức này. Chỉ chấm khi đủ số mẫu tối thiểu.",
-  success: "Tỷ lệ lần chạy thành công: không lỗi kỹ thuật, không thất bại nghiệp vụ, không quá thời gian chờ (3 × target).",
-  response: "P95 từ lúc người dùng gửi yêu cầu đến phản hồi có ý nghĩa đầu tiên.",
-  click: "P95 từ lúc bấm đến khi giao diện phản hồi.",
+  time: "Số lớn: thời lượng của workload hoàn thành gần nhất (không tính lượt đang chạy, chưa hoàn thành hoặc lỗi). Dòng P95: 95% lượt chạy trong kỳ xong nhanh hơn mức này; chỉ chấm khi đủ số mẫu tối thiểu.",
+  success: "Tỷ lệ lượt chạy thành công trên tổng số lượt chạy app đã ghi nhận (tối đa 61 ngày): không lỗi kỹ thuật, không thất bại nghiệp vụ.",
+  response: "P95 đo trong trình duyệt người dùng: từ lúc bấm thao tác tạo nội dung đến khi kết quả có ý nghĩa đầu tiên hiện ra. Mỗi app khai báo thao tác được đo (dòng dưới số). Giá trị là cận trên của nhóm histogram, ví dụ 10s = trong khoảng 5–10s.",
+  click: "P95 đo trong trình duyệt người dùng: từ lúc bấm đến khi giao diện vẽ xong phản hồi đầu tiên (ví dụ trạng thái đang tạo). Giá trị là cận trên của nhóm histogram, ví dụ 500ms = trong khoảng 200–500ms.",
 }
 const toneOf = (status) => ({ ok: "good", bad: "bad" })[status] || "muted"
 
@@ -48,10 +48,10 @@ function OpPill({ op }) {
   return <span className={"tool-op " + op.tone}><Icon size={15} aria-hidden="true" />{op.label}</span>
 }
 
-function MetricCell({ value, tone, target, note }) {
+function MetricCell({ value, tone, target, note, title }) {
   return (
     <>
-      <strong className={"tool-metric " + tone}>{value}</strong>
+      <strong className={"tool-metric " + tone} title={title}>{value}</strong>
       {target && <small>{target}</small>}
       {note && <small className="tool-dim">{note}</small>}
     </>
@@ -394,13 +394,11 @@ export default function ToolOverview({ data, days = 7, api, onOpenReport, onChan
                           {(() => {
                             // Headline: the latest run, finished or not; the period P95 follows.
                             const l = t.latest
-                            const tone = !l || l.durationMs == null ? "muted" : l.state === "failed" ? "bad" : l.state === "pending" ? "muted"
-                              : timeTarget && l.durationMs > timeTarget * 60000 ? "bad" : "good"
-                            const stateText = { success: "Hoàn thành", failed: "Thất bại", pending: "Chưa hoàn thành" }
+                            const tone = !l ? "muted" : timeTarget && l.durationMs > timeTarget * 60000 ? "bad" : timeTarget ? "good" : "muted"
                             return (
-                              <MetricCell value={l ? compactTime(l.durationMs) : "—"} tone={tone}
+                              <MetricCell value={l ? compactTime(l.durationMs) : "—"} tone={tone} title={l?.workload}
                                 target={timeTarget ? "Mục tiêu: ≤ " + minutesText(timeTarget) : "Chưa có mục tiêu"}
-                                note={l ? "Lần gần nhất · " + stateText[l.state] + (l.at != null ? " · " + timeAgo(new Date(l.at).toISOString()) : "") : t.reason} />
+                                note={l ? "Workload hoàn thành gần nhất · " + timeAgo(new Date(l.at).toISOString()) : t.reason || "Chưa có workload hoàn thành"} />
                             )
                           })()}
                           {u && (
@@ -414,15 +412,17 @@ export default function ToolOverview({ data, days = 7, api, onOpenReport, onChan
                         <td>
                           <MetricCell value={t.success.rate == null ? "—" : formatPercent(t.success.rate) + (t.success.status === "ok" ? " OK" : "")} tone={toneOf(t.success.status)}
                             target={t.success.target == null ? "Chưa có mục tiêu" : "Mục tiêu: ≥ " + formatPercent(t.success.target)}
-                            note={t.success.executed ? "Đo trên " + t.success.executed + " lượt chạy" + (t.widened ? " · " + t.windowDays + " ngày gần nhất" : " trong kỳ") + (t.success.timedOut ? " · " + t.success.timedOut + " quá thời gian chờ" : "") : null} />
+                            note={t.success.executed ? "Đo trên " + t.success.executed + " lượt chạy đã ghi nhận" + (t.recordedDays ? " · " + t.recordedDays + " ngày" : "") + (t.success.timedOut ? " · " + t.success.timedOut + " quá thời gian chờ" : "") : null} />
                         </td>
                         <td>
                           <MetricCell value={compactTime(t.response.p95Ms)} tone={toneOf(t.response.status)} target={"Mục tiêu: ≤ " + compactTime(t.response.targetMs)}
-                            note={t.response.samples ? t.response.samples + " mẫu" : "App chưa đo"} />
+                            note={t.response.samples ? "P95 · " + t.response.samples + " mẫu" + (t.response.samples < t.minSamples ? " (cần ≥ " + t.minSamples + ")" : "") : "App chưa đo"} />
+                          {t.response.measures && <small className="tool-dim tool-measures" title={t.response.measures}>{t.response.measures}</small>}
                         </td>
                         <td>
                           <MetricCell value={compactTime(t.click.p95Ms)} tone={toneOf(t.click.status)} target={"Mục tiêu: ≤ " + compactTime(t.click.targetMs)}
-                            note={t.click.samples ? t.click.samples + " mẫu" : "App chưa đo"} />
+                            note={t.click.samples ? "P95 · " + t.click.samples + " mẫu" + (t.click.samples < t.minSamples ? " (cần ≥ " + t.minSamples + ")" : "") : "App chưa đo"} />
+                          {t.click.measures && <small className="tool-dim tool-measures" title={t.click.measures}>{t.click.measures}</small>}
                         </td>
                         <td className="tool-actions">
                           {api && <button type="button" className="icon-button" aria-label={"Cài đặt " + t.name} title="Cài đặt" onClick={() => setDrawer(t.id)}><Settings2 size={17} /></button>}
