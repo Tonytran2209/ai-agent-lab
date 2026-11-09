@@ -163,6 +163,16 @@ export function createMonitoringRegistry(db, config, { clock = () => Date.now() 
     db
       .prepare("INSERT INTO settings(key,value) VALUES ('monitoring-targets-v1',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value")
       .run(JSON.stringify(list))
+  // Detected profiles of tools configured in LAB_MONITORING_TARGETS live here, keyed by tool id;
+  // tools added in Settings keep theirs on their own entry.
+  const readProfiles = () => {
+    const row = db.prepare("SELECT value FROM settings WHERE key='monitoring-profiles-v1'").get()
+    return row ? JSON.parse(row.value) : {}
+  }
+  const writeProfiles = (map) =>
+    db
+      .prepare("INSERT INTO settings(key,value) VALUES ('monitoring-profiles-v1',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value")
+      .run(JSON.stringify(map))
   const env = () => {
     try {
       return { targets: monitoringTargets(config.LAB_MONITORING_TARGETS || "[]"), error: false }
@@ -209,7 +219,8 @@ export function createMonitoringRegistry(db, config, { clock = () => Date.now() 
     list() {
       const stored = read()
       const ids = new Set(stored.map((t) => t.id))
-      const fromEnv = env()
+      const fromEnv = env(),
+        profiles = readProfiles()
       return {
         max: maxMonitoringTargets,
         environmentError: fromEnv.error,
@@ -220,7 +231,7 @@ export function createMonitoringRegistry(db, config, { clock = () => Date.now() 
           })),
           ...fromEnv.targets
             .filter((t) => !ids.has(t.id))
-            .map((t) => ({ id: t.id, name: t.name, origin: t.origin, appId: t.appId, source: "environment", connected: true, tokenReadable: true, tool: null })),
+            .map((t) => ({ id: t.id, name: t.name, origin: t.origin, appId: t.appId, source: "environment", connected: true, tokenReadable: true, tool: profiles[t.id] || null })),
         ],
       }
     },
@@ -252,23 +263,39 @@ export function createMonitoringRegistry(db, config, { clock = () => Date.now() 
       write(list)
       return this.list()
     },
-    // Store a profile detected from a real report, keeping manual overrides of the previous one.
-    applyDetection(id, report, detect) {
+    // Current profile of any listed tool (Settings entry or environment tool), or undefined.
+    profile(id) {
+      const stored = read().find((t) => t.id === id)
+      if (stored) return stored.tool || null
+      return env().targets.some((t) => t.id === id) ? readProfiles()[id] || null : undefined
+    },
+    // Replace a tool's profile (admin adjustment or detection) for either kind of tool.
+    saveProfile(id, input) {
+      const tool = toolConfigSchema.parse(input)
       const list = read(),
         index = list.findIndex((t) => t.id === id)
-      if (index < 0) return null
-      const old = list[index]
-      if (old.tool && old.tool.auto === false) return old.tool
-      const tool = toolConfigSchema.parse(detect(report, old.tool || null))
-      list[index] = { ...old, tool }
-      write(list)
+      if (index >= 0) {
+        list[index] = { ...list[index], tool }
+        write(list)
+      } else if (env().targets.some((t) => t.id === id)) {
+        writeProfiles({ ...readProfiles(), [id]: tool })
+      } else fail("Không tìm thấy ứng dụng.")
+      return this.list()
+    },
+    // Store a profile detected from a real report, keeping manual overrides of the previous one.
+    applyDetection(id, report, detect) {
+      const old = this.profile(id)
+      if (old === undefined) return null
+      if (old && old.auto === false) return old
+      const tool = toolConfigSchema.parse(detect(report, old || null))
+      this.saveProfile(id, tool)
       return tool
     },
     // Detected profiles older than a day are refreshed from the latest successful read.
     needsDetection(id, now = clock()) {
-      const t = read().find((x) => x.id === id)
-      if (!t || !t.origin || t.tool?.auto === false) return false
-      return !t.tool?.detectedAt || now - Date.parse(t.tool.detectedAt) > 86400000
+      const listed = this.list().targets.find((t) => t.id === id)
+      if (!listed || !listed.connected || listed.tool?.auto === false) return false
+      return !listed.tool?.detectedAt || now - Date.parse(listed.tool.detectedAt) > 86400000
     },
     remove(id) {
       const list = read()
@@ -277,6 +304,11 @@ export function createMonitoringRegistry(db, config, { clock = () => Date.now() 
           ? "Ứng dụng này cấu hình qua LAB_MONITORING_TARGETS; xóa trong biến môi trường Railway."
           : "Không tìm thấy ứng dụng.")
       write(list.filter((t) => t.id !== id))
+      const profiles = readProfiles()
+      if (profiles[id] && !env().targets.some((t) => t.id === id)) {
+        delete profiles[id]
+        writeProfiles(profiles)
+      }
       return this.list()
     },
     // Resolve what to probe: a new origin/token, or a saved target (optionally with a new token).

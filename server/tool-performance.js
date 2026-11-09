@@ -332,7 +332,7 @@ export function evaluateTool({ id, name, tool, connected = true, result = null, 
     : !report
       ? "Không đọc được báo cáo từ app"
       : status === "nodata"
-        ? "Chưa có lần chạy nào trong kỳ"
+        ? measured.source ? "Không có lần chạy nào kết thúc trong kỳ" : "App chưa gửi số liệu theo job"
         : null
 
   return {

@@ -100,7 +100,7 @@ Detection (`detectToolProfile` in `server/tool-performance.js`) runs on save, on
 - Error-rate target: baseline failure rate of the Main Job (or all jobs) rounded up to 0.5%, at least 1%, only with enough runs.
 - Every value keeps its source (app, built-in, baseline, manual). "Điều chỉnh job & target" is optional; changed values become manual and survive re-detection. "Khôi phục tự động" clears them.
 
-Stored as `tool` (tool-config-v2) on the `monitoring-targets-v1` entry. `auto: false` stops automatic detection for a tool.
+Stored as `tool` (tool-config-v2) on the `monitoring-targets-v1` entry for tools added in Settings, and in `monitoring-profiles-v1` (keyed by tool id) for tools from `LAB_MONITORING_TARGETS`, so environment tools are detected, re-detected and adjustable too (`PUT /api/settings/monitoring/:id/profile`). `auto: false` stops automatic detection for a tool.
 
 ### Run-level data (`jobRuns`, optional)
 

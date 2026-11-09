@@ -32,8 +32,8 @@ function targetSourceText(job) {
   return targetSourceLabels[job.targetSource]
 }
 
-function ProfileSummary({ tool }) {
-  if (!tool) return <p className="settings-hint">Chưa nhận diện. Lab nhận diện khi tool có nguồn dữ liệu.</p>
+function ProfileSummary({ tool, connected = true }) {
+  if (!tool) return <p className="settings-hint">{connected ? "Chưa nhận diện. Lab tự nhận diện ở lần đọc báo cáo kế tiếp, hoặc bấm Nhận diện ngay." : "Chưa kết nối nguồn dữ liệu nên chưa có gì để nhận diện."}</p>
   const main = tool.jobs.find((j) => j.role === "main")
   return (
     <div className="monitoring-profile">
@@ -197,8 +197,7 @@ export default function MonitoringSettings({ api }) {
     if (result) setData(result)
   }
   async function saveProfile(target, tool) {
-    const body = { name: target.name, origin: target.origin || "", appId: target.appId || "", tool }
-    const result = await run(() => send("/settings/monitoring/" + encodeURIComponent(target.id), "PUT", body), "Đã lưu điều chỉnh. Các giá trị bạn đặt được giữ khi Lab nhận diện lại.")
+    const result = await run(() => send("/settings/monitoring/" + encodeURIComponent(target.id) + "/profile", "PUT", tool), "Đã lưu điều chỉnh. Các giá trị bạn đặt được giữ khi Lab nhận diện lại.")
     if (result) {
       setData(result)
       setAdjusting(null)
@@ -207,7 +206,7 @@ export default function MonitoringSettings({ api }) {
   async function resetProfile(target) {
     const tool = { ...target.tool, mainJobSource: "auto", errorRateTargetSource: null,
       jobs: target.tool.jobs.map((j) => ({ ...j, roleSource: "auto", targetSource: j.targetSource === "manual" ? null : j.targetSource })) }
-    const saved = await run(() => send("/settings/monitoring/" + encodeURIComponent(target.id), "PUT", { name: target.name, origin: target.origin, appId: target.appId, tool }))
+    const saved = await run(() => send("/settings/monitoring/" + encodeURIComponent(target.id) + "/profile", "PUT", tool))
     if (saved) {
       setAdjusting(null)
       await detect(target.id)
@@ -275,7 +274,7 @@ export default function MonitoringSettings({ api }) {
             >
               <div className="settings-inline">
                 {t.connected && <button type="button" className="button" disabled={busy || !t.tokenReadable} onClick={() => test(t)}>Kiểm tra</button>}
-                {t.source === "settings" && t.connected && <button type="button" className="button" disabled={busy} onClick={() => detect(t.id)}>Nhận diện lại</button>}
+                {t.connected && t.tokenReadable && <button type="button" className="button" disabled={busy} onClick={() => detect(t.id)}>{t.tool ? "Nhận diện lại" : "Nhận diện ngay"}</button>}
                 {t.source === "settings" && (
                   <>
                     <button type="button" className="button" disabled={busy} onClick={() => startEdit(t)}>Sửa kết nối</button>
@@ -290,8 +289,8 @@ export default function MonitoringSettings({ api }) {
               </div>
             </SettingsRow>
             <div className="monitoring-tool-body">
-              {probe?.target === t.id ? <ProbeResult result={probe} /> : <ProfileSummary tool={t.tool} />}
-              {t.source === "settings" && t.tool && (adjusting === t.id ? (
+              {probe?.target === t.id ? <ProbeResult result={probe} /> : <ProfileSummary tool={t.tool} connected={t.connected} />}
+              {t.tool && (adjusting === t.id ? (
                 <ProfileEditor target={t} busy={busy} onSave={(tool) => saveProfile(t, tool)} onReset={() => resetProfile(t)} onCancel={() => setAdjusting(null)} />
               ) : (
                 <button type="button" className="text-button" disabled={busy} onClick={() => setAdjusting(t.id)}>Điều chỉnh job & target (không bắt buộc)</button>

@@ -212,3 +212,37 @@ test("detected profiles are stored, refreshed daily and keep admin overrides", a
     rmSync(dir, { recursive: true, force: true })
   }
 })
+test("tools from LAB_MONITORING_TARGETS get detected, adjustable profiles too", async () => {
+  const { detectToolProfile } = await import("../server/tool-performance.js")
+  const dir = mkdtempSync(path.join(os.tmpdir(), "lab-monitoring-"))
+  const db = openDatabase(dir)
+  try {
+    let clock = Date.parse("2026-11-09T03:00:00Z")
+    const config = { SESSION_SECRET: "s".repeat(40), LAB_MONITORING_TARGETS: JSON.stringify([target]) }
+    const registry = createMonitoringRegistry(db, config, { clock: () => clock })
+    assert.equal(registry.list().targets[0].tool, null)
+    assert.equal(registry.needsDetection("writer-studio"), true, "environment tools are detected as well")
+    const report = { appId: "writer-studio", jobRuns: { runs: Array.from({ length: 20 }, (_, i) => ({
+      job: "Writer batch article", status: "success", startedAt: new Date(clock - (i + 2) * 3600000).toISOString(),
+      endedAt: new Date(clock - (i + 2) * 3600000 + 300000).toISOString() })) } }
+    registry.applyDetection("writer-studio", report, (r, prev) => detectToolProfile(r, prev, { now: clock }))
+    let listed = registry.list().targets[0]
+    assert.equal(listed.source, "environment")
+    assert.equal(listed.tool.jobs[0].role, "main")
+    assert.equal(listed.tool.jobs[0].targetSource, "builtin", "Writer's built-in 10-minute target applies")
+    assert.equal(listed.tool.errorRateTarget, 1)
+    assert.equal(registry.needsDetection("writer-studio"), false)
+    // Admin adjustment through the profile route survives re-detection.
+    registry.saveProfile("writer-studio", { ...listed.tool, errorRateTarget: 3, errorRateTargetSource: "manual" })
+    clock += 86400001
+    registry.applyDetection("writer-studio", report, (r, prev) => detectToolProfile(r, prev, { now: clock }))
+    listed = registry.list().targets[0]
+    assert.equal(listed.tool.errorRateTarget, 3)
+    assert.throws(() => registry.saveProfile("missing", listed.tool), /Không tìm thấy/)
+    assert.throws(() => registry.remove("writer-studio"), /LAB_MONITORING_TARGETS/)
+    assert.equal(registry.list().targets[0].tool.errorRateTarget, 3, "a refused removal keeps the profile")
+  } finally {
+    db.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

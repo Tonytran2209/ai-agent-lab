@@ -55,8 +55,11 @@ function JobDetail({ tool }) {
   if (!tool.jobs.length)
     return (
       <p className="tool-note">
-        {tool.connected ? "App chưa gửi số liệu thời gian theo job (performanceKpis.jobCompletion). " : ""}
-        Lab sẽ tự nhận diện job khi app gửi số liệu theo job.
+        {!tool.connected
+          ? "Chưa kết nối nguồn dữ liệu."
+          : tool.source
+            ? "App có gửi số liệu theo job nhưng không có lần chạy nào kết thúc trong kỳ này. Chọn kỳ dài hơn để xem lần chạy gần nhất."
+            : "App chưa gửi số liệu thời gian theo job (jobRuns hoặc jobHistory.completion), nên Lab chưa nhận diện được job."}
       </p>
     )
   return (
@@ -83,7 +86,9 @@ function JobDetail({ tool }) {
             if (j.unmeasured)
               return (
                 <tr key={j.name} className="tool-unmeasured">
-                  <th scope="row">{name}<small>Chưa có điểm đo riêng; đang tính chung trong Main Job.</small>{meta}</th>
+                  <th scope="row">{name}<small>{j.role === "main" || j.baselineSamples > 0 || tool.source === "runs"
+                    ? "Không có lần chạy nào kết thúc trong kỳ này."
+                    : "Chưa có điểm đo riêng; đang tính chung trong Main Job."}</small>{meta}</th>
                   <td>— / {minutesText(j.targetMinutes) || "Chưa có target"}</td><td>—</td><td>—</td><td>—</td>
                 </tr>
               )
@@ -172,7 +177,7 @@ export default function ToolOverview({ data, days = 7, onOpenReport }) {
                         <span>
                           <b>{t.name}</b>
                           <small>
-                            {t.mainJob || (t.jobCount > 1 ? "Chưa có job tổng · chấm theo " + t.jobCount + " job" : t.connected ? "Chưa có job nào được báo cáo" : "Chưa có dữ liệu để nhận diện")}
+                            {t.mainJob || (t.jobCount > 1 ? "Chưa có job tổng · chấm theo " + t.jobCount + " job" : !t.connected ? "Chưa có dữ liệu để nhận diện" : t.source ? "Không có lần chạy trong kỳ" : "App chưa gửi số liệu theo job")}
                             {t.owner ? " · " + t.owner : ""}
                           </small>
                         </span>

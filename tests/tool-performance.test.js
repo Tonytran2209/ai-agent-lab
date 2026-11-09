@@ -172,3 +172,13 @@ test("missing targets, small samples and empty windows get distinct statuses", (
   assert.equal(empty.status, "nodata")
   assert.deepEqual(summarize([empty]), { bad: 0, insufficient: 0, notarget: 0, nodata: 1, ok: 0 })
 })
+
+test("empty windows say whether the app sends job data at all", () => {
+  const withRuns = evaluateTool({ id: "w", name: "W", days: 1, now, tool: { jobs: [{ name: "Batch", role: "main", targetMinutes: 10, baselineSamples: 30 }] },
+    result: { status: "ready", report: report({ jobRuns: { runs: [run("Batch", "2026-10-01T00:00:00Z", 5)] } }) } })
+  assert.equal(withRuns.status, "nodata")
+  assert.equal(withRuns.reason, "Không có lần chạy nào kết thúc trong kỳ")
+  assert.equal(withRuns.jobs[0].unmeasured, true)
+  const nothing = evaluateTool({ id: "x", name: "X", tool: null, result: { status: "ready", report: report({ runtime: {} }) } })
+  assert.equal(nothing.reason, "App chưa gửi số liệu theo job")
+})
