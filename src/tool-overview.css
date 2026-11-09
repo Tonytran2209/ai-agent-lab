@@ -776,3 +776,39 @@
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+
+/* Ordered sub-job runs in a right-side drawer. */
+.tool-steps-drawer { width: min(480px, 100%); }
+.tool-steps-drawer-meta {
+  display: grid;
+  gap: 4px;
+  margin-bottom: var(--space-4);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.tool-steps-drawer-meta > b {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tool-steps-ordered { min-width: 0; }
+.tool-steps-ordered li { align-items: center; }
+.tool-steps-ordered li::before { display: none; }
+.tool-step-index {
+  flex: 0 0 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--surface-soft);
+  color: var(--secondary);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.tool-steps-ordered li.failed .tool-step-index,
+.tool-steps-ordered li.slow .tool-step-index { color: var(--danger); }
+.tool-step-clock { display: block !important; margin-top: 2px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }
+/* .settings-page centres itself with margin:auto; drawers must stay on the right edge. */
+.tool-drawer.settings-page { margin: 0 0 0 auto; }

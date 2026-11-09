@@ -58,15 +58,8 @@ function MetricCell({ value, tone, target, note, title }) {
   )
 }
 
-function Trend({ unit }) {
-  if (unit?.previousP95Ms == null || unit.p95Ms == null) return null
-  const d = unit.p95Ms - unit.previousP95Ms
-  if (Math.abs(d) < 500) return <small className="tool-dim">So với kỳ trước: không đổi</small>
-  return <small className={d > 0 ? "tool-worse" : "tool-better"}>So với kỳ trước: {d > 0 ? "+" : "−"}{compactTime(Math.abs(d))}</small>
-}
-
 function RunHistory({ tool }) {
-  const [expanded, setExpanded] = useState(() => new Set())
+  const [stepsRun, setStepsRun] = useState(null)
   if (!tool.runs.length)
     return <p className="tool-note">{tool.source === "runs" ? "Chưa có lần chạy nào trong 61 ngày gần đây." : "App chưa gửi từng lần chạy (jobRuns), nên chưa có lịch sử."}</p>
   const jobs = new Map(tool.jobs.map((j) => [j.name, j]))
@@ -97,8 +90,7 @@ function RunHistory({ tool }) {
                 </td>
                 <td>
                   {r.steps.length ? (() => {
-                    const key = (r.runId || "") + i, open = expanded.has(key), groups = groupSteps(r.steps)
-                    const toggle = () => setExpanded((old) => { const next = new Set(old); next.has(key) ? next.delete(key) : next.add(key); return next })
+                    const groups = groupSteps(r.steps)
                     const chipTitle = (g) => [stepHint(g.job, g.estimated),
                       g.count > 1 ? g.count + " lần chạy: " + g.runs.map((x) => x.status === "failed" ? "lỗi" : compactTime(x.durationMs)).join(", ") : null].filter(Boolean).join(" · ")
                     return (
@@ -113,20 +105,9 @@ function RunHistory({ tool }) {
                               </li>
                             ))}
                           </ul>
-                        {open && (
-                    <ul className="tool-steps" id={"steps-" + key}>
-                      {r.steps.map((s, k) => (
-                        <li key={k} className={s.estimated ? "estimated" : s.status === "failed" ? "failed" : over(s.job, s.durationMs) ? "slow" : ""}>
-                          <span><b>{s.job}</b><Hint text={stepHint(s.job, s.estimated)} />{s.estimated && <small className="tool-dim"> · ước tính</small>}{s.workload && s.workload !== r.workload ? <small className="tool-dim"> · {s.workload}</small> : null}</span>
-                          <span>{s.status === "failed" ? "Lỗi" : s.status === "running" ? "Đang chạy" : (s.estimated ? "~" : "") + compactTime(s.durationMs)}</span>
-                        </li>
-                      ))}
-                    </ul>
-                        )}
                         {groups.some((g) => g.count > 1) && (
-                          <button type="button" className="tool-steps-toggle" aria-expanded={open} aria-controls={"steps-" + key} onClick={toggle}>
-                            {open ? <ChevronUp size={13} aria-hidden="true" /> : <ChevronDown size={13} aria-hidden="true" />}
-                            {open ? "Thu gọn" : "Xem " + r.steps.length + " lần chạy theo thứ tự"}
+                          <button type="button" className="tool-steps-toggle" aria-haspopup="dialog" onClick={() => setStepsRun(r)}>
+                            Xem {r.steps.length} lần chạy theo thứ tự <ChevronRight size={13} aria-hidden="true" />
                           </button>
                         )}
                       </div>
@@ -139,6 +120,24 @@ function RunHistory({ tool }) {
           })}
         </tbody>
       </table>
+      {stepsRun && (
+        <Drawer title={"Thứ tự " + stepsRun.steps.length + " lần chạy sub-job"} className="tool-steps-drawer" onClose={() => setStepsRun(null)}>
+          <div className="tool-steps-drawer-meta">
+            <b title={stepsRun.workload}>{stepsRun.workload || "—"}</b>
+            <span className="tool-dim">{clockDate(stepsRun.endedAt ?? stepsRun.startedAt)} · {stepsRun.group ? "Tổng các bước " : "Thời lượng "}<b className="tool-metric inline">{compactTime(stepsRun.durationMs)}</b></span>
+          </div>
+          <ol className="tool-steps tool-steps-ordered">
+            {stepsRun.steps.map((s, k) => (
+              <li key={k} className={s.estimated ? "estimated" : s.status === "failed" ? "failed" : over(s.job, s.durationMs) ? "slow" : ""}>
+                <span className="tool-step-index">{k + 1}</span>
+                <span><b>{s.job}</b><Hint text={stepHint(s.job, s.estimated)} />{s.estimated && <small className="tool-dim"> · ước tính</small>}
+                  {s.startedAt != null && <small className="tool-dim tool-step-clock">{clockDate(s.startedAt).slice(0, 8)}</small>}</span>
+                <span>{s.status === "failed" ? "Lỗi" : s.status === "running" ? "Đang chạy" : (s.estimated ? "~" : "") + compactTime(s.durationMs)}</span>
+              </li>
+            ))}
+          </ol>
+        </Drawer>
+      )}
     </div>
   )
 }
@@ -319,33 +318,26 @@ export default function ToolOverview({ data, days = 7, api, onOpenReport, onChan
                             const l = t.latest
                             const tone = !l ? "muted" : timeTarget && l.durationMs > timeTarget * 60000 ? "bad" : timeTarget ? "good" : "muted"
                             return (
-                              <MetricCell value={l ? compactTime(l.durationMs) : "—"} tone={tone} title={l?.workload}
-                                target={timeTarget ? "Mục tiêu: ≤ " + minutesText(timeTarget) : "Chưa có mục tiêu"}
-                                note={l ? "Workload hoàn thành gần nhất · " + timeAgo(new Date(l.at).toISOString()) : t.reason || "Chưa có workload hoàn thành"} />
+                              <MetricCell value={l ? compactTime(l.durationMs) : "—"} tone={tone}
+                                title={[l ? "Workload hoàn thành gần nhất: " + (l.workload || "—") + " · " + timeAgo(new Date(l.at).toISOString()) : t.reason,
+                                  u ? "P95 " + (t.widened ? t.windowDays + " ngày gần nhất" : "trong kỳ") + ": " + compactTime(u.p95Ms) + " · " + u.samples + " mẫu" : null].filter(Boolean).join("\n")}
+                                target={timeTarget ? "Mục tiêu: ≤ " + minutesText(timeTarget) : "Chưa có mục tiêu"} />
                             )
                           })()}
-                          {u && (
-                            <small className="tool-dim" title={u.medianMs != null ? "Trung vị " + compactTime(u.medianMs) + " · chậm nhất " + compactTime(u.maxMs) : undefined}>
-                              P95 {t.widened ? t.windowDays + " ngày gần nhất" : "trong kỳ"}: <b className={"tool-metric inline " + toneOf(u.status)}>{compactTime(u.p95Ms)}</b> · {u.samples} mẫu{u.samples < t.minSamples ? " (cần ≥ " + t.minSamples + ")" : ""}{!t.hasMain && t.jobCount > 1 ? " · " + u.job : ""}
-                            </small>
-                          )}
-                          <Trend unit={u} />
                           {t.jobs.length > 0 && <SubJobMenu tool={t} label={t.hasMain && subCount ? subCount + " sub-jobs" : t.jobs.length + " jobs"} onOpenRuns={() => setOpen({ id: t.id, tab: "runs" })} />}
                         </td>
                         <td>
                           <MetricCell value={t.success.rate == null ? "—" : formatPercent(t.success.rate) + (t.success.status === "ok" ? " OK" : "")} tone={toneOf(t.success.status)}
                             target={t.success.target == null ? "Chưa có mục tiêu" : "Mục tiêu: ≥ " + formatPercent(t.success.target)}
-                            note={t.success.executed ? "Đo trên " + t.success.executed + " lượt chạy đã ghi nhận" + (t.recordedDays ? " · " + t.recordedDays + " ngày" : "") + (t.success.timedOut ? " · " + t.success.timedOut + " quá thời gian chờ" : "") : null} />
+                            note={t.success.executed ? "Đo trên " + t.success.executed + " lượt chạy đã ghi nhận" : null} />
                         </td>
                         <td>
                           <MetricCell value={compactTime(t.response.p95Ms)} tone={toneOf(t.response.status)} target={"Mục tiêu: ≤ " + compactTime(t.response.targetMs)}
-                            note={t.response.samples ? "P95 · " + t.response.samples + " mẫu" + (t.response.samples < t.minSamples ? " (cần ≥ " + t.minSamples + ")" : "") : "App chưa đo"} />
-                          {t.response.measures && <small className="tool-dim tool-measures" title={t.response.measures}>{t.response.measures}</small>}
+                            title={[t.response.samples ? "P95 · " + t.response.samples + " mẫu" : "App chưa đo", t.response.measures].filter(Boolean).join("\n")} />
                         </td>
                         <td>
                           <MetricCell value={compactTime(t.click.p95Ms)} tone={toneOf(t.click.status)} target={"Mục tiêu: ≤ " + compactTime(t.click.targetMs)}
-                            note={t.click.samples ? "P95 · " + t.click.samples + " mẫu" + (t.click.samples < t.minSamples ? " (cần ≥ " + t.minSamples + ")" : "") : "App chưa đo"} />
-                          {t.click.measures && <small className="tool-dim tool-measures" title={t.click.measures}>{t.click.measures}</small>}
+                            title={[t.click.samples ? "P95 · " + t.click.samples + " mẫu" : "App chưa đo", t.click.measures].filter(Boolean).join("\n")} />
                         </td>
                         <td className="tool-actions">
                           {api && <button type="button" className="icon-button" aria-label={"Cài đặt " + t.name} title="Cài đặt" onClick={() => setDrawer(t.id)}><Settings2 size={17} /></button>}

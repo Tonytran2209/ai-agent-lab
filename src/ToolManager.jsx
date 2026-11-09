@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react"
+import { createPortal } from "react-dom"
 import { X } from "lucide-react"
 import { SettingsRow } from "./SettingsUI.jsx"
 import { formatTime } from "./tool-format.js"
@@ -383,7 +384,7 @@ export function ToolSettings({ api, target, onChanged, onClose }) {
 }
 
 // Side panel used by the Status tab for connecting and editing tools.
-export function Drawer({ title, onClose, children }) {
+export function Drawer({ title, onClose, children, className = "" }) {
   const panel = useRef(null)
   useEffect(() => {
     const previous = document.activeElement
@@ -395,15 +396,18 @@ export function Drawer({ title, onClose, children }) {
       previous?.focus?.()
     }
   }, [])
-  return (
+  // Portalled to <body>: an ancestor with a transform (page transitions) would otherwise become the
+  // containing block of this fixed panel and push it off the right edge.
+  return createPortal(
     <div className="tool-drawer-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <aside className="tool-drawer settings-page" role="dialog" aria-modal="true" aria-label={title} tabIndex={-1} ref={panel}>
+      <aside className={"tool-drawer settings-page " + className} role="dialog" aria-modal="true" aria-label={title} tabIndex={-1} ref={panel}>
         <header>
           <h2>{title}</h2>
           <button type="button" className="icon-button" aria-label="Đóng" onClick={onClose}><X size={18} /></button>
         </header>
         {children}
       </aside>
-    </div>
+    </div>,
+    document.body,
   )
 }
