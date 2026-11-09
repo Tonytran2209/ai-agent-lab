@@ -386,7 +386,8 @@ function Metric({
   )
 }
 
-function ProjectRuntime({ api, days, refresh, initialApp = "all" }) {
+// view "status": BA tool status overview. view "projects": technical report of each app.
+function ProjectRuntime({ api, days, refresh, initialApp = "all", view = "projects", onOpenReport }) {
   const [data, setData] = useState(null),
     [error, setError] = useState(""),
     [selected, setSelected] = useState(initialApp)
@@ -420,12 +421,14 @@ function ProjectRuntime({ api, days, refresh, initialApp = "all" }) {
     <>
       <div className="perf-section-heading">
         <div>
-          <h2>Performance theo tool</h2>
+          <h2>{view === "status" ? "Status theo tool" : "Vận hành ứng dụng"}</h2>
           <p>
-            Số liệu thật từ từng tool · kỳ theo giờ VN khi tool gửi từng lần chạy · tự cập nhật 60 giây
+            {view === "status"
+              ? "Main Job, P95 và tỷ lệ lỗi so với target · kỳ theo giờ VN khi tool gửi từng lần chạy · tự cập nhật 60 giây"
+              : "Số liệu kỹ thuật trực tiếp từ app (HTTP, AI, máy chủ, nội dung) · tự cập nhật 60 giây"}
           </p>
         </div>
-        <PerformanceSelect
+        {view === "projects" && <PerformanceSelect
           aria-label="Lọc ứng dụng monitoring"
           value={selected}
           onChange={(e) => setSelected(e.target.value)}
@@ -436,7 +439,7 @@ function ProjectRuntime({ api, days, refresh, initialApp = "all" }) {
               {t.name}
             </option>
           ))}
-        </PerformanceSelect>
+        </PerformanceSelect>}
       </div>
       {error && (
         <p className="perf-error" role="alert">
@@ -456,18 +459,12 @@ function ProjectRuntime({ api, days, refresh, initialApp = "all" }) {
           Chưa có ứng dụng nào. Admin thêm ứng dụng trong Cài đặt → Monitoring ứng dụng.
         </p>
       )}
-      {data && !data.configurationError && (data.tools?.length > 0 || data.targets.length > 0) && (
-        <ToolOverview data={data} days={days} onOpenReport={(id) => setSelected(id)} />
+      {view === "status" && data && !data.configurationError && (data.tools?.length > 0 || data.targets.length > 0) && (
+        <ToolOverview data={data} days={days} onOpenReport={onOpenReport} />
       )}
-      {data?.targets.length > 0 && (
-        // Technical app metrics are secondary to the BA tool view; opened when an app is chosen.
-        <details className="tool-technical" open={selected !== "all"} key={selected}>
-          <summary>Chi tiết kỹ thuật từng ứng dụng (HTTP, AI, máy chủ, nội dung)</summary>
-          {data.targets
-            .filter((t) => selected === "all" || selected === t.id)
-            .map((t) => <RuntimeReport key={t.id} target={t} days={days} />)}
-        </details>
-      )}
+      {view === "projects" && data?.targets
+        .filter((t) => selected === "all" || selected === t.id)
+        .map((t) => <RuntimeReport key={t.id} target={t} days={days} />)}
     </>
   )
 }
@@ -1160,6 +1157,14 @@ export default function Performance({ api, onRequest }) {
             <GitBranch size={15} />
             Projects
           </button>
+          <button
+            aria-pressed={scope === "status"}
+            onClick={() => { setScope("status"); setFocusApp("all") }}
+          >
+            {scope === "status" && <ActivePill group="perf-scope" />}
+            <Activity size={15} />
+            Status
+          </button>
         </div>
         <small>
           {data
@@ -1421,7 +1426,8 @@ export default function Performance({ api, onRequest }) {
               </div>
             </>
           ) : (
-            <ProjectRuntime api={api} days={days} refresh={refresh} initialApp={focusApp} />
+            <ProjectRuntime api={api} days={days} refresh={refresh} initialApp={focusApp} view={scope} key={scope + focusApp}
+              onOpenReport={(id) => { setFocusApp(id); setScope("projects") }} />
           )}
           {scope === "lab" && (
             <>

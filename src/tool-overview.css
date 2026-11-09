@@ -216,14 +216,6 @@
   grid-column: 1 / -1;
   color: var(--secondary);
 }
-.tool-technical > summary {
-  cursor: pointer;
-  font-weight: 600;
-  padding: var(--space-3) 0;
-}
-.tool-technical[open] > summary {
-  margin-bottom: var(--space-4);
-}
 .tool-worse {
   color: var(--danger) !important;
 }

@@ -86,7 +86,7 @@ Outreach (`Tonytran2209/Project-test`, Python/FastAPI) is the first app connecte
 
 ## Tool status (tool-status-v2)
 
-Performance → Projects opens with an overview of every tool, judged by its Main Job. Technical app reports (HTTP, AI, runtime, content) sit in a collapsed "Chi tiết kỹ thuật" section that opens when an app is selected.
+Performance has three tabs: AI Agent Lab, Projects (technical report of each app: HTTP, AI, runtime, content) and Status (overview of every tool, judged by its Main Job, with the optimisation priority lists). "Xem báo cáo kỹ thuật của app" in Status opens that app in Projects.
 
 ### Connecting a tool and automatic detection
 
