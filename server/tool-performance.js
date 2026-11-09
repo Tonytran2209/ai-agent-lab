@@ -334,8 +334,11 @@ export function recentRuns(report, { limit = 50, mainJob = null } = {}) {
   }
   top.push(...groups.values())
   const at = (r) => r.endedAt ?? r.startedAt ?? 0
-  // With a Main Job, history lists its runs (sub-jobs appear inside them); otherwise every run.
-  const listed = mainJob && top.some((r) => r.job === mainJob) ? top.filter((r) => r.job === mainJob) : top
+  // With a Main Job, history lists its runs (sub-jobs appear inside them) and display groups, e.g. a
+  // package still waiting for human approval; otherwise every run.
+  const listed = mainJob && top.some((r) => r.job === mainJob)
+    ? top.filter((r) => r.job === mainJob || (r.group && r.steps.some((x) => x.parent === mainJob)))
+    : top
   return listed
     .sort((a, b) => at(b) - at(a))
     .slice(0, limit)

@@ -308,3 +308,16 @@ test("sub-job popover averages measured steps over recent runs and shows each st
   assert.equal(Math.round(rows[1].share * 100), 100)
   assert.equal(stepAverages({ jobs: [{ name: "Only", role: "main" }], runs: [] }).totalMs, null)
 })
+
+test("with a Main Job, run history also lists unscored groups such as packages awaiting approval", async () => {
+  const { recentRuns } = await import("../server/tool-performance.js")
+  const r = report({ jobRuns: { complete: true, runs: [
+    { job: "EB V2 package", runId: "package:done", status: "success", workload: "1 package · Done", startedAt: "2026-11-08T10:00:00Z", endedAt: "2026-11-08T10:01:00Z" },
+    { job: "Trích xuất brief", runId: "g1", parentRunId: "package:done", status: "success", startedAt: "2026-11-08T10:00:00Z", endedAt: "2026-11-08T10:00:05Z" },
+    { job: "Trích xuất brief", runId: "g2", parentRunId: "package:wait", parent: "EB V2 package", status: "success", workload: "1 package · Waiting", startedAt: "2026-11-09T09:00:00Z", endedAt: "2026-11-09T09:00:04Z" },
+    { job: "Other top-level job", runId: "x", status: "success", startedAt: "2026-11-09T08:00:00Z", endedAt: "2026-11-09T08:00:01Z" },
+  ] } })
+  const history = recentRuns(r, { mainJob: "EB V2 package" })
+  assert.deepEqual(history.map((h) => [h.runId, h.group === true]), [["package:wait", true], ["package:done", false]])
+  assert.equal(history[0].durationMs, 4000, "a group shows its summed processing time")
+})
