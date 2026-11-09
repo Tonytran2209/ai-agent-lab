@@ -83,3 +83,19 @@ Performance → AI Agent Lab shows monitored apps as a separate group below regi
 3. In Lab, open **Cài đặt → Monitoring ứng dụng**. Enter the name, address and token, and press **Kiểm tra kết nối** to fill in the app id. Then press **Thêm ứng dụng**.
 
 Outreach (`Tonytran2209/Project-test`, Python/FastAPI) is the first app connected this way. See `app/lab_monitoring.py` in that repository.
+
+## Tool status (tool-status-v1)
+
+Performance → Projects opens with a BA-style overview of every declared tool, judged by its Main Job. Technical app reports (HTTP, AI, runtime, content) move into a collapsed "Chi tiết kỹ thuật" section that opens when an app is selected.
+
+Admins declare tools in **Cài đặt → Monitoring ứng dụng** in four parts: tool information (name, owner, Main Job, complexity driver), an optional data source, jobs and sub-jobs (start event, end event, success condition, P95 time target in seconds or minutes, per item), and measurement standards (error-rate target, minimum samples). A tool may be saved before it has a data source; it then shows "No data" and is never fetched. Job names must match the `job` names the app reports; the connection test suggests them. Stored as `tool` (tool-config-v1) on the `monitoring-targets-v1` entry; at most one Main Job and unique job names per tool.
+
+Rules (`src/tool-performance.js`):
+
+- Time: P95 from `performanceKpis.jobCompletion` per job and workload. Target precedence: Lab declaration → app `profile.jobTargets` → built-in Writer/Intercom map. The Main Job shows its worst workload group.
+- Error rate: every failure counts (technical and business). Source is `jobHistory.failed / executed` for the selected window, otherwise `performanceKpis.jobs` where anything not validly completed is a failure. Unverified completions are reported separately and are not failures.
+- Minimum samples (default 20, configurable per tool): below it a job is "Chưa đủ mẫu". Error rate is already "Chưa đạt" when failures exceed what the target allows over the minimum sample count.
+- Statuses: Đạt, Chưa đạt, Chưa đủ mẫu, Chưa có target, No data. A tool is "Chưa đạt" if its Main Job time or its error rate is over target; without a declared Main Job, every reported job counts.
+- Priorities: slower-than-target jobs (including sub-jobs) ranked by percent over target, and error rates over target ranked by failure count, in separate lists.
+
+Periods are today, 7, 14 and 30 days. Connected apps compute windows by UTC calendar day, so "today" starts at 07:00 Vietnam time until the protocol carries a time zone. Comparison with the previous period, the unknown-outcome timeout rule and per-run median/max need run-level data and are planned with run ingestion.

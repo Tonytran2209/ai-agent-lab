@@ -76,12 +76,43 @@ const slug = (name) =>
     .replace(/^-+|-+$/g, "")
     .slice(0, 64)
 
+// tool-config-v1: what an admin declares about a tool (BA Flow B). Targets live in Lab, not in app code.
+const shortText = (max) => z.string().trim().max(max)
+export const toolConfigSchema = z
+  .object({
+    owner: shortText(100).default(""),
+    mainJob: shortText(200).default(""),
+    driver: z.object({ factor: shortText(100).default(""), unit: shortText(40).default("") }).strict().default({}),
+    errorRateTarget: z.number().min(0).max(100).nullable().default(null),
+    minSamples: z.number().int().min(1).max(1000).default(20),
+    jobs: z
+      .array(
+        z
+          .object({
+            name: shortText(100).min(1),
+            role: z.enum(["main", "sub"]).default("sub"),
+            startEvent: shortText(200).default(""),
+            endEvent: shortText(200).default(""),
+            successCondition: shortText(200).default(""),
+            targetMinutes: z.number().positive().max(100000).nullable().default(null),
+            perItem: z.boolean().default(false),
+          })
+          .strict(),
+      )
+      .max(20)
+      .default([])
+      .refine((jobs) => jobs.filter((j) => j.role === "main").length <= 1, "Chỉ được có một Main Job.")
+      .refine((jobs) => new Set(jobs.map((j) => j.name)).size === jobs.length, "Tên job không được trùng."),
+  })
+  .strict()
 const inputSchema = z
   .object({
     name: z.string().trim().min(2).max(100),
-    origin: z.string().trim().max(300),
-    appId: z.string().trim().min(1).max(64).regex(/^[A-Za-z0-9._:-]+$/),
+    // A tool can be declared before its data source exists (BA: "No data" until the first run).
+    origin: z.string().trim().max(300).optional().default(""),
+    appId: z.string().trim().max(64).regex(/^[A-Za-z0-9._:-]*$/).optional().default(""),
     token: z.string().min(32).max(512).optional(),
+    tool: toolConfigSchema.optional(),
   })
   .strict()
 const probeSchema = z
@@ -125,6 +156,7 @@ export function createMonitoringRegistry(db, config, { clock = () => Date.now() 
     }
   }
   const unseal = (t) => {
+    if (!t.token) return null
     try {
       return open(t.token)
     } catch {
@@ -133,10 +165,26 @@ export function createMonitoringRegistry(db, config, { clock = () => Date.now() 
   }
   const origin = (value) => monitoringOrigin(value) || fail("Địa chỉ phải là HTTPS công khai, chỉ gồm domain (ví dụ https://app.up.railway.app).")
 
+  // Data source is optional: none (declared only) or origin + appId + token. A saved token never follows a new host.
+  const connection = (v, old) => {
+    if (!v.origin) {
+      if (v.token) fail("Nhập địa chỉ ứng dụng cho token này.")
+      return { origin: null, appId: null, token: null }
+    }
+    const nextOrigin = origin(v.origin)
+    if (!v.appId) fail("Cần App ID; bấm Kiểm tra kết nối để tự điền.")
+    if (!v.token) {
+      if (!old?.token) fail("Cần token monitoring của ứng dụng (tối thiểu 32 ký tự).")
+      if (nextOrigin !== old.origin) fail("Đổi địa chỉ cần nhập lại token.")
+      if (unseal(old) === null) fail("Token cũ không còn giải mã được; nhập token mới.")
+    }
+    return { origin: nextOrigin, appId: v.appId, token: v.token ? seal(v.token) : old.token }
+  }
   return {
     // Targets used by the dashboard: stored first, then environment entries with other ids.
     targets() {
       const stored = read()
+        .filter((t) => t.origin)
         .map((t) => ({ ...t, token: unseal(t) }))
         .filter((t) => t.token)
         .map((t) => ({ id: t.id, name: t.name, origin: t.origin, appId: t.appId, token: t.token }))
@@ -152,18 +200,18 @@ export function createMonitoringRegistry(db, config, { clock = () => Date.now() 
         environmentError: fromEnv.error,
         targets: [
           ...stored.map((t) => ({
-            id: t.id, name: t.name, origin: t.origin, appId: t.appId, source: "settings",
-            tokenReadable: unseal(t) !== null, createdAt: t.createdAt, updatedAt: t.updatedAt, updatedBy: t.updatedBy,
+            id: t.id, name: t.name, origin: t.origin || null, appId: t.appId || null, source: "settings",
+            connected: Boolean(t.origin), tokenReadable: !t.origin || unseal(t) !== null, tool: t.tool || null, createdAt: t.createdAt, updatedAt: t.updatedAt, updatedBy: t.updatedBy,
           })),
           ...fromEnv.targets
             .filter((t) => !ids.has(t.id))
-            .map((t) => ({ id: t.id, name: t.name, origin: t.origin, appId: t.appId, source: "environment", tokenReadable: true })),
+            .map((t) => ({ id: t.id, name: t.name, origin: t.origin, appId: t.appId, source: "environment", connected: true, tokenReadable: true, tool: null })),
         ],
       }
     },
     add(input, actor) {
       const v = inputSchema.parse(input)
-      if (!v.token) fail("Cần token monitoring của ứng dụng (tối thiểu 32 ký tự).")
+      const source = connection(v, null)
       const list = read(),
         all = this.list().targets
       if (all.length >= maxMonitoringTargets) fail("Đã đạt tối đa " + maxMonitoringTargets + " ứng dụng monitoring.")
@@ -172,7 +220,7 @@ export function createMonitoringRegistry(db, config, { clock = () => Date.now() 
         n = 2
       while (all.some((t) => t.id === id)) id = (base.slice(0, 60) + "-" + n++).slice(0, 64)
       const at = new Date(clock()).toISOString()
-      const target = { id, name: v.name, origin: origin(v.origin), appId: v.appId, token: seal(v.token), createdAt: at, updatedAt: at, updatedBy: actor }
+      const target = { id, name: v.name, ...source, tool: v.tool || null, createdAt: at, updatedAt: at, updatedBy: actor }
       write([...list, target])
       return this.list()
     },
@@ -181,13 +229,10 @@ export function createMonitoringRegistry(db, config, { clock = () => Date.now() 
         list = read(),
         index = list.findIndex((t) => t.id === id)
       if (index < 0) fail("Chỉ sửa được ứng dụng đã thêm trong Cài đặt.")
-      const old = list[index],
-        nextOrigin = origin(v.origin)
-      if (nextOrigin !== old.origin && !v.token) fail("Đổi địa chỉ cần nhập lại token.")
-      if (!v.token && unseal(old) === null) fail("Token cũ không còn giải mã được; nhập token mới.")
+      const old = list[index]
       list[index] = {
-        ...old, name: v.name, origin: nextOrigin, appId: v.appId,
-        token: v.token ? seal(v.token) : old.token, updatedAt: new Date(clock()).toISOString(), updatedBy: actor,
+        ...old, name: v.name, ...connection(v, old), tool: v.tool === undefined ? old.tool || null : v.tool,
+        updatedAt: new Date(clock()).toISOString(), updatedBy: actor,
       }
       write(list)
       return this.list()
@@ -212,6 +257,17 @@ export function createMonitoringRegistry(db, config, { clock = () => Date.now() 
       return target
     },
   }
+}
+
+// Job names an app reports, offered as suggestions when declaring jobs in Settings.
+export function reportedJobs(report) {
+  const names = [
+    ...(Array.isArray(report.performanceKpis?.jobCompletion) ? report.performanceKpis.jobCompletion.map((j) => j?.job) : []),
+    report.jobHistory?.latestJob?.job,
+    report.jobHistoryAllTime?.latestJob?.job,
+    ...(report.profile?.jobTargets && typeof report.profile.jobTargets === "object" ? Object.keys(report.profile.jobTargets) : []),
+  ]
+  return [...new Set(names.filter((n) => typeof n === "string" && n.trim()).map((n) => n.trim().slice(0, 100)))].slice(0, 20)
 }
 
 const sectionsOf = (report) =>
@@ -317,6 +373,7 @@ export function createAppMonitoring({
         fetchMs: result.fetchMs ?? null,
         sections: result.report ? sectionsOf(result.report) : [],
         profileTitle: typeof result.report?.profile?.mainJob?.title === "string" ? result.report.profile.mainJob.title.slice(0, 100) : null,
+        jobs: result.report ? reportedJobs(result.report) : [],
       }
     },
     clear() {

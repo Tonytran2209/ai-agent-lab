@@ -1,6 +1,7 @@
 import { ActivePill } from "./motion.jsx"
 import {startPolling} from './polling.js';
 import TaskUsage from "./TaskUsage.jsx";
+import ToolOverview from "./ToolOverview.jsx"
 import AnimatedValue from "./AnimatedValue.jsx"
 import { RuntimeOverview, AICharts, WorkflowStatus } from "./RuntimeCharts.jsx"
 import { appProfile, jobCompletionTarget, projectJobHistoryMetrics, projectPerformanceMetrics } from "./runtime-chart-data.js"
@@ -419,9 +420,9 @@ function ProjectRuntime({ api, days, refresh, initialApp = "all" }) {
     <>
       <div className="perf-section-heading">
         <div>
-          <h2>Vận hành ứng dụng</h2>
+          <h2>Performance theo tool</h2>
           <p>
-            Số liệu trực tiếp từ app · cửa sổ báo cáo UTC · tự cập nhật 60 giây
+            Số liệu trực tiếp từ app · kỳ báo cáo theo ngày UTC · tự cập nhật 60 giây
           </p>
         </div>
         <PerformanceSelect
@@ -450,14 +451,23 @@ function ProjectRuntime({ api, days, refresh, initialApp = "all" }) {
       {data?.configurationError && (
         <p className="perf-error">Cấu hình kết nối monitoring không hợp lệ.</p>
       )}
-      {data && !data.configurationError && !data.targets.length && (
+      {data && !data.configurationError && !data.targets.length && !data.tools?.length && (
         <p className="perf-card perf-empty">
           Chưa có ứng dụng nào. Admin thêm ứng dụng trong Cài đặt → Monitoring ứng dụng.
         </p>
       )}
-      {data?.targets
-        .filter((t) => selected === "all" || selected === t.id)
-        .map((t) => <RuntimeReport key={t.id} target={t} days={days} />)}
+      {data && !data.configurationError && (data.tools?.length > 0 || data.targets.length > 0) && (
+        <ToolOverview data={data} onOpenReport={(id) => setSelected(id)} />
+      )}
+      {data?.targets.length > 0 && (
+        // Technical app metrics are secondary to the BA tool view; opened when an app is chosen.
+        <details className="tool-technical" open={selected !== "all"} key={selected}>
+          <summary>Chi tiết kỹ thuật từng ứng dụng (HTTP, AI, máy chủ, nội dung)</summary>
+          {data.targets
+            .filter((t) => selected === "all" || selected === t.id)
+            .map((t) => <RuntimeReport key={t.id} target={t} days={days} />)}
+        </details>
+      )}
     </>
   )
 }
@@ -1116,8 +1126,9 @@ export default function Performance({ api, onRequest }) {
               value={days}
               onChange={(e) => setDays(Number(e.target.value))}
             >
-              <option value={1}>Hôm nay · UTC</option>
+              <option value={1}>Hôm nay (từ 07:00 giờ VN)</option>
               <option value={7}>7 ngày qua</option>
+              <option value={14}>14 ngày qua</option>
               <option value={30}>30 ngày qua</option>
             </PerformanceSelect>
           </label>

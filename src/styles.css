@@ -240,3 +240,5 @@
 .deployment-setup .button{margin:6px 8px 6px 0;max-width:100%;white-space:normal}
 .deployment-setup details>p,.deployment-setup details>label{margin:12px 0}
 .deployment-setup li{overflow-wrap:anywhere;line-height:1.8}
+/* Monitoring tool declaration: one card per job, compact inline controls. */
+.settings-page .monitoring-job{margin:0 0 12px}.settings-page .settings-check{display:inline-flex;flex-direction:row;align-items:center;gap:6px;font-size:12px;color:var(--secondary);white-space:nowrap}.settings-page .settings-check input{width:14px;height:14px;padding:0}.settings-page .monitoring-job .settings-inline{flex-wrap:wrap;justify-content:flex-end}

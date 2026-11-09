@@ -1,0 +1,226 @@
+/* tool-status-v1 overview: semantic signal tokens from design-system.css, both themes. */
+.tool-overview {
+  display: grid;
+  gap: var(--space-4);
+  margin-bottom: var(--space-8);
+}
+.tool-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: var(--space-3);
+}
+.tool-hero {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  padding: var(--space-4) var(--space-6);
+  min-width: 160px;
+}
+.tool-hero strong {
+  display: block;
+  font-size: 32px;
+  font-weight: 600;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+.tool-hero strong span {
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--secondary);
+}
+.tool-hero > span {
+  color: var(--secondary);
+  font-size: 13px;
+}
+.tool-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: center;
+  gap: var(--space-2);
+  flex: 1 1 280px;
+}
+.tool-chip {
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.tool-chip[aria-pressed="true"] {
+  background: var(--surface-selected);
+  border-color: var(--control-border);
+}
+.tool-chip:focus-visible,
+.tool-name:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.tool-badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  background: var(--surface-soft);
+  color: var(--secondary);
+}
+.tool-badge.ok {
+  color: var(--signal-success-text);
+  background: var(--signal-success-fill);
+  border-color: var(--signal-success-border);
+}
+.tool-badge.bad {
+  color: var(--signal-error-text);
+  background: var(--signal-error-fill);
+  border-color: var(--signal-error-border);
+}
+.tool-badge.notarget {
+  color: var(--signal-warning-text);
+  background: var(--signal-warning-fill);
+  border-color: var(--signal-warning-border);
+}
+.tool-badge.insufficient {
+  color: var(--signal-info-text);
+  background: var(--signal-info-fill);
+  border-color: var(--signal-info-border);
+}
+
+.tool-table,
+.tool-jobs {
+  width: 100%;
+  min-width: 560px;
+  border-collapse: collapse;
+  text-align: left;
+}
+.tool-table th,
+.tool-table td,
+.tool-jobs th,
+.tool-jobs td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+  font-weight: 400;
+}
+.tool-table thead th,
+.tool-jobs thead th {
+  color: var(--secondary);
+  font-size: 12px;
+  font-weight: 500;
+}
+.tool-table td,
+.tool-jobs td {
+  font-variant-numeric: tabular-nums;
+}
+.tool-table small,
+.tool-jobs small {
+  display: block;
+  margin-top: 4px;
+  color: var(--secondary);
+  font-size: 12px;
+}
+.tool-table tr.selected > * {
+  background: var(--surface-soft);
+}
+.tool-name {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  padding: 0;
+  cursor: pointer;
+}
+.tool-name svg {
+  margin-top: 3px;
+  flex-shrink: 0;
+}
+.tool-detail-row > td {
+  background: var(--surface-soft);
+}
+.tool-detail {
+  display: grid;
+  gap: var(--space-3);
+  justify-items: start;
+}
+.tool-detail .perf-table-scroll {
+  width: 100%;
+}
+.tool-jobs {
+  background: var(--card);
+  border-radius: var(--radius-control);
+}
+.tool-jobs tr.tool-main th {
+  font-weight: 600;
+}
+.tool-unmeasured {
+  color: var(--secondary);
+}
+.tool-tag {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  background: var(--primary);
+  color: var(--on-primary);
+  vertical-align: 1px;
+}
+.tool-over {
+  color: var(--danger);
+  font-weight: 600;
+}
+.tool-dim {
+  color: var(--secondary);
+}
+.tool-note {
+  margin: 0;
+  color: var(--secondary);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.tool-priority-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: var(--space-4);
+}
+.tool-priority-grid h3 {
+  margin: 0 0 4px;
+}
+.tool-priority {
+  list-style: none;
+  margin: var(--space-3) 0 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-2);
+}
+.tool-priority li {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px var(--space-3);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--border);
+}
+.tool-priority li small {
+  grid-column: 1 / -1;
+  color: var(--secondary);
+}
+.tool-technical > summary {
+  cursor: pointer;
+  font-weight: 600;
+  padding: var(--space-3) 0;
+}
+.tool-technical[open] > summary {
+  margin-bottom: var(--space-4);
+}

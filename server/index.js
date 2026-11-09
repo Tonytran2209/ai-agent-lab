@@ -163,7 +163,9 @@ export function createApp(config, options = {}) {
   app.post('/api/data/restore-preview',auth.admin,(req,res)=>res.json(dataManagement.preview(req.body)));
   app.get('/api/monitoring', auth.admin, async (req,res) => {
     const {days}=z.object({days:z.coerce.number().int().min(1).max(30).default(7)}).strict().parse(req.query);
-    res.set('Cache-Control','private, no-store').json(await appMonitoring.snapshot(days));
+    // tools: every declared tool (connected or not) with its Lab-owned job/target configuration.
+    const snapshot=await appMonitoring.snapshot(days),tools=monitoringRegistry.list().targets.map(t=>({id:t.id,name:t.name,connected:t.connected,tool:t.tool}));
+    res.set('Cache-Control','private, no-store').json({...snapshot,tools});
   });
   app.get('/api/settings/monitoring',auth.admin,(req,res)=>res.set('Cache-Control','private, no-store').json(monitoringRegistry.list()));
   app.post('/api/settings/monitoring',auth.admin,limiter(20),(req,res)=>{const r=monitoringRegistry.add(req.body,req.user.name);appMonitoring.clear();res.status(201).json(r);});

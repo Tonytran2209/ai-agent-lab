@@ -141,3 +141,46 @@ test("connection test reports the app id and sections without returning the repo
   const missing = createAppMonitoring({ targets: () => [], fetcher: async () => new Response("", { status: 404 }) })
   assert.equal((await missing.probe({ id: "p", name: "p", origin: "https://a.example.com", token: "x".repeat(40) })).status, "not-found")
 })
+test("tools can be declared before a data source exists and keep Lab-owned targets", () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "lab-monitoring-"))
+  const db = openDatabase(dir)
+  try {
+    const registry = createMonitoringRegistry(db, { SESSION_SECRET: "s".repeat(40) })
+    const tool = { owner: "HR", mainJob: "Chấm 1 CV", errorRateTarget: 0.5,
+      jobs: [{ name: "Chấm CV", role: "main", targetMinutes: 0.5, startEvent: "CV upload", endEvent: "Kết quả lưu" }] }
+    let list = registry.add({ name: "CV Screening", tool }, "admin")
+    const cv = list.targets.find((t) => t.id === "cv-screening")
+    assert.equal(cv.connected, false)
+    assert.equal(cv.tokenReadable, true, "a tool without a source never asks for a token")
+    assert.equal(cv.tool.minSamples, 20, "minimum samples defaults to 20")
+    assert.equal(cv.tool.jobs[0].perItem, false)
+    assert.equal(registry.targets().length, 0, "unconnected tools are never fetched")
+    assert.throws(() => registry.add({ name: "Two mains", tool: { jobs: [{ name: "a", role: "main" }, { name: "b", role: "main" }] } }, "admin"), /Main Job/)
+    assert.throws(() => registry.add({ name: "Dupes", tool: { jobs: [{ name: "a" }, { name: "a" }] } }, "admin"), /trùng/)
+    assert.throws(() => registry.add({ name: "Token only", token: "x".repeat(40) }, "admin"), /địa chỉ/)
+    // Connecting later keeps the declared jobs; editing without `tool` leaves them unchanged.
+    const token = "cv-secret-".repeat(4)
+    list = registry.update("cv-screening", { name: "CV Screening", origin: "https://cv.example.com", appId: "cv", token }, "admin")
+    assert.equal(list.targets[0].connected, true)
+    assert.equal(list.targets[0].tool.jobs[0].name, "Chấm CV")
+    assert.equal(registry.targets()[0].token, token)
+    // Disconnecting removes the stored token.
+    registry.update("cv-screening", { name: "CV Screening", origin: "", appId: "" }, "admin")
+    assert.ok(!db.prepare("SELECT value FROM settings WHERE key='monitoring-targets-v1'").get().value.includes('"token":"'))
+  } finally {
+    db.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+test("connection test lists reported job names for declaring jobs", async () => {
+  const monitor = createAppMonitoring({
+    targets: () => [],
+    fetcher: async () => Response.json({
+      protocol: "app-monitoring-v1", appId: "w", generatedAt: new Date().toISOString(), window: { days: 1 }, runtime: {},
+      performanceKpis: { jobCompletion: [{ job: "Writer batch article", workload: "1 bài", p95Ms: 1, samples: 1 }] },
+      jobHistory: { latestJob: { job: "Writer batch article" } }, profile: { jobTargets: { Plan: 1 } },
+    }),
+  })
+  const result = await monitor.probe({ id: "p", name: "p", origin: "https://w.example.com", token: "x".repeat(40) })
+  assert.deepEqual(result.jobs, ["Writer batch article", "Plan"])
+})
