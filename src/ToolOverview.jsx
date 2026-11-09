@@ -1,6 +1,6 @@
 import React, { useState } from "react"
 import { ChevronDown, ChevronRight } from "lucide-react"
-import { evaluateTool, priorities, statusLabels, statusOrder, summarize } from "./tool-performance.js"
+import { evaluateTool, priorities, statusLabels, statusOrder, summarize } from "../server/tool-performance.js"
 import "./tool-overview.css"
 
 const nf = (v, digits = 1) => new Intl.NumberFormat("vi-VN", { maximumFractionDigits: digits }).format(v)
@@ -18,17 +18,20 @@ function Badge({ status }) {
   return <span className={"tool-badge " + status}>{statusLabels[status]}</span>
 }
 
-function TimeCell({ unit, minSamples }) {
+function TimeCell({ unit, minSamples, jobName = null }) {
   if (!unit || unit.p95Ms == null) return <><span className="tool-dim">—</span><small>{unit?.targetMinutes ? "target " + minutesText(unit.targetMinutes) : "Chưa có target"}</small></>
   const over = unit.targetMinutes && unit.p95Ms > unit.targetMinutes * 60000
   return (
     <>
       <span className={over ? "tool-over" : ""}>{formatTime(unit.p95Ms)}</span>
+      {jobName && <small>Job chậm nhất so với target: {jobName}</small>}
       <small>
         {unit.targetMinutes ? "target " + minutesText(unit.targetMinutes) : "Chưa có target"} · {unit.samples} mẫu
         {unit.samples < minSamples ? " (cần ≥ " + minSamples + ")" : ""}
         {unit.workload ? " · " + unit.workload : ""}
       </small>
+      {unit.samples < minSamples && unit.medianMs != null && <small>Trung vị {formatTime(unit.medianMs)} · chậm nhất {formatTime(unit.maxMs)}</small>}
+      <Trend unit={unit} />
     </>
   )
 }
@@ -43,6 +46,7 @@ function ErrorCell({ error, minSamples }) {
         {error.target != null ? "target ≤ " + percent(error.target) : "Chưa có target"} · {error.failed}/{error.executed} lần lỗi
         {error.executed < minSamples ? " (cần ≥ " + minSamples + " lần chạy)" : ""}
       </small>
+      {error.timedOut > 0 && <small>{error.timedOut} lần quá thời gian chờ, tính là lỗi</small>}
     </>
   )
 }
@@ -52,14 +56,14 @@ function JobDetail({ tool }) {
     return (
       <p className="tool-note">
         {tool.connected ? "App chưa gửi số liệu thời gian theo job (performanceKpis.jobCompletion). " : ""}
-        Khai báo Main Job và target trong Cài đặt → Monitoring ứng dụng.
+        Lab sẽ tự nhận diện job khi app gửi số liệu theo job.
       </p>
     )
   return (
     <div className="perf-table-scroll">
       <table className="tool-jobs">
         <thead>
-          <tr><th scope="col">Job</th><th scope="col">P95 / target</th><th scope="col">Mẫu</th><th scope="col">Trạng thái</th></tr>
+          <tr><th scope="col">Job</th><th scope="col">P95 / target</th><th scope="col">Mẫu</th><th scope="col">Lỗi</th><th scope="col">Trạng thái</th></tr>
         </thead>
         <tbody>
           {tool.jobs.map((j) => {
@@ -80,14 +84,20 @@ function JobDetail({ tool }) {
               return (
                 <tr key={j.name} className="tool-unmeasured">
                   <th scope="row">{name}<small>Chưa có điểm đo riêng; đang tính chung trong Main Job.</small>{meta}</th>
-                  <td>— / {minutesText(j.targetMinutes) || "Chưa có target"}</td><td>—</td><td>—</td>
+                  <td>— / {minutesText(j.targetMinutes) || "Chưa có target"}</td><td>—</td><td>—</td><td>—</td>
                 </tr>
               )
             return j.units.map((u, i) => (
               <tr key={j.name + i} className={j.role === "main" ? "tool-main" : ""}>
                 <th scope="row">{name}{u.workload && <small>Workload: {u.workload}</small>}{i === 0 && meta}</th>
-                <td><span className={u.status === "bad" ? "tool-over" : ""}>{formatTime(u.p95Ms)}</span> <span className="tool-dim">/ {minutesText(u.targetMinutes) || "Chưa có target"}</span></td>
+                <td>
+                  <span className={u.status === "bad" ? "tool-over" : ""}>{formatTime(u.p95Ms)}</span> <span className="tool-dim">/ {minutesText(u.targetMinutes) || "Chưa có target"}</span>
+                  {u.medianMs != null && <small>Trung vị {formatTime(u.medianMs)} · chậm nhất {formatTime(u.maxMs)}</small>}
+                  {u.overRuns > 0 && <small>{u.overRuns} lần vượt target</small>}
+                  <Trend unit={u} />
+                </td>
                 <td>{u.samples}</td>
+                <td>{i === 0 && j.error ? <span className={j.error.status === "bad" ? "tool-over" : ""}>{j.error.failed}/{j.error.executed}</span> : i === 0 ? "—" : ""}</td>
                 <td><Badge status={u.status} /></td>
               </tr>
             ))
@@ -98,13 +108,22 @@ function JobDetail({ tool }) {
   )
 }
 
-export default function ToolOverview({ data, onOpenReport }) {
+const sourceLabels = { runs: "Tính từ từng lần chạy, theo giờ VN", history: "Từ lịch sử job app đã lưu (kỳ theo ngày UTC)", instrumented: "Từ số liệu đo trực tiếp của app (kỳ theo ngày UTC)" }
+
+function Trend({ unit }) {
+  if (unit?.previousP95Ms == null || unit.p95Ms == null) return null
+  const d = unit.p95Ms - unit.previousP95Ms
+  if (Math.abs(d) < 500) return <small>So với kỳ trước: không đổi</small>
+  return <small className={d > 0 ? "tool-worse" : "tool-better"}>So với kỳ trước: {d > 0 ? "+" : "−"}{formatTime(Math.abs(d))}</small>
+}
+
+export default function ToolOverview({ data, days = 7, onOpenReport }) {
   const [filter, setFilter] = useState(null),
     [open, setOpen] = useState(null)
   const results = new Map((data.targets || []).map((t) => [t.id, t]))
   const declared = data.tools || data.targets.map((t) => ({ id: t.id, name: t.name, connected: true, tool: null }))
   const tools = declared
-    .map((t) => evaluateTool({ ...t, result: results.get(t.id) }))
+    .map((t) => evaluateTool({ ...t, result: results.get(t.id), days }))
     .sort((a, b) => statusOrder[a.status] - statusOrder[b.status] || a.name.localeCompare(b.name))
   if (!tools.length) return null
   const counts = summarize(tools)
@@ -152,11 +171,14 @@ export default function ToolOverview({ data, onOpenReport }) {
                         {open === t.id ? <ChevronDown size={14} aria-hidden="true" /> : <ChevronRight size={14} aria-hidden="true" />}
                         <span>
                           <b>{t.name}</b>
-                          <small>{t.mainJob || "Chưa khai báo Main Job"}{t.owner ? " · " + t.owner : ""}</small>
+                          <small>
+                            {t.mainJob || (t.jobCount > 1 ? "Chưa có job tổng · chấm theo " + t.jobCount + " job" : t.connected ? "Chưa có job nào được báo cáo" : "Chưa có dữ liệu để nhận diện")}
+                            {t.owner ? " · " + t.owner : ""}
+                          </small>
                         </span>
                       </button>
                     </th>
-                    <td><TimeCell unit={t.headline} minSamples={t.minSamples} /></td>
+                    <td><TimeCell unit={t.headline} minSamples={t.minSamples} jobName={!t.hasMain && t.jobCount > 1 ? t.headline?.job : null} /></td>
                     <td><ErrorCell error={t.error} minSamples={t.minSamples} /></td>
                     <td>
                       <Badge status={t.status} />
@@ -168,6 +190,7 @@ export default function ToolOverview({ data, onOpenReport }) {
                       <td colSpan={4}>
                         <div className="tool-detail">
                           <p className="tool-note">
+                            {sourceLabels[t.source] ? sourceLabels[t.source] + ". " : ""}
                             Số mẫu tối thiểu để chấm: {t.minSamples} lần chạy trong kỳ.
                             {t.driver?.factor ? " Yếu tố ảnh hưởng thời gian: " + t.driver.factor + (t.driver.unit ? " (" + t.driver.unit + ")" : "") + "." : ""}
                             {t.error.unverified ? " " + t.error.unverified + " lần hoàn thành chưa đủ bằng chứng kết quả (không tính là lỗi)." : ""}

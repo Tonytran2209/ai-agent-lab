@@ -1,4 +1,5 @@
 import {createAppMonitoring,createMonitoringRegistry} from './app-monitoring.js';
+import {detectToolProfile} from './tool-performance.js';
 import {createPerformance} from './performance.js';
 import {createNotificationCenter} from './notifications.js';
 import {createDeployOnboarding,deploymentInput,deploymentProtocol} from './deploy-onboarding.js';
@@ -163,13 +164,19 @@ export function createApp(config, options = {}) {
   app.post('/api/data/restore-preview',auth.admin,(req,res)=>res.json(dataManagement.preview(req.body)));
   app.get('/api/monitoring', auth.admin, async (req,res) => {
     const {days}=z.object({days:z.coerce.number().int().min(1).max(30).default(7)}).strict().parse(req.query);
-    // tools: every declared tool (connected or not) with its Lab-owned job/target configuration.
-    const snapshot=await appMonitoring.snapshot(days),tools=monitoringRegistry.list().targets.map(t=>({id:t.id,name:t.name,connected:t.connected,tool:t.tool}));
+    // tools: every declared tool (connected or not) with its detected/overridden profile.
+    // Profiles are detected from real reports and refreshed at most once a day.
+    const snapshot=await appMonitoring.snapshot(days);
+    for(const t of snapshot.targets)if(t.report&&monitoringRegistry.needsDetection(t.id))monitoringRegistry.applyDetection(t.id,t.report,detectToolProfile);
+    const tools=monitoringRegistry.list().targets.map(t=>({id:t.id,name:t.name,connected:t.connected,tool:t.tool}));
     res.set('Cache-Control','private, no-store').json({...snapshot,tools});
   });
   app.get('/api/settings/monitoring',auth.admin,(req,res)=>res.set('Cache-Control','private, no-store').json(monitoringRegistry.list()));
-  app.post('/api/settings/monitoring',auth.admin,limiter(20),(req,res)=>{const r=monitoringRegistry.add(req.body,req.user.name);appMonitoring.clear();res.status(201).json(r);});
-  app.put('/api/settings/monitoring/:id',auth.admin,limiter(20),(req,res)=>{const r=monitoringRegistry.update(req.params.id,req.body,req.user.name);appMonitoring.clear();res.json(r);});
+  // Saving a connected tool reads its real report once and detects jobs, Main Job and targets.
+  const detectNow=async id=>{const target=monitoringRegistry.targets().find(t=>t.id===id);if(!target)return;const r=await appMonitoring.fullReport(target);if(r.report)monitoringRegistry.applyDetection(id,r.report,detectToolProfile);};
+  app.post('/api/settings/monitoring',auth.admin,limiter(20),async(req,res)=>{const before=new Set(monitoringRegistry.list().targets.map(t=>t.id));monitoringRegistry.add(req.body,req.user.name);const added=monitoringRegistry.list().targets.find(t=>!before.has(t.id));if(added?.connected)await detectNow(added.id);appMonitoring.clear();res.status(201).json(monitoringRegistry.list());});
+  app.put('/api/settings/monitoring/:id',auth.admin,limiter(20),async(req,res)=>{const old=monitoringRegistry.list().targets.find(t=>t.id===req.params.id);monitoringRegistry.update(req.params.id,req.body,req.user.name);const now=monitoringRegistry.list().targets.find(t=>t.id===req.params.id);if(now?.connected&&(old?.origin!==now.origin||!now.tool?.detectedAt))await detectNow(now.id);appMonitoring.clear();res.json(monitoringRegistry.list());});
+  app.post('/api/settings/monitoring/:id/detect',auth.admin,limiter(20),async(req,res)=>{monitoringRegistry.list().targets.some(t=>t.id===req.params.id&&t.connected)||fail('Tool chưa kết nối nguồn dữ liệu.');await detectNow(req.params.id);appMonitoring.clear();res.json(monitoringRegistry.list());});
   app.delete('/api/settings/monitoring/:id',auth.admin,limiter(20),(req,res)=>{const r=monitoringRegistry.remove(req.params.id);appMonitoring.clear();res.json(r);});
   app.post('/api/settings/monitoring/test',auth.admin,limiter(10),async(req,res)=>res.set('Cache-Control','private, no-store').json(await appMonitoring.probe(monitoringRegistry.probeTarget(req.body))));
   app.get("/api/performance", auth.admin, (req, res) => {

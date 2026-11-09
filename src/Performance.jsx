@@ -422,7 +422,7 @@ function ProjectRuntime({ api, days, refresh, initialApp = "all" }) {
         <div>
           <h2>Performance theo tool</h2>
           <p>
-            Số liệu trực tiếp từ app · kỳ báo cáo theo ngày UTC · tự cập nhật 60 giây
+            Số liệu thật từ từng tool · kỳ theo giờ VN khi tool gửi từng lần chạy · tự cập nhật 60 giây
           </p>
         </div>
         <PerformanceSelect
@@ -457,7 +457,7 @@ function ProjectRuntime({ api, days, refresh, initialApp = "all" }) {
         </p>
       )}
       {data && !data.configurationError && (data.tools?.length > 0 || data.targets.length > 0) && (
-        <ToolOverview data={data} onOpenReport={(id) => setSelected(id)} />
+        <ToolOverview data={data} days={days} onOpenReport={(id) => setSelected(id)} />
       )}
       {data?.targets.length > 0 && (
         // Technical app metrics are secondary to the BA tool view; opened when an app is chosen.
@@ -1126,7 +1126,7 @@ export default function Performance({ api, onRequest }) {
               value={days}
               onChange={(e) => setDays(Number(e.target.value))}
             >
-              <option value={1}>Hôm nay (từ 07:00 giờ VN)</option>
+              <option value={1}>Hôm nay</option>
               <option value={7}>7 ngày qua</option>
               <option value={14}>14 ngày qua</option>
               <option value={30}>30 ngày qua</option>

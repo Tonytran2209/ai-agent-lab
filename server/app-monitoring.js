@@ -2,6 +2,7 @@ import crypto from "node:crypto"
 import net from "node:net"
 import { z } from "zod"
 import { fail } from "./schemas.js"
+import { detectToolProfile } from "./tool-performance.js"
 
 // Read-only monitoring targets are separate from Lab project execution/release permissions.
 export const maxMonitoringTargets = 12
@@ -76,25 +77,39 @@ const slug = (name) =>
     .replace(/^-+|-+$/g, "")
     .slice(0, 64)
 
-// tool-config-v1: what an admin declares about a tool (BA Flow B). Targets live in Lab, not in app code.
+// tool-config-v2: the tool profile. Detected from the app's real report (auto) and stored with
+// provenance per value; values with source "manual" are admin overrides kept across re-detection.
 const shortText = (max) => z.string().trim().max(max)
+const source = z.enum(["auto", "manual"])
+const targetSource = z.enum(["app", "builtin", "baseline", "manual"]).nullable()
 export const toolConfigSchema = z
   .object({
     owner: shortText(100).default(""),
     mainJob: shortText(200).default(""),
+    mainJobSource: source.default("auto"),
     driver: z.object({ factor: shortText(100).default(""), unit: shortText(40).default("") }).strict().default({}),
     errorRateTarget: z.number().min(0).max(100).nullable().default(null),
+    errorRateTargetSource: z.enum(["baseline", "manual"]).nullable().default(null),
     minSamples: z.number().int().min(1).max(1000).default(20),
+    auto: z.boolean().default(true),
+    detectedAt: z.string().datetime().nullable().default(null),
+    detectedFrom: z.string().max(20).nullable().default(null),
     jobs: z
       .array(
         z
           .object({
             name: shortText(100).min(1),
             role: z.enum(["main", "sub"]).default("sub"),
+            roleSource: source.default("auto"),
             startEvent: shortText(200).default(""),
             endEvent: shortText(200).default(""),
             successCondition: shortText(200).default(""),
             targetMinutes: z.number().positive().max(100000).nullable().default(null),
+            targetSource: targetSource.default(null),
+            baselineP95Ms: z.number().nonnegative().nullable().default(null),
+            baselineSamples: z.number().int().nonnegative().default(0),
+            workloads: z.array(shortText(100)).max(10).default([]),
+            parent: shortText(100).nullable().default(null),
             perItem: z.boolean().default(false),
           })
           .strict(),
@@ -237,6 +252,24 @@ export function createMonitoringRegistry(db, config, { clock = () => Date.now() 
       write(list)
       return this.list()
     },
+    // Store a profile detected from a real report, keeping manual overrides of the previous one.
+    applyDetection(id, report, detect) {
+      const list = read(),
+        index = list.findIndex((t) => t.id === id)
+      if (index < 0) return null
+      const old = list[index]
+      if (old.tool && old.tool.auto === false) return old.tool
+      const tool = toolConfigSchema.parse(detect(report, old.tool || null))
+      list[index] = { ...old, tool }
+      write(list)
+      return tool
+    },
+    // Detected profiles older than a day are refreshed from the latest successful read.
+    needsDetection(id, now = clock()) {
+      const t = read().find((x) => x.id === id)
+      if (!t || !t.origin || t.tool?.auto === false) return false
+      return !t.tool?.detectedAt || now - Date.parse(t.tool.detectedAt) > 86400000
+    },
     remove(id) {
       const list = read()
       if (!list.some((t) => t.id === id))
@@ -262,6 +295,8 @@ export function createMonitoringRegistry(db, config, { clock = () => Date.now() 
 // Job names an app reports, offered as suggestions when declaring jobs in Settings.
 export function reportedJobs(report) {
   const names = [
+    ...(Array.isArray(report.jobRuns?.runs) ? report.jobRuns.runs.slice(0, 5000).map((j) => j?.job) : []),
+    ...(Array.isArray(report.jobHistoryAllTime?.completion) ? report.jobHistoryAllTime.completion.map((j) => j?.job) : []),
     ...(Array.isArray(report.performanceKpis?.jobCompletion) ? report.performanceKpis.jobCompletion.map((j) => j?.job) : []),
     report.jobHistory?.latestJob?.job,
     report.jobHistoryAllTime?.latestJob?.job,
@@ -271,7 +306,7 @@ export function reportedJobs(report) {
 }
 
 const sectionsOf = (report) =>
-  ["profile", "jobHistory", "jobHistoryAllTime", "performanceKpis", "http", "ai", "runtime", "database", "inventory", "contentWorkload"].filter(
+  ["jobRuns", "profile", "jobHistory", "jobHistoryAllTime", "performanceKpis", "http", "ai", "runtime", "database", "inventory", "contentWorkload"].filter(
     (k) => report[k] != null,
   )
 
@@ -363,9 +398,14 @@ export function createAppMonitoring({
         targets: await Promise.all(configured.map((t) => read(t, days))),
       }
     },
+    // Uncached 30-day read used to detect a tool profile when a tool is saved or re-detected.
+    fullReport(target) {
+      return fetchReport(target, 30, target.appId)
+    },
     // Connection test for Settings: never cached, never returns the report body or the token.
+    // It returns the profile Lab would detect, so the admin sees jobs and targets before saving.
     async probe(target) {
-      const result = await fetchReport(target, 1, null)
+      const result = await fetchReport(target, 30, null)
       return {
         status: result.status,
         httpStatus: result.httpStatus ?? null,
@@ -374,6 +414,8 @@ export function createAppMonitoring({
         sections: result.report ? sectionsOf(result.report) : [],
         profileTitle: typeof result.report?.profile?.mainJob?.title === "string" ? result.report.profile.mainJob.title.slice(0, 100) : null,
         jobs: result.report ? reportedJobs(result.report) : [],
+        detected: result.report ? detectToolProfile(result.report, null, { now: now() }) : null,
+        hasRuns: Array.isArray(result.report?.jobRuns?.runs),
       }
     },
     clear() {

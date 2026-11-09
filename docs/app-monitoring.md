@@ -84,18 +84,37 @@ Performance → AI Agent Lab shows monitored apps as a separate group below regi
 
 Outreach (`Tonytran2209/Project-test`, Python/FastAPI) is the first app connected this way. See `app/lab_monitoring.py` in that repository.
 
-## Tool status (tool-status-v1)
+## Tool status (tool-status-v2)
 
-Performance → Projects opens with a BA-style overview of every declared tool, judged by its Main Job. Technical app reports (HTTP, AI, runtime, content) move into a collapsed "Chi tiết kỹ thuật" section that opens when an app is selected.
+Performance → Projects opens with an overview of every tool, judged by its Main Job. Technical app reports (HTTP, AI, runtime, content) sit in a collapsed "Chi tiết kỹ thuật" section that opens when an app is selected.
 
-Admins declare tools in **Cài đặt → Monitoring ứng dụng** in four parts: tool information (name, owner, Main Job, complexity driver), an optional data source, jobs and sub-jobs (start event, end event, success condition, P95 time target in seconds or minutes, per item), and measurement standards (error-rate target, minimum samples). A tool may be saved before it has a data source; it then shows "No data" and is never fetched. Job names must match the `job` names the app reports; the connection test suggests them. Stored as `tool` (tool-config-v1) on the `monitoring-targets-v1` entry; at most one Main Job and unique job names per tool.
+### Connecting a tool and automatic detection
 
-Rules (`src/tool-performance.js`):
+In **Cài đặt → Monitoring ứng dụng** an admin enters only the tool name, optional owner, address and token, then presses **Kiểm tra & nhận diện**. Lab reads a 30-day report and shows what it detected; **Lưu tool** stores it. A tool without an address is saved as not connected and shows "No data".
 
-- Time: P95 from `performanceKpis.jobCompletion` per job and workload. Target precedence: Lab declaration → app `profile.jobTargets` → built-in Writer/Intercom map. The Main Job shows its worst workload group.
-- Error rate: every failure counts (technical and business). Source is `jobHistory.failed / executed` for the selected window, otherwise `performanceKpis.jobs` where anything not validly completed is a failure. Unverified completions are reported separately and are not failures.
-- Minimum samples (default 20, configurable per tool): below it a job is "Chưa đủ mẫu". Error rate is already "Chưa đạt" when failures exceed what the target allows over the minimum sample count.
-- Statuses: Đạt, Chưa đạt, Chưa đủ mẫu, Chưa có target, No data. A tool is "Chưa đạt" if its Main Job time or its error rate is over target; without a declared Main Job, every reported job counts.
-- Priorities: slower-than-target jobs (including sub-jobs) ranked by percent over target, and error rates over target ranked by failure count, in separate lists.
+Detection (`detectToolProfile` in `server/tool-performance.js`) runs on save, on **Nhận diện lại**, and at most once a day from the latest successful dashboard read:
 
-Periods are today, 7, 14 and 30 days. Connected apps compute windows by UTC calendar day, so "today" starts at 07:00 Vietnam time until the protocol carries a time zone. Comparison with the previous period, the unknown-outcome timeout rule and per-run median/max need run-level data and are planned with run ingestion.
+- Jobs: every job in `jobRuns`, else `jobHistoryAllTime.completion`, `jobHistory.completion` or `performanceKpis.jobCompletion`.
+- Main Job: `profile.mainJob.job` when the app names it; else the single job that other runs name as `parent`; else the only job. Otherwise no job is guessed as main and every job is scored. The display name is `profile.mainJob.title` when present.
+- Time targets: `profile.jobTargets` → built-in Writer/Intercom targets → baseline P95 of saved history, rounded up (whole seconds/5/10 seconds under two minutes, whole or 5 minutes above), only with at least the minimum samples.
+- Error-rate target: baseline failure rate of the Main Job (or all jobs) rounded up to 0.5%, at least 1%, only with enough runs.
+- Every value keeps its source (app, built-in, baseline, manual). "Điều chỉnh job & target" is optional; changed values become manual and survive re-detection. "Khôi phục tự động" clears them.
+
+Stored as `tool` (tool-config-v2) on the `monitoring-targets-v1` entry. `auto: false` stops automatic detection for a tool.
+
+### Run-level data (`jobRuns`, optional)
+
+```json
+"jobRuns": { "since": "2026-09-10T00:00:00Z", "complete": true, "runs": [
+  { "job": "Bid pack", "workload": ">15 trang", "parent": null, "status": "success", "startedAt": "…", "endedAt": "…" }
+] }
+```
+
+Send runs that ended (or are still running) in the last 61 days, newest first, at most 5,000; set `complete: false` when truncated. `status` is `success`, `failed` (technical or business failure) or `running` (`endedAt: null`). `parent` names the enclosing job for sub-jobs. Runs carry no content or personal data. With `jobRuns`, Lab computes everything itself: calendar days in Vietnam time (today starts 00:00 GMT+7), the previous period of equal length, median and slowest run, runs over target, per-job error rates, and timeouts (a run still running after three times its target counts as failed). Without `jobRuns`, Lab uses the app's aggregated per-job history and its UTC windows.
+
+### Rules
+
+- Error rate counts every failure (technical and business); unverified completions are reported separately, not as failures.
+- Minimum samples (default 20, adjustable per tool): below it a job is "Chưa đủ mẫu", except that with run-level data and at least five runs a median over target is already "Chưa đạt". Error rate is already "Chưa đạt" when failures exceed what the target allows over the minimum sample count.
+- Statuses: Đạt, Chưa đạt, Chưa đủ mẫu, Chưa có target, No data. A tool is "Chưa đạt" if its Main Job time or error rate is over target.
+- Priorities: slower-than-target jobs ranked by percent over target, and error rates over target (Main Job and sub-jobs) ranked by failure count, in separate lists.

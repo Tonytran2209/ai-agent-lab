@@ -224,3 +224,9 @@
 .tool-technical[open] > summary {
   margin-bottom: var(--space-4);
 }
+.tool-worse {
+  color: var(--danger) !important;
+}
+.tool-better {
+  color: var(--success) !important;
+}

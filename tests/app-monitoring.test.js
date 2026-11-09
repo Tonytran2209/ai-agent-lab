@@ -128,7 +128,7 @@ test("connection test reports the app id and sections without returning the repo
   const monitor = createAppMonitoring({
     targets: () => [],
     fetcher: async () => Response.json({
-      protocol: "app-monitoring-v1", appId: "outreach", generatedAt: new Date().toISOString(), window: { days: 1 },
+      protocol: "app-monitoring-v1", appId: "outreach", generatedAt: new Date().toISOString(), window: { days: 30 },
       runtime: {}, profile: { version: "profile-v1", mainJob: { title: "Outreach LinkedIn" } }, jobHistory: { executed: 1 },
     }),
   })
@@ -176,11 +176,39 @@ test("connection test lists reported job names for declaring jobs", async () => 
   const monitor = createAppMonitoring({
     targets: () => [],
     fetcher: async () => Response.json({
-      protocol: "app-monitoring-v1", appId: "w", generatedAt: new Date().toISOString(), window: { days: 1 }, runtime: {},
+      protocol: "app-monitoring-v1", appId: "w", generatedAt: new Date().toISOString(), window: { days: 30 }, runtime: {},
       performanceKpis: { jobCompletion: [{ job: "Writer batch article", workload: "1 bài", p95Ms: 1, samples: 1 }] },
       jobHistory: { latestJob: { job: "Writer batch article" } }, profile: { jobTargets: { Plan: 1 } },
     }),
   })
   const result = await monitor.probe({ id: "p", name: "p", origin: "https://w.example.com", token: "x".repeat(40) })
   assert.deepEqual(result.jobs, ["Writer batch article", "Plan"])
+})
+test("detected profiles are stored, refreshed daily and keep admin overrides", async () => {
+  const { detectToolProfile } = await import("../server/tool-performance.js")
+  const dir = mkdtempSync(path.join(os.tmpdir(), "lab-monitoring-"))
+  const db = openDatabase(dir)
+  try {
+    let clock = Date.parse("2026-11-09T03:00:00Z")
+    const registry = createMonitoringRegistry(db, { SESSION_SECRET: "s".repeat(40) }, { clock: () => clock })
+    registry.add({ name: "Writer", origin: "https://writer.example.com", appId: "writer", token: "w".repeat(40) }, "admin")
+    assert.equal(registry.needsDetection("writer"), true)
+    const report = { appId: "writer", jobHistoryAllTime: { executed: 30, failed: 0, completion: [{ job: "Batch", p95Ms: 300000, samples: 30 }] } }
+    const tool = registry.applyDetection("writer", report, (r, prev) => detectToolProfile(r, prev, { now: clock }))
+    assert.equal(tool.jobs[0].role, "main")
+    assert.equal(tool.jobs[0].targetMinutes, 5)
+    assert.equal(registry.needsDetection("writer"), false)
+    // Admin override survives the next daily detection.
+    const listed = registry.list().targets[0]
+    registry.update("writer", { name: "Writer", origin: listed.origin, appId: listed.appId,
+      tool: { ...listed.tool, jobs: [{ ...listed.tool.jobs[0], targetMinutes: 3, targetSource: "manual" }] } }, "admin")
+    clock += 86400001
+    assert.equal(registry.needsDetection("writer"), true)
+    registry.applyDetection("writer", report, (r, prev) => detectToolProfile(r, prev, { now: clock }))
+    assert.equal(registry.list().targets[0].tool.jobs[0].targetMinutes, 3)
+    assert.equal(registry.needsDetection("cv"), false, "unknown or unconnected tools are never detected")
+  } finally {
+    db.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
 })

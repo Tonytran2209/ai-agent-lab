@@ -152,17 +152,8 @@ export function projectJobHistoryMetrics(history) {
   }
 }
 
-const jobTargetsMinutes = {
-  "writer-studio": { "Writer batch article": 10 },
-  intercom: { "EB V2 brief": 0.25, "EB V2 article": 0.25, "EB V2 adapt": 0.5, "EB V2 review": 0.5 },
-}
-
-// A target the app declares in its own profile wins; the built-in map keeps older reports working.
-export function jobCompletionTarget(appId, job, profile = null) {
-  if (profile?.jobTargets && Object.hasOwn(profile.jobTargets, job)) return profile.jobTargets[job]
-  const targets = jobTargetsMinutes[appId]
-  return targets && Object.hasOwn(targets, job) ? targets[job] : null
-}
+// Built-in Writer Studio/Intercom targets live with the shared tool rules.
+export { jobCompletionTarget } from "../server/tool-performance.js"
 
 // profile-v1: a connected app describes its own Performance sections. Everything is
 // bounded and type-checked here; anything malformed is dropped, never guessed.
