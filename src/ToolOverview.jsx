@@ -391,22 +391,30 @@ export default function ToolOverview({ data, days = 7, api, onOpenReport, onChan
                           <small className="tool-dim">{t.reportedAt ? timeAgo(t.reportedAt) : t.reason || ""}</small>
                         </td>
                         <td>
-                          <MetricCell value={u ? compactTime(u.p95Ms) : "—"} tone={toneOf(u?.status)}
-                            target={timeTarget ? "Mục tiêu: ≤ " + minutesText(timeTarget) : "Chưa có mục tiêu"}
-                            note={u ? u.samples + " mẫu" + (u.samples < t.minSamples ? " (cần ≥ " + t.minSamples + ")" : "") + (!t.hasMain && t.jobCount > 1 ? " · " + u.job : "") : t.reason} />
-                          {!u && t.latestRun && (
-                            <small className="tool-latest" title={"Lần chạy gần nhất kết thúc " + clockDate(t.latestRun.endedAt)}>
-                              Gần nhất: <b className="tool-metric muted">{compactTime(t.latestRun.durationMs)}</b> · {timeAgo(new Date(t.latestRun.endedAt).toISOString())} ({clockDate(t.latestRun.endedAt).slice(9, 14)})
+                          {(() => {
+                            // Headline: the latest run, finished or not; the period P95 follows.
+                            const l = t.latest
+                            const tone = !l || l.durationMs == null ? "muted" : l.state === "failed" ? "bad" : l.state === "pending" ? "muted"
+                              : timeTarget && l.durationMs > timeTarget * 60000 ? "bad" : "good"
+                            const stateText = { success: "Hoàn thành", failed: "Thất bại", pending: "Chưa hoàn thành" }
+                            return (
+                              <MetricCell value={l ? compactTime(l.durationMs) : "—"} tone={tone}
+                                target={timeTarget ? "Mục tiêu: ≤ " + minutesText(timeTarget) : "Chưa có mục tiêu"}
+                                note={l ? "Lần gần nhất · " + stateText[l.state] + (l.at != null ? " · " + timeAgo(new Date(l.at).toISOString()) : "") : t.reason} />
+                            )
+                          })()}
+                          {u && (
+                            <small className="tool-dim" title={u.medianMs != null ? "Trung vị " + compactTime(u.medianMs) + " · chậm nhất " + compactTime(u.maxMs) : undefined}>
+                              P95 {t.widened ? t.windowDays + " ngày gần nhất" : "trong kỳ"}: <b className={"tool-metric inline " + toneOf(u.status)}>{compactTime(u.p95Ms)}</b> · {u.samples} mẫu{u.samples < t.minSamples ? " (cần ≥ " + t.minSamples + ")" : ""}{!t.hasMain && t.jobCount > 1 ? " · " + u.job : ""}
                             </small>
                           )}
                           <Trend unit={u} />
-                          {t.widened && <small className="tool-window" title="Kỳ đang chọn không có lượt chạy nào kết thúc">Kỳ này chưa có lượt chạy · số liệu {t.windowDays} ngày gần nhất</small>}
                           {t.jobs.length > 0 && <SubJobMenu tool={t} label={t.hasMain && subCount ? subCount + " sub-jobs" : t.jobs.length + " jobs"} onOpenRuns={() => setOpen({ id: t.id, tab: "runs" })} />}
                         </td>
                         <td>
                           <MetricCell value={t.success.rate == null ? "—" : formatPercent(t.success.rate) + (t.success.status === "ok" ? " OK" : "")} tone={toneOf(t.success.status)}
                             target={t.success.target == null ? "Chưa có mục tiêu" : "Mục tiêu: ≥ " + formatPercent(t.success.target)}
-                            note={t.success.executed ? "Đo trên " + t.success.executed + " lượt chạy" + (t.widened ? " · " + t.windowDays + " ngày gần nhất" : "") + (t.success.timedOut ? " · " + t.success.timedOut + " quá thời gian chờ" : "") : null} />
+                            note={t.success.executed ? "Đo trên " + t.success.executed + " lượt chạy" + (t.widened ? " · " + t.windowDays + " ngày gần nhất" : " trong kỳ") + (t.success.timedOut ? " · " + t.success.timedOut + " quá thời gian chờ" : "") : null} />
                         </td>
                         <td>
                           <MetricCell value={compactTime(t.response.p95Ms)} tone={toneOf(t.response.status)} target={"Mục tiêu: ≤ " + compactTime(t.response.targetMs)}

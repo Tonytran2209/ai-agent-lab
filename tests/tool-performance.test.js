@@ -339,15 +339,23 @@ test("an empty period shows the latest Main Job run, and an app-declared success
   const profile = detectToolProfile(r, null, { now })
   assert.deepEqual([profile.errorRateTarget, profile.errorRateTargetSource], [1, "app"], "fewer runs than the minimum: the app's target is used")
   const t = evaluateTool({ id: "ic", name: "Intercom", days: 7, now, result: { status: "ready", report: r }, tool: profile })
-  assert.deepEqual([t.widened, t.windowDays, t.headline?.samples, t.success.executed, t.latestRun], [true, 30, 2, 2, null],
-    "nothing finished in the last 7 days: the row uses the last 30 days")
+  assert.deepEqual([t.widened, t.windowDays, t.headline?.samples, t.success.executed], [true, 30, 2, 2],
+    "nothing finished in the last 7 days: the summary uses the last 30 days")
+  assert.deepEqual(t.latest, { workload: "", state: "success", durationMs: 75000, at: Date.parse("2026-10-26T04:00:15Z") }, "the latest run headlines the row")
   assert.equal(t.success.target, 99)
   const old = report({ ...r, jobRuns: { complete: true, runs: runs.map((x) => ({ ...x, startedAt: x.startedAt.replace("2026-10", "2026-08"), endedAt: x.endedAt.replace("2026-10", "2026-08") })) } })
   const stale = evaluateTool({ id: "ic", name: "Intercom", days: 7, now, result: { status: "ready", report: old }, tool: profile })
-  assert.deepEqual([stale.headline, stale.widened], [null, false], "older than 61 days: no metrics")
-  assert.deepEqual(stale.latestRun, { job: "EB V2 package", durationMs: 75000, endedAt: Date.parse("2026-08-26T04:00:15Z") })
+  assert.deepEqual([stale.headline, stale.widened], [null, false], "older than 61 days: no period metrics")
+  assert.equal(stale.latest.durationMs, 75000, "the latest run is still shown")
   const manual = evaluateTool({ id: "ic", name: "Intercom", days: 7, now, result: { status: "ready", report: r }, tool: { ...profile, errorRateTarget: 5, errorRateTargetSource: "manual" } })
   assert.equal(manual.success.target, 95, "an admin target wins")
   const withRun = evaluateTool({ id: "ic", name: "Intercom", days: 30, now, result: { status: "ready", report: r }, tool: profile })
-  assert.equal(withRun.latestRun, null, "not needed when the period has runs")
+  assert.equal(withRun.widened, false)
+  const pending = evaluateTool({ id: "ic", name: "Intercom", days: 7, now, tool: profile, result: { status: "ready", report: report({ ...r, jobRuns: { complete: true, runs: [...runs,
+    { job: "Trích xuất brief", runId: "g9", parentRunId: "package:new", parent: "EB V2 package", status: "success", workload: "1 package · KPI test", startedAt: "2026-11-06T06:12:31Z", endedAt: "2026-11-06T06:12:34Z" }] } }) } })
+  assert.deepEqual(pending.latest, { workload: "1 package · KPI test", state: "pending", durationMs: 3000, at: Date.parse("2026-11-06T06:12:34Z") },
+    "an unfinished package awaiting approval is the latest run, with its time so far")
+  const running = evaluateTool({ id: "ic", name: "Intercom", days: 7, now, tool: profile, result: { status: "ready", report: report({ ...r, jobRuns: { complete: true, runs: [...runs,
+    { job: "EB V2 package", runId: "live", status: "running", startedAt: new Date(now - 30000).toISOString(), endedAt: null }] } }) } })
+  assert.deepEqual([running.latest.state, running.latest.durationMs], ["pending", 30000], "a running Main Job shows its elapsed time")
 })

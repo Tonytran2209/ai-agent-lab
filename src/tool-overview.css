@@ -726,12 +726,7 @@
   color: var(--signal-success-text) !important;
 }
 
-/* Latest Main Job run when the selected period has none. */
-.tool-latest .tool-metric {
+.tool-metric.inline {
   display: inline;
   font-size: 12px;
-}
-
-.tool-window {
-  color: var(--signal-warning-text) !important;
 }

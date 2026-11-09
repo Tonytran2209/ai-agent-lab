@@ -451,24 +451,26 @@ export function evaluateTool({ id, name, tool, connected = true, result = null, 
         ? measured.source ? "Không có lần chạy nào kết thúc trong kỳ" : "App chưa gửi số liệu theo job"
         : null
 
-  // When the period has no measured Main Job run, the latest one ever reported (time and date).
-  let latestRun = null
-  if (!headline && report) {
-    const main = declaredMain?.name || null
-    for (const r of parseRuns(report).runs)
-      if ((!main || r.job === main) && r.status === "success" && r.startedAt !== null && r.endedAt !== null && (!latestRun || r.endedAt > latestRun.endedAt))
-        latestRun = { job: r.job, durationMs: r.endedAt - r.startedAt, endedAt: r.endedAt }
-  }
+  // The latest run, finished or not, headlines the row: the newest Main Job run or unscored group
+  // (e.g. a package awaiting approval) in run history. An unfinished run shows its time so far.
+  const history = report ? recentRuns(report, { mainJob: declaredMain?.name || null }) : []
+  const top = history[0] || null
+  const latest = top ? {
+    workload: top.workload,
+    state: top.status === "failed" ? "failed" : top.group || top.status === "running" ? "pending" : "success",
+    durationMs: top.durationMs ?? (top.status === "running" && top.startedAt !== null ? Math.max(0, now - top.startedAt) : null),
+    at: top.endedAt ?? top.startedAt,
+  } : null
 
   return {
-    id, name, connected, status, reason, minSamples, source: measured.source, latestRun, windowDays, widened: windowDays !== days,
+    id, name, connected, status, reason, minSamples, source: measured.source, latest, windowDays, widened: windowDays !== days,
     owner: config.owner || "", mainJob: config.mainJob || declaredMain?.name || (jobs.length === 1 ? jobs[0].name : ""),
     hasMain: Boolean(declaredMain), jobCount: jobs.length,
     // Shown when the period has no measured run: the Main Job's declared/detected target.
     mainTargetMinutes: declaredMain && positive(declaredMain.targetMinutes) ? declaredMain.targetMinutes : null,
     driver: config.driver || null, headline, jobs, error, success, response, click, appStatus: result?.status || null,
     description: config.description || "", reportedAt: report?.generatedAt || null,
-    runs: report ? recentRuns(report, { mainJob: declaredMain?.name || null }) : [],
+    runs: history,
   }
 }
 
