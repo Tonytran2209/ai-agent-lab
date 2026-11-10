@@ -405,6 +405,7 @@ const sectionsOf = (report) =>
   )
 
 const STALE_MS = 30 * 60000
+const SWR_MS = 10 * 60000
 
 export function createAppMonitoring({
   targets = () => monitoringTargets(),
@@ -471,29 +472,46 @@ export function createAppMonitoring({
       return { ...base, status: "unavailable", report: null }
     }
   }
+  // One read of a target, cached 30 s (failures 5 s). A failed read keeps showing the last good
+  // report for up to STALE_MS, marked `stale`, instead of blanking the tool.
+  function load(target, days, key) {
+    const entry = { until: now() + 30000, promise: null, value: null, at: 0, refreshing: false }
+    entry.promise = fetchReport(target, days, target.appId).then(({ reportedAppId, httpStatus, ...raw }) => {
+      const result = raw.status === "invalid" || raw.status === "not-found" ? { ...raw, status: "unavailable" } : raw
+      let value = result
+      if (result.report) {
+        lastGood.set(key, { result, at: now() })
+        if (lastGood.size > 360) lastGood = new Map([[key, lastGood.get(key)]])
+      } else {
+        entry.until = Math.min(entry.until, now() + 5000)
+        const prior = lastGood.get(key)
+        if (prior && now() - prior.at <= STALE_MS)
+          value = { ...prior.result, stale: { since: new Date(prior.at).toISOString(), status: result.status } }
+      }
+      entry.value = value
+      entry.at = now()
+      return value
+    })
+    return entry
+  }
+  // Stale-while-revalidate: once a target has a report, a read after the 30 s window returns it at
+  // once (up to SWR_MS old) and refreshes in the background, so the Status tab never waits on a slow app.
   function read(target, days) {
     const key = [target.id, target.origin, target.appId, crypto.createHash("sha256").update(target.token).digest("hex"), days].join(":"),
       prior = cache.get(key)
     if (prior && prior.until > now()) return prior.promise
-    const entry = { until: now() + 30000, promise: null }
-    // A failed read (app restarting after a deploy, slow, offline) keeps showing the last good report
-    // for up to STALE_MS, marked `stale`, instead of blanking the tool. Failures are cached 5 s only.
-    entry.promise = fetchReport(target, days, target.appId).then(({ reportedAppId, httpStatus, ...raw }) => {
-      const result = raw.status === "invalid" || raw.status === "not-found" ? { ...raw, status: "unavailable" } : raw
-      if (result.report) {
-        lastGood.set(key, { result, at: now() })
-        if (lastGood.size > 360) lastGood = new Map([[key, lastGood.get(key)]])
-        return result
+    if (prior?.value?.report && now() - prior.at <= SWR_MS) {
+      if (!prior.refreshing) {
+        prior.refreshing = true
+        const next = load(target, days, key)
+        next.promise.then(() => cache.set(key, next), () => {}).finally(() => (prior.refreshing = false))
       }
-      entry.until = Math.min(entry.until, now() + 5000)
-      const prior = lastGood.get(key)
-      return prior && now() - prior.at <= STALE_MS
-        ? { ...prior.result, stale: { since: new Date(prior.at).toISOString(), status: result.status } }
-        : result
-    })
-    cache.set(key, entry)
-    if (cache.size > 360) cache = new Map()
-    return entry.promise
+      return Promise.resolve(prior.value)
+    }
+    const next = load(target, days, key)
+    cache.set(key, next)
+    if (cache.size > 360) cache = new Map([[key, next]])
+    return next.promise
   }
   return {
     async snapshot(days) {

@@ -1,5 +1,5 @@
 import { ActivePill } from "./motion.jsx"
-import {startPolling} from './polling.js';
+import { useResource, fetchResource } from './resource-cache.js';
 import TaskUsage from "./TaskUsage.jsx";
 import ToolOverview from "./ToolOverview.jsx"
 import AnimatedValue from "./AnimatedValue.jsx"
@@ -387,37 +387,11 @@ function Metric({
 }
 
 // view "status": BA tool status overview. view "projects": technical report of each app.
-function ProjectRuntime({ api, days, refresh, initialApp = "all", view = "projects", onOpenReport }) {
-  const [data, setData] = useState(null),
-    [error, setError] = useState(""),
-    [selected, setSelected] = useState(initialApp),
-    [reload, setReload] = useState(0)
-  useEffect(() => setData(null), [days])
-  useEffect(() => {
-    let cancelled = false,
-      inFlight = false
-    async function load() {
-      if (inFlight) return
-      inFlight = true
-      try {
-        const report = await api("/monitoring?days=" + days)
-        if (!cancelled) {
-          setData(report)
-          setError("")
-        }
-      } catch (e) {
-        if (!cancelled) setError(e.message)
-        throw e
-      } finally {
-        inFlight = false
-      }
-    }
-    const polling = startPolling(load, { interval: () => 60000 })
-    return () => {
-      cancelled = true
-      polling.stop()
-    }
-  }, [days, refresh, reload])
+function ProjectRuntime({ api, days, initialApp = "all", view = "projects", onOpenReport }) {
+  const [selected, setSelected] = useState(initialApp)
+  const monitoring = useResource("monitoring:" + days, () => api("/monitoring?days=" + days))
+  const data = monitoring.data ?? null,
+    error = monitoring.error
   return (
     <>
       <div className="perf-section-heading">
@@ -461,7 +435,7 @@ function ProjectRuntime({ api, days, refresh, initialApp = "all", view = "projec
         </p>
       )}
       {view === "status" && data && !data.configurationError && (
-        <ToolOverview data={data} days={days} api={api} onOpenReport={onOpenReport} onChanged={() => setReload((v) => v + 1)} />
+        <ToolOverview data={data} days={days} api={api} onOpenReport={onOpenReport} onChanged={monitoring.reload} />
       )}
       {view === "projects" && data?.targets
         .filter((t) => selected === "all" || selected === t.id)
@@ -1034,77 +1008,44 @@ function RuntimeReport({ target: t, days }) {
   )
 }
 
+// Kept across tab switches so coming back shows the same period and view.
+const lastView = { days: 7, scope: "lab", projectId: "all" }
+
 export default function Performance({ api, onRequest }) {
-  const [days, setDays] = useState(7),
-    [scope, setScope] = useState("lab"),
-    [projectId, setProjectId] = useState("all"),
-    [focusApp, setFocusApp] = useState("all"),
-    [monitored, setMonitored] = useState(null)
-  const [data, setData] = useState(null),
-    [error, setError] = useState(""),
-    [busy, setBusy] = useState(false),
-    [refresh, setRefresh] = useState(0)
+  const [days, setDaysRaw] = useState(lastView.days),
+    [scope, setScopeRaw] = useState(lastView.scope),
+    [projectId, setProjectIdRaw] = useState(lastView.projectId),
+    [focusApp, setFocusApp] = useState("all")
+  const setDays = (v) => setDaysRaw((lastView.days = v))
+  const setScope = (v) => setScopeRaw((lastView.scope = typeof v === "function" ? v(lastView.scope) : v))
+  const setProjectId = (v) => setProjectIdRaw((lastView.projectId = v))
   const reportProject = projectId
-  useEffect(() => {
-    setData(null)
-  }, [days, reportProject])
-  useEffect(() => {
-    let cancelled = false,
-      inFlight = false
-    async function load() {
-      if (inFlight) return
-      inFlight = true
-      setBusy(true)
-      try {
-        const next = await api(
-          "/performance?days=" +
-            days +
-            (reportProject === "all"
-              ? ""
-              : "&projectId=" + encodeURIComponent(reportProject)),
-        )
-        if (!cancelled) {
-          setData(next)
-          setError("")
+  const report = useResource(
+    "performance:" + days + ":" + reportProject,
+    () => api("/performance?days=" + days + (reportProject === "all" ? "" : "&projectId=" + encodeURIComponent(reportProject))),
+  )
+  // Same key as the Status / app reports below: one shared request.
+  const monitoring = useResource(scope === "lab" ? "monitoring:" + days : null, () => api("/monitoring?days=" + days))
+  const data = report.data ?? null,
+    error = report.error,
+    busy = report.loading
+  const next = monitoring.data
+  const monitored = next
+    ? next.configurationError
+      ? { error: true, targets: [] }
+      : {
+          targets: next.targets.map((t) => ({
+            id: t.id, name: t.name, origin: t.origin, status: t.status, fetchMs: t.fetchMs ?? null,
+            appId: t.report?.appId ?? null, generatedAt: t.report?.generatedAt ?? null,
+          })),
         }
-      } catch (e) {
-        if (!cancelled) setError(e.message);
-        throw e;
-      } finally {
-        inFlight = false
-        if (!cancelled) setBusy(false)
-      }
-    }
-    const polling = startPolling(load,{interval:()=>60000});
-    return () => {
-      cancelled = true;
-      polling.stop();
-    };
-  }, [days, refresh, reportProject]);
-  useEffect(() => {
-    if (scope !== "lab") return undefined
-    let cancelled = false
-    async function load() {
-      try {
-        const next = await api("/monitoring?days=" + days)
-        if (!cancelled)
-          setMonitored(next.configurationError ? { error: true, targets: [] } : {
-            targets: next.targets.map((t) => ({
-              id: t.id, name: t.name, origin: t.origin, status: t.status, fetchMs: t.fetchMs ?? null,
-              appId: t.report?.appId ?? null, generatedAt: t.report?.generatedAt ?? null,
-            })),
-          })
-      } catch (e) {
-        if (!cancelled) setMonitored((old) => old && !old.error ? old : { error: true, targets: [] })
-        throw e
-      }
-    }
-    const polling = startPolling(load, { interval: () => 60000 })
-    return () => {
-      cancelled = true
-      polling.stop()
-    }
-  }, [scope, days, refresh])
+    : monitoring.error
+      ? { error: true, targets: [] }
+      : null
+  const refreshAll = () => {
+    report.reload()
+    fetchResource("monitoring:" + days, () => api("/monitoring?days=" + days)).catch(() => {})
+  }
   const recent =
     data?.recent.filter(
       (r) => projectId === "all" || r.projectId === projectId,
@@ -1136,7 +1077,7 @@ export default function Performance({ api, onRequest }) {
           <button
             className="button"
             disabled={busy}
-            onClick={() => setRefresh((v) => v + 1)}
+            onClick={refreshAll}
           >
             <RefreshCw size={15} aria-hidden="true" />
             Làm mới
@@ -1184,7 +1125,7 @@ export default function Performance({ api, onRequest }) {
           <button
             className="button"
             disabled={busy}
-            onClick={() => setRefresh((v) => v + 1)}
+            onClick={refreshAll}
           >
             Thử lại
           </button>
@@ -1430,7 +1371,7 @@ export default function Performance({ api, onRequest }) {
               </div>
             </>
           ) : (
-            <ProjectRuntime api={api} days={days} refresh={refresh} initialApp={focusApp} view={scope} key={scope + focusApp}
+            <ProjectRuntime api={api} days={days} initialApp={focusApp} view={scope} key={scope + focusApp}
               onOpenReport={(id) => { setFocusApp(id); setScope("projects") }} />
           )}
           {scope === "lab" && (

@@ -1,16 +1,18 @@
 import {useNoticedState} from './NoticeContext.jsx';
 import {mainModelSavePayload} from './settings-state.js';
 import React,{useEffect,useState} from 'react';
+import {useResource} from './resource-cache.js';
 import {SettingsRow,SettingsSwitch} from './SettingsUI.jsx';
 const payload=s=>Object.fromEntries(['mode','model','mainModel','dailyCalls','dailyTokens','autoSync','semanticEnabled','syncMinutes'].map(k=>[k,s[k]]));
 const body=s=>JSON.stringify({...payload(s),strategy:'classify'});
 
 export function WorkerSettings({api,runner}){
- const [cloud,setCloud]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useNoticedState('','error'),[control,setControl]=useState(null);
- useEffect(()=>{let live=true;const load=()=>api('/settings/runner-control').then(v=>{if(live)setControl(v);}).catch(()=>{});load();const timer=setInterval(load,5000);return()=>{live=false;clearInterval(timer);};},[]);
+ const [busy,setBusy]=useState(false),[error,setError]=useNoticedState('','error');
+ const runnerControl=useResource('settings:runner-control',()=>api('/settings/runner-control'),{interval:5000,fresh:3000}),control=runnerControl.data??null,setControl=runnerControl.set;
+ const cloudSettings=useResource('settings:cloud',()=>api('/settings/cloud'),{interval:60000}),cloud=cloudSettings.data??null,setCloud=cloudSettings.set;
+ useEffect(()=>{if(cloudSettings.error)setError(cloudSettings.error);},[cloudSettings.error]);
  async function command(action){setBusy(true);setError('');try{await api('/settings/runner-control',{method:'POST',body:JSON.stringify({action})});setControl(await api('/settings/runner-control'));}catch(e){setError(e.message);}finally{setBusy(false);}}
  const supervisor=control?.supervisor,pending=control?.commands?.find(c=>['queued','running'].includes(c.phase)),latest=control?.commands?.[0];
- useEffect(()=>{let live=true;api('/settings/cloud').then(v=>{if(live)setCloud(v);}).catch(e=>{if(live)setError(e.message);});return()=>{live=false;};},[]);
  async function update(change){setBusy(true);setError('');try{setCloud(await api('/settings/cloud',{method:'PUT',body:JSON.stringify({enabled:cloud.enabled,publishEnabled:cloud.publishEnabled,dailyDispatches:cloud.dailyDispatches,...change})}));}catch(e){setError(e.message);}finally{setBusy(false);}}
  return <section className="settings-group"><h2>Nơi thực thi</h2><div className="settings-list">
   <SettingsRow title="Mac" description="Nhận feedback, đọc code/MD và thực thi theo quyền của từng project."><span className="settings-state connection-state" data-tone={runner?.connected?"success":"neutral"}>{runner?.connected?'Đã kết nối':'Chưa kết nối'}</span></SettingsRow>

@@ -1,10 +1,15 @@
 import {useNoticedState} from './NoticeContext.jsx';
-import React,{useEffect,useState} from 'react';
+import React,{useEffect,useRef,useState} from 'react';
+import {useResource} from './resource-cache.js';
 import {SettingsRow,SettingsSwitch} from './SettingsUI.jsx';
 export default function LearningSettings({projectId:id,api}){
- const [data,setData]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useNoticedState('','error'),[budget,setBudget]=useState(20000),[note,setNote]=useState('');
- const load=()=>api('/projects/'+id+'/learning').then(d=>{setData(d);setBudget(d.settings.dailyTokens);});
- useEffect(()=>{let live=true,first=true;setData(null);setError('');const refresh=()=>api('/projects/'+id+'/learning').then(d=>{if(live){setData(d);if(first){setBudget(d.settings.dailyTokens);first=false;}}}).catch(e=>{if(live)setError(e.message);});void refresh();const t=setInterval(refresh,10000);return()=>{live=false;clearInterval(t);};},[id]);
+ const learning=useResource(id?'learning:'+id:null,()=>api('/projects/'+id+'/learning'),{interval:10000,fresh:5000}),data=learning.data??null,seeded=useRef(false);
+ const [busy,setBusy]=useState(false),[error,setError]=useNoticedState('','error'),[budget,setBudget]=useState(20000),[note,setNote]=useState('');
+ // The budget field starts from the saved value once per project (and again after a save).
+ useEffect(()=>{seeded.current=false;setError('');},[id]);
+ useEffect(()=>{if(data&&!seeded.current){setBudget(data.settings.dailyTokens);seeded.current=true;}},[data]);
+ useEffect(()=>{if(learning.error)setError(learning.error);},[learning.error]);
+ const load=async()=>{seeded.current=false;await learning.reload();};
  async function act(fn){setBusy(true);setError('');try{await fn();await load();}catch(e){setError(e.message);}finally{setBusy(false);}}
  const update=patch=>act(()=>api('/projects/'+id+'/learning',{method:'PUT',body:JSON.stringify({enabled:data.settings.enabled,dailyTokens:data.settings.dailyTokens,autoActivate:data.settings.autoActivate,...patch})}));
  if(!data)return <p role="status">{error||'Đang tải vòng cải thiện…'}</p>;

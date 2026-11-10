@@ -403,8 +403,10 @@ export function createApp(config, options = {}) {
   app.post("/mcp", auth.mcp, limiter(120), mcpHandler(service));
   app.all("/mcp", auth.mcp, (req, res) => res.status(405).set("Allow", "POST").json({ error: "Stateless MCP endpoint supports POST only." }));
   app.use("/api", (req, res) => res.status(404).json({ error: "API không tồn tại." }));
-  app.use(express.static(path.join(root, "dist"), { index: false }));
-  app.get("/{*path}", (req, res) => res.sendFile(path.join(root, "dist/index.html")));
+  // Vite assets have content hashes in their names: cache them for a year. index.html is always revalidated.
+  app.use("/assets", express.static(path.join(root, "dist/assets"), { index: false, immutable: true, maxAge: "365d", fallthrough: false }));
+  app.use(express.static(path.join(root, "dist"), { index: false, setHeaders: res => res.set("Cache-Control", "no-cache") }));
+  app.get("/{*path}", (req, res) => res.set("Cache-Control", "no-cache").sendFile(path.join(root, "dist/index.html")));
   app.use((e, req, res, next) => {
     if (res.headersSent) return next(e);
     const status = e instanceof ZodError ? 400 : e.status || (e.name === "TimeoutError" ? 504 : 500);

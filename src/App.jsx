@@ -1,5 +1,6 @@
 import { motion, AnimatePresence, ActivePill, popIn, drawerPanel, backdropFade, pageEnter } from "./motion.jsx";
 import {startPolling,loadRequestIndex,retryDelay} from './polling.js';
+import {clearResourceCache} from './resource-cache.js';
 import Performance from './Performance.jsx';
 import LibraryView from './LibraryView.jsx';
 import {NoticeProvider,useNoticedState} from './NoticeContext.jsx';
@@ -124,7 +125,7 @@ export default function App() {
   }
   const center=useNotifications({user,api,open:drawer,labels:eventLabels,onIncoming:value=>{setToastRaw({...value,key:crypto.randomUUID()});}});
   function setToast(value){if(!value){const key=toast?.key;setToastLeaving(true);clearTimeout(toastExitTimer.current);toastExitTimer.current=setTimeout(()=>{toastExitTimer.current=null;setToastRaw(current=>current?.key===key?null:current);setBellPulse(true);},380);return;}center.record({...value,view});setToastRaw({...value,key:crypto.randomUUID(),source:({inbox:'Inbox',projects:'Cài đặt',library:'Tài liệu',memory:'Bộ nhớ project',connection:'Kết nối'})[view]});}
-  useEffect(()=>{setToastRaw(null);libraryCache.current.clear();setLoaded({projects:false,requests:false});},[user?.name,user?.role]);
+  useEffect(()=>{setToastRaw(null);libraryCache.current.clear();setLoaded({projects:false,requests:false});clearResourceCache();},[user?.name,user?.role]);
   useEffect(()=>{clearTimeout(toastExitTimer.current);toastExitTimer.current=null;setToastPaused(false);},[toast?.key]);
   useLayoutEffect(()=>{const measure=()=>{if(!toast||!toastRef.current||!bellRef.current||toastRef.current.classList.contains('toast-to-bell'))return;const b=bellRef.current.getBoundingClientRect(),t=toastRef.current.getBoundingClientRect();setToastTarget({'--toast-x':(b.left+b.width/2-t.left-t.width/2)+'px','--toast-y':(b.top+b.height/2-t.top-t.height/2)+'px'});};measure();window.addEventListener('resize',measure);return()=>window.removeEventListener('resize',measure);},[toast?.key,center.unread]);
   useEffect(()=>()=>clearTimeout(toastExitTimer.current),[]);
@@ -139,7 +140,8 @@ export default function App() {
   }
   async function refreshWorkspace() {
     // Each part shows as soon as it arrives; one failed part neither blanks nor holds back the others.
-    const stale=()=>selectedProject.current!==projectId||latestRefresh.current.user!==user||latestRefresh.current.view!==view;
+    // A view switch mid-read keeps the workspace data (it does not depend on the view); only the Library part is view-specific.
+    const stale=()=>selectedProject.current!==projectId||latestRefresh.current.user!==user;
     const [rowsResult,configResult,projectsResult] = await Promise.allSettled([loadRequestIndex(api,user?.role==='admin'),api("/config"),api("/projects")]);
     if(stale())return;
     if(rowsResult.status==='fulfilled'){const rows=rowsResult.value;setRequests(previous=>JSON.stringify(previous)===JSON.stringify(rows)?previous:rows);setLoaded(v=>v.requests?v:{...v,requests:true});}
@@ -152,7 +154,7 @@ export default function App() {
     let l=libraryCache.current.get(version);
     if(view==='library'&&nextId&&!l)l=await api('/library?projectId='+encodeURIComponent(nextId));
     if(stale())return;
-    if(l?.id&&view==='library'){libraryCache.current.clear();libraryCache.current.set(l.id,l);}
+    if(l?.id&&view==='library'&&latestRefresh.current.view==='library'){libraryCache.current.clear();libraryCache.current.set(l.id,l);}
     setProjects(p.projects);setLoaded(v=>v.projects?v:{...v,projects:true});
     if(nextId!==projectId){setProjectId(nextId);localStorage.setItem('lab-project-id',nextId);}
     if(l)setLibrary(l);
@@ -161,7 +163,11 @@ export default function App() {
   }
   // While Lab restarts, keep the boot screen and retry instead of showing the login form.
   useEffect(()=>{let alive=true,failures=0,timer=null;const check=()=>fetch("/api/auth/me").then(async r=>{if(gatewayDown(r.status))throw new Error("down");const u=r.ok?(await r.json()).user:null;if(!alive)return;if(u)setUser(u);setBootRetry(false);setBoot(false);}).catch(()=>{if(!alive)return;failures++;setBootRetry(true);timer=setTimeout(check,retryDelay(failures,30000));});check();return()=>{alive=false;clearTimeout(timer);}; },[]);
-  useEffect(()=>{if(!user)return;let alive=true;const polling=startPolling(()=>refresh(),{interval:()=>view==='inbox'?15000:30000,onError:e=>{if(alive)setError(e.message);}});return()=>{alive=false;polling.stop();};},[user,projectId,view]);
+  // Switching views keeps the workspace poll running (no full reload per tab switch); it always
+  // calls the latest refresh so the current view is used. Only the Library needs a read on entry.
+  const refreshRef=useRef(refresh),viewRef=useRef(view);refreshRef.current=refresh;viewRef.current=view;
+  useEffect(()=>{if(!user)return;let alive=true;const polling=startPolling(()=>refreshRef.current(),{interval:()=>viewRef.current==='inbox'?15000:30000,onError:e=>{if(alive)setError(e.message);}});return()=>{alive=false;polling.stop();};},[user,projectId]);
+  useEffect(()=>{if(user&&view==='library')refreshRef.current().catch(e=>setError(e.message));},[view]);
   useEffect(()=>{if(!user||!selected){setDetail(null);return;}let cancelled=false;api("/requests/"+selected).then(v=>{if(!cancelled)setDetail(v);}).catch(e=>{if(!cancelled)setError(e.message);});return()=>{cancelled=true;};},[selected,JSON.stringify(requests.find(r=>r.id===selected)),user]);
   useEffect(()=>{if(toastExitTimer.current)return;setToastLeaving(false);if(!toast||toastPaused)return;const a=setTimeout(()=>setToastLeaving(true),5000),b=setTimeout(()=>{setToastRaw(null);setBellPulse(true);},5380);return()=>{clearTimeout(a);clearTimeout(b);};},[toast?.key,toastPaused]);
   useEffect(()=>{if(!bellPulse)return;const t=setTimeout(()=>setBellPulse(false),650);return()=>clearTimeout(t);},[bellPulse]);
