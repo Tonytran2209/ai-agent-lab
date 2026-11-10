@@ -412,3 +412,8 @@ test("ui-kpi-v2: only standard KPIs are scored; success counts confirmed units i
   const profile = detectToolProfile(r, null, { now, minSamples: 20 })
   assert.equal(profile.errorRateTarget, 48, "baseline from confirmed units: 43 failed of 90 (47.8%), rounded up to 0.5% steps")
 })
+
+test("compact durations switch to hours from one hour", async () => {
+  const { compactTime } = await import("../src/tool-format.js")
+  assert.deepEqual([850, 14100, 92000, 3599000, 10800000].map(compactTime), ["850ms", "14.1s", "1m 32s", "59m 59s", "3h 0m"])
+})
