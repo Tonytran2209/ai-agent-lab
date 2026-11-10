@@ -363,3 +363,30 @@ test("reports are served at once and refreshed in the background; failures keep 
   assert.equal(back.status, "ready")
   assert.equal(back.stale, undefined)
 })
+
+test("connection-map statuses never wait for app reports and send no report body", async () => {
+  let release
+  const gate = new Promise((r) => (release = r))
+  let calls = 0
+  const monitor = createAppMonitoring({
+    targets: () => [target],
+    fetcher: async () => {
+      calls++
+      await gate
+      return Response.json({ protocol: "app-monitoring-v1", appId: "writer-studio", generatedAt: new Date().toISOString(), window: { days: 7 },
+        runtime: {}, database: { status: "ready" }, jobRuns: { runs: [{ job: "secret job" }] } })
+    },
+  })
+  const first = monitor.statuses(7)
+  assert.equal(first.targets[0].status, "loading", "answers at once, before the app responds")
+  assert.equal(calls, 1, "and starts a background read")
+  monitor.statuses(7)
+  assert.equal(calls, 1, "one read in flight at a time")
+  release()
+  await new Promise((r) => setTimeout(r, 20))
+  const second = monitor.statuses(7)
+  assert.equal(second.targets[0].status, "ready")
+  assert.equal(second.targets[0].appId, "writer-studio")
+  assert.ok(!JSON.stringify(second).includes("secret job"), "no report body")
+  assert.ok(!JSON.stringify(second).includes(target.token))
+})

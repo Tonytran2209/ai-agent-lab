@@ -1,0 +1,186 @@
+/* Connection map (ConnectionMap.jsx): pannable, zoomable canvas with draggable nodes. */
+.cmap-canvas {
+  position: relative;
+  height: 540px;
+  overflow: hidden;
+  border-radius: 14px;
+  background-color: var(--surface-soft);
+  background-image: radial-gradient(circle, color-mix(in srgb, var(--secondary) 22%, transparent) 1px, transparent 1.2px);
+  background-size: 22px 22px;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+.cmap-canvas.is-panning { cursor: grabbing; }
+.cmap-stage {
+  position: absolute;
+  inset: 0 auto auto 0;
+  width: 0;
+  height: 0;
+  transform-origin: 0 0;
+}
+.cmap-edges {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  overflow: visible;
+  pointer-events: none;
+}
+
+/* Edges: a soft base line plus a flowing dash in the direction data moves. */
+.cmap-edge path { fill: none; stroke-linecap: round; }
+.cmap-edge-base { stroke: var(--control-border); stroke-width: 2; }
+.cmap-edge-flow { stroke-width: 2.4; stroke-dasharray: 2 14; animation: cmap-flow 1.2s linear infinite; }
+.cmap-edge.app .cmap-edge-base { stroke-dasharray: 2 6; }
+.cmap-edge.success .cmap-edge-flow { stroke: var(--signal-success-dot); }
+.cmap-edge.warning .cmap-edge-flow { stroke: var(--signal-warning-border); }
+.cmap-edge.error .cmap-edge-flow { stroke: var(--danger); animation: none; stroke-dasharray: 6 6; }
+.cmap-edge.neutral .cmap-edge-flow { stroke: var(--muted); animation-duration: 2.4s; }
+.cmap-edge.is-selected .cmap-edge-base { stroke: var(--text); stroke-width: 2.6; }
+@keyframes cmap-flow { to { stroke-dashoffset: -32; } }
+@media (prefers-reduced-motion: reduce) {
+  .cmap-edge-flow { animation: none; }
+}
+.cmap-edge-label {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--card);
+  color: var(--secondary);
+  font-size: 11px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.cmap-column-title {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--secondary);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* Nodes: positioned by their centre. */
+.cmap-node {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  width: 236px;
+  min-height: 96px;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--card);
+  color: var(--text);
+  text-align: left;
+  box-shadow: var(--card-shadow, var(--shadow));
+  cursor: grab;
+  transition: border-color .15s, box-shadow .15s;
+}
+.cmap-canvas.is-panning .cmap-node { cursor: grabbing; }
+.cmap-node:hover { border-color: var(--control-border); }
+.cmap-node:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.cmap-node.is-selected { border-color: var(--text); }
+.cmap-node.lab { width: 252px; border-width: 2px; }
+.cmap-node.app { border-style: dashed; }
+.cmap-node-icon {
+  flex: 0 0 34px;
+  height: 34px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  background: var(--surface-soft);
+  color: var(--text);
+}
+.cmap-node.lab .cmap-node-icon { background: var(--text); color: var(--card); }
+.cmap-node-text { display: grid; gap: 4px; min-width: 0; }
+.cmap-node-text strong { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cmap-node-text small { font-size: 12px; color: var(--secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.cmap-signal {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  margin-top: 2px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--secondary);
+  background: var(--surface-soft);
+}
+.cmap-signal > span { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.cmap-signal.success { color: var(--signal-success-text); background: var(--signal-success-fill); }
+.cmap-signal.warning { color: var(--signal-warning-text); background: var(--signal-warning-fill); }
+.cmap-signal.error { color: var(--signal-error-text); background: var(--signal-error-fill); }
+
+.cmap-tools {
+  position: absolute;
+  left: 14px;
+  bottom: 14px;
+  display: flex;
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--card);
+  cursor: default;
+}
+.cmap-legend {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  display: flex;
+  gap: 14px;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--card);
+  color: var(--secondary);
+  font-size: 11px;
+  pointer-events: none;
+}
+.cmap-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.cmap-legend i { width: 22px; height: 0; border-top: 2px solid var(--control-border); }
+.cmap-legend i.dotted { border-top-style: dotted; }
+.cmap-empty { position: absolute; transform: translateX(-50%); color: var(--muted); white-space: nowrap; }
+
+.cmap-details {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  bottom: 60px;
+  width: min(340px, calc(100% - 28px));
+  overflow: auto;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--card);
+  box-shadow: var(--shadow);
+  cursor: default;
+  user-select: text;
+}
+.cmap-details header { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.cmap-details h3 { margin: 4px 0 0; font-size: 15px; }
+.cmap-details dl { margin: 0; display: grid; gap: 0; }
+.cmap-details dl > div { display: grid; gap: 2px; padding: 9px 0; border-bottom: 1px solid var(--border); }
+.cmap-details dl > div:last-child { border-bottom: 0; }
+.cmap-details dt { font-size: 12px; color: var(--secondary); }
+.cmap-details dd { margin: 0; font-size: 13px; overflow-wrap: anywhere; }
+.cmap-open { width: 100%; margin-top: 12px; }
+
+@media (max-width: 600px) {
+  .cmap-canvas { height: 460px; }
+  .cmap-legend { display: none; }
+  .cmap-details { bottom: 14px; }
+}

@@ -173,6 +173,8 @@ export function createApp(config, options = {}) {
     const listed=monitoringRegistry.list();
     res.set('Cache-Control','private, no-store').json({...snapshot,tools:listed.targets,max:listed.max,deploys:await deployEvents.snapshot(),priorities:monitoringRegistry.priorities()});
   });
+  // Lightweight, non-blocking app states for the connection map (no reports, no Railway reads).
+  app.get('/api/monitoring/status',auth.admin,(req,res)=>{const {days}=z.object({days:z.coerce.number().int().min(1).max(30).default(7)}).strict().parse(req.query);res.set('Cache-Control','private, no-store').json(appMonitoring.statuses(days));});
   app.get('/api/settings/monitoring',auth.admin,(req,res)=>res.set('Cache-Control','private, no-store').json(monitoringRegistry.list()));
   // Saving a connected tool reads its real report once and detects jobs, Main Job and targets.
   const detectNow=async id=>{const target=monitoringRegistry.targets().find(t=>t.id===id);if(!target)return;const r=await appMonitoring.fullReport(target);if(r.report)monitoringRegistry.applyDetection(id,r.report,detectToolProfile);};

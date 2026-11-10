@@ -413,7 +413,8 @@ export function createAppMonitoring({
   now = Date.now,
 } = {}) {
   let cache = new Map(),
-    lastGood = new Map()
+    lastGood = new Map(),
+    latestById = new Map()
   // One bounded, authenticated, no-redirect read. `expectedAppId` null accepts any app id (probe).
   async function fetchReport(target, days, expectedAppId) {
     const base = { id: target.id, name: target.name, origin: target.origin }
@@ -490,6 +491,7 @@ export function createAppMonitoring({
       }
       entry.value = value
       entry.at = now()
+      latestById.set(target.id, { value, at: entry.at })
       return value
     })
     return entry
@@ -526,6 +528,34 @@ export function createAppMonitoring({
         targets: await Promise.all(configured.map((t) => read(t, days))),
       }
     },
+    // Connection map: never waits. Returns each app's latest known state (from any read) and starts
+    // a background read when none is fresh, so the map renders at once and fills in as reads land.
+    // Only the status fields go out, never the report body.
+    statuses(days = 7) {
+      let configured
+      try {
+        configured = targets()
+      } catch {
+        return { generatedAt: new Date(now()).toISOString(), targets: [], configurationError: true }
+      }
+      return {
+        generatedAt: new Date(now()).toISOString(),
+        targets: configured.map((t) => {
+          const known = latestById.get(t.id)
+          if (!known || now() - known.at > 30000) read(t, days).catch(() => {})
+          const v = known?.value
+          return {
+            id: t.id, name: t.name, origin: t.origin,
+            status: v ? v.status : "loading",
+            fetchMs: v?.fetchMs ?? null,
+            appId: v?.report?.appId ?? null,
+            generatedAt: v?.report?.generatedAt ?? null,
+            stale: Boolean(v?.stale),
+            checkedAt: known ? new Date(known.at).toISOString() : null,
+          }
+        }),
+      }
+    },
     // Uncached 30-day read used to detect a tool profile when a tool is saved or re-detected.
     fullReport(target) {
       return fetchReport(target, 30, target.appId)
@@ -549,6 +579,7 @@ export function createAppMonitoring({
     clear() {
       cache = new Map()
       lastGood = new Map()
+      latestById = new Map()
     },
   }
 }

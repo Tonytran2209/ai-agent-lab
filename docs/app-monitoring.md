@@ -74,7 +74,14 @@ Admins add, edit, test and remove apps in **Cài đặt → Monitoring ứng d�
 
 ### Connection map
 
-Performance → AI Agent Lab shows monitored apps as a separate group below registered projects. Their wires are dotted and their node borders dashed. A node's status comes from the last monitoring read: Đang báo cáo, Báo cáo thiếu dữ liệu, Sai token, or Mất tín hiệu. The same app can appear twice, once as a registered project (repository and runner connection) and once as a monitored app (runtime report), because these are separate connections with different authority. Selecting a monitored app shows its address, app id, last report time and Lab → app latency, and opens its metrics in Projects. Monitored apps never receive feedback, run code or deploy.
+Performance → AI Agent Lab shows a pannable, zoomable map. AI Agent Lab sits in the middle, registered projects are on the left, and monitored apps are on the right.
+- **Projects** (Lab runs Codex, CI and deploys) connect with a solid line.
+- **Monitored apps** (read-only reports) connect with a dotted line. Their node borders are dashed.
+- **Flowing dashes** show the direction data moves. They are coloured by status and still under reduced motion.
+- **Moving around:** drag a node to move it; positions are kept per browser (`localStorage` `lab-connection-map-v2`). Hold the mouse on the background to pan. Ctrl/⌘ + wheel or the toolbar zooms. "Vừa khung" fits the view and "Sắp xếp lại" restores the default layout.
+- **Details:** selecting a node opens its details; for an app, it links to the app's metrics.
+
+The map reads `GET /api/monitoring/status?days=N`. It returns each app's latest known state at once (status, app id, report time, fetch time) and starts a background read when none is fresh. It never includes report bodies, Railway deploy events or profile detection. Earlier, the map waited on the full `/api/monitoring` payload: every app's complete report (up to 12 s each) plus Railway GraphQL reads (up to 15 s), which made it slow. Apps without a read yet show "Đang kiểm tra".
 
 ### Connecting another app
 
