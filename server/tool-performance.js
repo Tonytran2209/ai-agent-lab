@@ -73,8 +73,12 @@ export function parseRuns(report, { includeEstimated = false } = {}) {
     accepted++
     const estimated = r.estimated === true
     if (estimated && !includeEstimated) continue
+    // Optional business units of one run (e.g. profiles in a batch): `succeeded` counts only units
+    // whose result was confirmed (for LinkedIn: confirmed by the platform).
+    const items = r.status !== "running" && count(r.items?.total) && r.items.total > 0 && count(r.items?.succeeded) && r.items.succeeded <= r.items.total
+      ? { total: r.items.total, succeeded: r.items.succeeded } : null
     runs.push({ job, workload: text(r.workload, 200) || "", parent: text(r.parent), runId: text(r.runId),
-      parentRunId: text(r.parentRunId), status: r.status, startedAt, endedAt, ...(estimated ? { estimated: true } : {}) })
+      parentRunId: text(r.parentRunId), status: r.status, startedAt, endedAt, ...(estimated ? { estimated: true } : {}), ...(items ? { items } : {}) })
   }
   return { runs, since: Date.parse(section?.since) || null, complete: section?.complete === true && rows.length === accepted }
 }
@@ -92,10 +96,11 @@ function runWindowStats(runs, start, end, targetFor) {
     const timedOut = r.status === "running" && positive(target) && end - r.startedAt > timeoutFactor * target * 60000
     const at = r.endedAt ?? (timedOut ? r.startedAt + timeoutFactor * target * 60000 : null)
     if (at === null || at < start || at >= end) continue
-    const o = outcomes.get(r.job) || { executed: 0, failed: 0, timedOut: 0 }
+    const o = outcomes.get(r.job) || { executed: 0, failed: 0, timedOut: 0, itemsTotal: 0, itemsSucceeded: 0 }
     o.executed++
     if (r.status === "failed" || timedOut) o.failed++
     if (timedOut) o.timedOut++
+    if (r.items) { o.itemsTotal += r.items.total; o.itemsSucceeded += r.items.succeeded }
     outcomes.set(r.job, o)
     if (r.status !== "success" || r.endedAt === null || r.startedAt === null) continue
     const workload = workloadClass(r.workload)
@@ -279,8 +284,12 @@ export function detectToolProfile(report, previous = null, { now = Date.now(), m
   let errorRateTargetSource = prior.errorRateTargetSource === "manual" ? "manual" : null
   if (errorRateTargetSource !== "manual") {
     const runsMain = runs.filter((r) => r.status !== "running" && (!main || r.job === main))
-    const executed = runsMain.length || (count(history?.executed) ? history.executed : 0)
-    const failed = runsMain.length ? runsMain.filter((r) => r.status === "failed").length : count(history?.failed) ? history.failed : 0
+    const withItems = runsMain.filter((r) => r.items)
+    const itemTotal = withItems.reduce((n, r) => n + r.items.total, 0)
+    // Business units (confirmed results) when the Main Job reports them, else runs.
+    const executed = itemTotal || runsMain.length || (count(history?.executed) ? history.executed : 0)
+    const failed = itemTotal ? itemTotal - withItems.reduce((n, r) => n + r.items.succeeded, 0)
+      : runsMain.length ? runsMain.filter((r) => r.status === "failed").length : count(history?.failed) ? history.failed : 0
     if (executed >= minSamples) {
       errorRateTarget = Math.max(1, Math.ceil(((100 * failed) / executed) * 2) / 2)
       errorRateTargetSource = "baseline"
@@ -308,12 +317,20 @@ export function detectToolProfile(report, previous = null, { now = Date.now(), m
 export const defaultResponseTargetMs = 2500
 export const defaultClickTargetMs = 200
 
+// ui-kpi-v2: the measurement standard every app's browser KPIs must follow to be scored.
+//   clickLatency  main action click → "processing" state painted (second animation frame)
+//   responseTime  main action click → the system visibly accepted the work (job created/queued,
+//                 first stream event or first partial result); never the job's completion
+// Exact milliseconds, nearest-rank P95 over the window. Reports without the marker are shown but
+// not scored, because they measure something else (e.g. completion time or histogram buckets).
+export const kpiStandard = "ui-kpi-v2"
+
 // User-facing latency (BA): P95 from performanceKpis against a per-tool target.
-export function uxMetric(kpi, targetMs, minSamples = defaultMinSamples) {
+export function uxMetric(kpi, targetMs, minSamples = defaultMinSamples, { standard = true } = {}) {
   const samples = count(kpi?.samples) ? kpi.samples : 0
   const p95Ms = samples > 0 && Number.isFinite(kpi?.p95Ms) && kpi.p95Ms >= 0 ? kpi.p95Ms : null
-  const status = p95Ms === null ? "nodata" : samples < minSamples ? "insufficient" : p95Ms > targetMs ? "bad" : "ok"
-  return { p95Ms, samples, targetMs, status }
+  const status = p95Ms === null ? "nodata" : !standard ? "nonstandard" : samples < minSamples ? "insufficient" : p95Ms > targetMs ? "bad" : "ok"
+  return { p95Ms, samples, targetMs, status, standard, precision: kpi?.precision === "exact" ? "exact" : p95Ms === null ? null : "bucket" }
 }
 
 // Recent runs for the history tab, newest first. Child runs (parentRunId) are attached to their
@@ -420,14 +437,22 @@ export function evaluateTool({ id, name, tool, connected = true, result = null, 
   const allUnits = jobs.flatMap((j) => j.units.map((u) => ({ ...u, role: j.role })))
   const headline = declaredMain ? worst(declaredMain.units) : worst(allUnits)
 
-  // Success rate counts every recorded Main Job run the app reports (jobRuns, up to its 61-day
-  // horizon), not only the selected window; other sources keep their own counts.
+  // Success rate uses the same window as the completion time (the selected period, or the wider
+  // window above). When the Main Job's runs report business units (`items`), it counts confirmed
+  // units, e.g. profiles LinkedIn confirmed, instead of runs.
   const parsed = report ? parseRuns(report) : { runs: [], since: null, complete: false }
   const mainRuns = parsed.runs.filter((r) => r.status !== "running" && (!declaredMain || r.job === declaredMain.name))
-  const outcomes = measured.source === "runs" && mainRuns.length
-    ? { executed: mainRuns.length, failed: mainRuns.filter((r) => r.status === "failed").length, timedOut: 0, unverified: 0, complete: parsed.complete }
-    : jobOutcomes(report, measured.outcomes, declaredMain?.name)
-  const recordedDays = measured.source === "runs" && mainRuns.length && parsed.since ? Math.max(1, Math.round((now - parsed.since) / 86400000)) : null
+  const mainOutcome = measured.source === "runs" && declaredMain ? measured.outcomes?.get(declaredMain.name) : null
+  let outcomes
+  if (mainOutcome?.itemsTotal > 0)
+    outcomes = { executed: mainOutcome.itemsTotal, failed: mainOutcome.itemsTotal - mainOutcome.itemsSucceeded, timedOut: 0, unverified: 0,
+      complete: parsed.complete, unit: "items", runs: mainOutcome.executed }
+  else if (mainOutcome)
+    outcomes = { executed: mainOutcome.executed, failed: mainOutcome.failed, timedOut: mainOutcome.timedOut, unverified: 0, complete: parsed.complete, unit: "runs" }
+  else {
+    const o = jobOutcomes(report, measured.outcomes, declaredMain?.name)
+    outcomes = o ? { ...o, unit: "runs" } : null
+  }
   const error = outcomes
     ? { ...outcomes, rate: outcomes.executed ? (100 * outcomes.failed) / outcomes.executed : null, target: errorTarget }
     : { executed: null, failed: null, timedOut: 0, rate: null, target: errorTarget, unverified: 0, complete: false }
@@ -438,10 +463,12 @@ export function evaluateTool({ id, name, tool, connected = true, result = null, 
     rate: error.rate == null ? null : 100 - error.rate, target: error.target == null ? null : 100 - error.target,
     status: error.status, timedOut: error.timedOut || 0, unverified: error.unverified || 0,
     targetDefault: ownErrorTarget == null && error.target != null,
+    unit: outcomes?.unit || "runs", runs: outcomes?.runs ?? error.executed,
   }
   const kpis = report?.performanceKpis
-  const response = uxMetric(kpis?.responseTime, positive(config.responseTargetMs) ? config.responseTargetMs : defaultResponseTargetMs, minSamples)
-  const click = uxMetric(kpis?.clickLatency, positive(config.clickTargetMs) ? config.clickTargetMs : defaultClickTargetMs, minSamples)
+  const standard = kpis?.standard === kpiStandard
+  const response = uxMetric(kpis?.responseTime, positive(config.responseTargetMs) ? config.responseTargetMs : defaultResponseTargetMs, minSamples, { standard })
+  const click = uxMetric(kpis?.clickLatency, positive(config.clickTargetMs) ? config.clickTargetMs : defaultClickTargetMs, minSamples, { standard })
   // profile.kpiDescriptions: what the app measures for each browser KPI (start → end event).
   response.measures = text(profile?.kpiDescriptions?.responseTime, 160)
   click.measures = text(profile?.kpiDescriptions?.clickLatency, 160)
@@ -466,8 +493,8 @@ export function evaluateTool({ id, name, tool, connected = true, result = null, 
         ? measured.source ? "Không có lần chạy nào kết thúc trong kỳ" : "App chưa gửi số liệu theo job"
         : null
 
-  // Completion time headline: the latest Main Job run that finished successfully with a measured
-  // duration. Unfinished, running and failed runs are left out.
+  // The completion-time headline is the window P95 (`headline`). The latest Main Job run that
+  // finished successfully is kept for the tooltip; unfinished, running and failed runs are left out.
   const history = report ? recentRuns(report, { mainJob: declaredMain?.name || null }) : []
   let latest = null
   for (const r of mainRuns)
@@ -486,7 +513,7 @@ export function evaluateTool({ id, name, tool, connected = true, result = null, 
   }
 
   return {
-    id, name, connected, status, reason, minSamples, source: measured.source, latest, timeTarget, timeTargetProvisional, windowDays, widened: windowDays !== days, recordedDays,
+    id, name, connected, status, reason, minSamples, source: measured.source, latest, timeTarget, timeTargetProvisional, windowDays, widened: windowDays !== days,
     owner: config.owner || "", mainJob: config.mainJob || declaredMain?.name || (jobs.length === 1 ? jobs[0].name : ""),
     hasMain: Boolean(declaredMain), jobCount: jobs.length,
     // Shown when the period has no measured run: the Main Job's declared/detected target.
