@@ -66,7 +66,7 @@ test("runs give Vietnam-time windows, previous-period comparison and timeouts", 
   assert.equal(m.units[0].p95Ms, 10 * min)
   assert.equal(m.units[0].previousP95Ms, 4 * min)
   assert.equal(m.units[0].samples, 1, "a run without a start time adds no duration")
-  assert.deepEqual(m.outcomes.get("Batch"), { executed: 4, failed: 3, timedOut: 1 }, "running past 3× target is a failure")
+  assert.deepEqual(m.outcomes.get("Batch"), { executed: 4, failed: 3, timedOut: 1, itemsTotal: 0, itemsSucceeded: 0 }, "running past 3× target is a failure")
   const noTarget = jobUnitsFor(r, 1, { now, targetFor: () => null })
   assert.equal(noTarget.outcomes.get("Batch").timedOut, 0, "without a target a running job is not timed out")
 })
@@ -176,8 +176,8 @@ test("missing targets, small samples and empty windows get distinct statuses", (
 test("empty windows say whether the app sends job data at all", () => {
   const withRuns = evaluateTool({ id: "w", name: "W", days: 1, now, tool: { jobs: [{ name: "Batch", role: "main", targetMinutes: 10, baselineSamples: 30 }] },
     result: { status: "ready", report: report({ jobRuns: { runs: [run("Batch", "2026-08-01T00:00:00Z", 5)] } }) } })
-  assert.equal(withRuns.status, "notarget", "no run in any window, but the recorded run still counts for the success rate")
-  assert.deepEqual([withRuns.success.executed, withRuns.latest.durationMs], [1, 5 * min], "success rate and latest finished workload use every recorded run")
+  assert.equal(withRuns.status, "nodata", "no run in any window: the success rate uses the same window as the completion time")
+  assert.deepEqual([withRuns.success.executed, withRuns.latest.durationMs], [null, 5 * min], "the latest finished workload is still known for the tooltip")
   assert.equal(withRuns.jobs[0].unmeasured, true)
   assert.equal(withRuns.headline, null)
   assert.equal(withRuns.mainTargetMinutes, 10, "the Main Job target is still shown without runs in the period")
@@ -187,7 +187,7 @@ test("empty windows say whether the app sends job data at all", () => {
 
 test("success rate, user latency and run history with sub-job breakdown", async () => {
   const { uxMetric, recentRuns } = await import("../server/tool-performance.js")
-  assert.deepEqual(uxMetric({ p95Ms: 85, samples: 30 }, 2500), { p95Ms: 85, samples: 30, targetMs: 2500, status: "ok" })
+  assert.deepEqual(uxMetric({ p95Ms: 85, samples: 30 }, 2500), { p95Ms: 85, samples: 30, targetMs: 2500, status: "ok", standard: true, precision: "bucket" })
   assert.equal(uxMetric({ p95Ms: 240, samples: 30 }, 200).status, "bad")
   assert.equal(uxMetric({ p95Ms: 240, samples: 3 }, 200).status, "insufficient")
   assert.equal(uxMetric(null, 200).status, "nodata")
@@ -385,4 +385,35 @@ test("every tool's summary has targets: a default success target and a provision
   const own = evaluateTool({ id: "se", name: "Script Engine", days: 7, now, result: { status: "ready", report: r },
     tool: { ...profile, errorRateTarget: 1, jobs: profile.jobs.map((j) => (j.role === "main" ? { ...j, targetMinutes: 2 } : j)) } })
   assert.deepEqual([own.success.target, own.success.targetDefault, own.timeTarget, own.timeTargetProvisional], [99, false, 2, false], "own targets win")
+})
+
+test("ui-kpi-v2: only standard KPIs are scored; success counts confirmed units in the selected window", async () => {
+  const { uxMetric, kpiStandard } = await import("../server/tool-performance.js")
+  assert.equal(kpiStandard, "ui-kpi-v2")
+  assert.equal(uxMetric({ p95Ms: 9000, samples: 40 }, 2500, 20, { standard: false }).status, "nonstandard", "completion-style KPIs are shown, not scored")
+  assert.equal(uxMetric({ p95Ms: 900, samples: 40, precision: "exact" }, 2500).precision, "exact")
+  const batch = (start, minutes, total, succeeded, status = "success") => ({ ...run("Connect batch", start, minutes, status), items: { total, succeeded } })
+  const r = report({ performanceKpis: { standard: "ui-kpi-v2", responseTime: { p95Ms: 800, samples: 30, precision: "exact" } },
+    jobRuns: { complete: true, runs: [
+      batch("2026-11-09T01:00:00Z", 20, 30, 27),
+      batch("2026-11-08T20:00:00Z", 5, 10, 10),
+      batch("2026-10-01T01:00:00Z", 90, 50, 10), // outside the 7-day window
+      { ...run("Connect batch", "2026-11-09T02:00:00Z", 1), items: { total: 3, succeeded: 4 } }, // invalid items are ignored
+    ] } })
+  const tool = { errorRateTarget: 5, minSamples: 1, jobs: [{ name: "Connect batch", role: "main", targetMinutes: 30 }] }
+  const t = evaluateTool({ id: "li", name: "LinkedIn", days: 7, now, tool, result: { status: "ready", report: r } })
+  assert.deepEqual([t.success.unit, t.success.executed, t.success.succeeded, t.success.runs], ["items", 40, 37, 3])
+  assert.equal(t.success.rate, 92.5)
+  assert.equal(t.success.status, "bad", "7.5% of confirmed units failed against a 5% target, although every batch completed")
+  assert.equal(t.response.status, "ok")
+  assert.equal(t.headline.samples, 3, "completion time: P95 of the window's Main Job runs")
+  const old = evaluateTool({ id: "li", name: "LinkedIn", days: 7, now, tool, result: { status: "ready", report: { ...r, performanceKpis: { responseTime: { p95Ms: 800, samples: 30 } } } } })
+  assert.equal(old.response.status, "nonstandard")
+  const profile = detectToolProfile(r, null, { now, minSamples: 20 })
+  assert.equal(profile.errorRateTarget, 48, "baseline from confirmed units: 43 failed of 90 (47.8%), rounded up to 0.5% steps")
+})
+
+test("compact durations switch to hours from one hour", async () => {
+  const { compactTime } = await import("../src/tool-format.js")
+  assert.deepEqual([850, 14100, 92000, 3599000, 10800000].map(compactTime), ["850ms", "14.1s", "1m 32s", "59m 59s", "3h 0m"])
 })

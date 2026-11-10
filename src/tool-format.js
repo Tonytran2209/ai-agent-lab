@@ -32,7 +32,9 @@ export function compactTime(ms) {
   if (ms < 1000) return Math.round(ms) + "ms"
   if (ms < 60000) return (Math.round(ms / 100) / 10).toString() + "s"
   const s = Math.round(ms / 1000)
-  return Math.floor(s / 60) + "m " + (s % 60) + "s"
+  if (s < 3600) return Math.floor(s / 60) + "m " + (s % 60) + "s"
+  const m = Math.round(s / 60)
+  return Math.floor(m / 60) + "h " + (m % 60) + "m"
 }
 
 // 17:53:01 09/11/2026 in the viewer's local time.

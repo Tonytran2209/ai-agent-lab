@@ -108,6 +108,12 @@
 .tool-metric.good { color: var(--signal-success-text); }
 .tool-metric.bad { color: var(--danger); }
 .tool-metric.muted { color: var(--text); }
+.tool-metric.dim { color: var(--secondary); }
+/* Target result of the Main Job, under the operational pill. */
+.tool-target-result { display: block; margin-top: 2px; font-weight: 500; }
+.tool-target-result.good { color: var(--signal-success-text); }
+.tool-target-result.bad { color: var(--danger); }
+.tool-target-result.muted { color: var(--secondary); }
 .tool-runs .tool-metric,
 .tool-jobs .tool-metric {
   display: inline;

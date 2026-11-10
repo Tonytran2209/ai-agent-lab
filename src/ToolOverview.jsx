@@ -1,7 +1,7 @@
 import React, { useLayoutEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { ChevronDown, ChevronRight, ChevronUp, CircleCheck, CircleDashed, CircleHelp, CircleAlert, ExternalLink, X, Plus, Settings2, ShieldCheck, ShieldAlert, Trash2, Layers, LoaderCircle } from "lucide-react"
-import { evaluateTool, statusOrder } from "../server/tool-performance.js"
+import { evaluateTool, statusOrder, statusLabels } from "../server/tool-performance.js"
 import { formatTime, formatPercent, timeAgo, compactTime, clockDate, stepAverages, groupSteps } from "./tool-format.js"
 import { ConnectToolForm, Drawer, ToolSettings } from "./ToolManager.jsx"
 import "./tool-overview.css"
@@ -16,11 +16,11 @@ const sourceLabels = {
 }
 const hints = {
   tool: "Tool và Main Job: công việc trọn vẹn mà người dùng nhận được kết quả. Lab tự nhận diện từ dữ liệu thật.",
-  status: "Trạng thái vận hành: Lab đọc được báo cáo của tool hay không, và lần báo cáo gần nhất. Màu của từng chỉ số cho biết đạt (xanh) hay chưa đạt (đỏ) target.",
-  time: "Số lớn: thời lượng của workload hoàn thành gần nhất (không tính lượt đang chạy, chưa hoàn thành hoặc lỗi). Dòng P95: 95% lượt chạy trong kỳ xong nhanh hơn mức này; chỉ chấm khi đủ số mẫu tối thiểu.",
-  success: "Tỷ lệ lượt chạy thành công trên tổng số lượt chạy app đã ghi nhận (tối đa 61 ngày): không lỗi kỹ thuật, không thất bại nghiệp vụ.",
-  response: "P95 đo trong trình duyệt người dùng: từ lúc bấm thao tác tạo nội dung đến khi kết quả có ý nghĩa đầu tiên hiện ra. Mỗi app khai báo thao tác được đo (dòng dưới số). Giá trị là cận trên của nhóm histogram, ví dụ 10s = trong khoảng 5–10s.",
-  click: "P95 đo trong trình duyệt người dùng: từ lúc bấm đến khi giao diện vẽ xong phản hồi đầu tiên (ví dụ trạng thái đang tạo). Giá trị là cận trên của nhóm histogram, ví dụ 500ms = trong khoảng 200–500ms.",
+  status: "Dòng trên: trạng thái vận hành (Lab đọc được báo cáo của tool hay không). Dòng dưới: kết quả so với mục tiêu của Main Job (thời gian hoàn thành và tỷ lệ thành công) trong kỳ.",
+  time: "P95 thời lượng Main Job trong kỳ: 95% lượt chạy thành công xong nhanh hơn mức này. Kỳ không có lượt nào thì dùng 30 hoặc 61 ngày gần nhất (ghi rõ dưới số). Lượt hoàn thành gần nhất xem trong tooltip.",
+  success: "Tỷ lệ thành công trong cùng kỳ với thời gian hoàn thành, gồm cả lỗi kỹ thuật và thất bại nghiệp vụ. Khi app báo đơn vị nghiệp vụ (ví dụ hồ sơ LinkedIn đã được nền tảng xác nhận), tỷ lệ tính trên đơn vị đó thay vì lượt chạy.",
+  response: "Chuẩn ui-kpi-v2, P95 đo trong trình duyệt: từ lúc bấm thao tác chính đến khi hệ thống xác nhận đã nhận việc (tạo job, sự kiện đầu tiên hoặc kết quả đầu tiên). Không phải thời gian hoàn thành job. App chưa theo chuẩn hiển thị màu xám, không chấm.",
+  click: "Chuẩn ui-kpi-v2, P95 đo trong trình duyệt: từ lúc bấm đến khi giao diện đã vẽ trạng thái đang xử lý. App chưa theo chuẩn hiển thị màu xám, không chấm.",
 }
 const toneOf = (status) => ({ ok: "good", bad: "bad" })[status] || "muted"
 
@@ -55,6 +55,16 @@ function summaryTone(value, target, kind) {
   return (kind === "max" ? value <= target : value >= target) ? "good" : "bad"
 }
 const summaryTarget = (text, has, qualifier) => (has ? "Mục tiêu: " + text + (qualifier ? " · " + qualifier : "") : "Chưa có mục tiêu")
+
+// Browser KPIs: coloured against the target only when the app follows ui-kpi-v2.
+function KpiCell({ kpi, minSamples }) {
+  const value = kpi.p95Ms == null ? "—" : (kpi.precision === "bucket" ? "≤ " : "") + compactTime(kpi.p95Ms)
+  const note = kpi.p95Ms == null ? null : !kpi.standard ? "Chưa theo chuẩn đo ui-kpi-v2"
+    : kpi.samples < minSamples ? kpi.samples + "/" + minSamples + " mẫu" : null
+  return <MetricCell value={value} tone={kpi.standard ? summaryTone(kpi.p95Ms, kpi.targetMs, "max") : "dim"}
+    target={"Mục tiêu: ≤ " + compactTime(kpi.targetMs)} note={note}
+    title={[kpi.samples ? "P95 · " + kpi.samples + " mẫu" + (kpi.precision === "bucket" ? " · cận trên nhóm histogram" : "") : "App chưa đo", kpi.measures].filter(Boolean).join("\n")} />
+}
 
 function MetricCell({ value, tone, target, note, title }) {
   return (
@@ -312,24 +322,27 @@ export default function ToolOverview({ data, days = 7, api, onOpenReport, onChan
                             <span>
                               <b>{t.name}</b>
                               <small>{t.description || t.mainJob || (t.jobCount > 1 ? "Chưa có job tổng · chấm theo " + t.jobCount + " job" : "Chưa có dữ liệu để nhận diện")}</small>
-                              <code>{(t.success.executed ?? 0) + " runs"}{deploys?.items ? " · " + deploys.items.length + " deploys" : ""}{t.owner ? " · " + t.owner : ""}</code>
+                              <code>{(t.success.runs ?? 0) + " runs"}{deploys?.items ? " · " + deploys.items.length + " deploys" : ""}{t.owner ? " · " + t.owner : ""}</code>
                             </span>
                           </button>
                         </th>
                         <td>
                           <OpPill op={op} />
                           <small className="tool-dim">{t.reportedAt ? timeAgo(t.reportedAt) : t.reason || ""}</small>
+                          {t.connected && <small className={"tool-target-result " + toneOf(t.status)}>Mục tiêu: {statusLabels[t.status]}</small>}
                         </td>
                         <td>
                           {(() => {
-                            // Headline: the latest run, finished or not; the period P95 follows.
+                            // Headline: P95 of the Main Job in the window (same rule for every tool);
+                            // the latest finished workload is in the tooltip.
                             const l = t.latest
-                            const tone = summaryTone(l ? l.durationMs : null, timeTarget == null ? null : timeTarget * 60000, "max")
+                            const tone = summaryTone(u ? u.p95Ms : null, timeTarget == null ? null : timeTarget * 60000, "max")
                             return (
-                              <MetricCell value={l ? compactTime(l.durationMs) : "—"} tone={tone}
-                                title={[l ? "Workload hoàn thành gần nhất: " + (l.workload || "—") + " · " + timeAgo(new Date(l.at).toISOString()) : t.reason,
-                                  u ? "P95 " + (t.widened ? t.windowDays + " ngày gần nhất" : "trong kỳ") + ": " + compactTime(u.p95Ms) + " · " + u.samples + " mẫu" : null].filter(Boolean).join("\n")}
-                                target={summaryTarget("≤ " + minutesText(timeTarget), timeTarget != null, t.timeTargetProvisional ? "tạm tính" : null)} />
+                              <MetricCell value={u ? compactTime(u.p95Ms) : "—"} tone={tone}
+                                title={[u ? "P95 " + (t.widened ? t.windowDays + " ngày gần nhất" : "trong kỳ") + " · " + u.samples + " mẫu" : t.reason,
+                                  l ? "Hoàn thành gần nhất: " + compactTime(l.durationMs) + " · " + (l.workload || "—") + " · " + timeAgo(new Date(l.at).toISOString()) : null].filter(Boolean).join("\n")}
+                                target={summaryTarget("≤ " + minutesText(timeTarget), timeTarget != null, t.timeTargetProvisional ? "tạm tính" : null)}
+                                note={u ? (t.widened ? t.windowDays + " ngày gần nhất · " : "") + u.samples + (u.samples < t.minSamples ? "/" + t.minSamples : "") + " mẫu" : null} />
                             )
                           })()}
                           {t.jobs.length > 0 && <SubJobMenu tool={t} label={t.hasMain && subCount ? subCount + " sub-jobs" : t.jobs.length + " jobs"} onOpenRuns={() => setOpen({ id: t.id, tab: "runs" })} />}
@@ -339,17 +352,17 @@ export default function ToolOverview({ data, days = 7, api, onOpenReport, onChan
                               target; a small sample is noted in the tooltip instead of greying the value. */}
                           <MetricCell value={t.success.rate == null ? "—" : formatPercent(t.success.rate)}
                             tone={summaryTone(t.success.rate, t.success.target, "min")}
-                            title={t.success.executed != null && t.success.executed < t.minSamples ? "Mới có " + t.success.executed + " lượt chạy (cần ≥ " + t.minSamples + " để chấm chính thức)" : undefined}
+                            title={t.success.executed != null && t.success.executed < t.minSamples ? "Mới có " + t.success.executed + (t.success.unit === "items" ? " đơn vị" : " lượt chạy") + " (cần ≥ " + t.minSamples + " để chấm chính thức)" : undefined}
                             target={summaryTarget("≥ " + formatPercent(t.success.target), t.success.target != null, t.success.targetDefault ? "mặc định" : null)}
-                            note={t.success.executed ? "Đo trên " + t.success.executed + " lượt chạy đã ghi nhận" : null} />
+                            note={t.success.executed ? (t.success.unit === "items"
+                              ? t.success.succeeded + "/" + t.success.executed + " đơn vị được xác nhận · " + t.success.runs + " lượt chạy"
+                              : "Đo trên " + t.success.executed + " lượt chạy") + (t.widened ? " · " + t.windowDays + " ngày" : "") : null} />
                         </td>
                         <td>
-                          <MetricCell value={compactTime(t.response.p95Ms)} tone={toneOf(t.response.status)} target={"Mục tiêu: ≤ " + compactTime(t.response.targetMs)}
-                            title={[t.response.samples ? "P95 · " + t.response.samples + " mẫu" : "App chưa đo", t.response.measures].filter(Boolean).join("\n")} />
+                          <KpiCell kpi={t.response} minSamples={t.minSamples} />
                         </td>
                         <td>
-                          <MetricCell value={compactTime(t.click.p95Ms)} tone={toneOf(t.click.status)} target={"Mục tiêu: ≤ " + compactTime(t.click.targetMs)}
-                            title={[t.click.samples ? "P95 · " + t.click.samples + " mẫu" : "App chưa đo", t.click.measures].filter(Boolean).join("\n")} />
+                          <KpiCell kpi={t.click} minSamples={t.minSamples} />
                         </td>
                         <td className="tool-actions">
                           {api && <button type="button" className="icon-button" aria-label={"Cài đặt " + t.name} title="Cài đặt" onClick={() => setDrawer(t.id)}><Settings2 size={17} /></button>}
