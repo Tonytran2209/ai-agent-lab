@@ -7,7 +7,7 @@ const sources={library:'Tài liệu',learning:'MD & kinh nghiệm',evaluation:'A
 const phases={syncing:'Đang đồng bộ',passed:'Đạt kiểm tra','needs-review':'Cần xem xét',sent:'Đã gửi',blocked:'Đang bị chặn',ambiguous:'Cần xác minh kết quả gửi',expired:'Đã hết hạn',queued:'Đã xếp hàng',waiting:'Đang chờ',running:'Đang xử lý',failed:'Cần xử lý',ready:'Sẵn sàng',verified:'Đã xác minh',active:'Đã kích hoạt',completed:'Hoàn tất',cancelled:'Đã dừng',surveying:'Đang khảo sát',review:'Chờ xem xét',pr:'Đã tạo PR',ci:'Đang kiểm tra CI'};
 export const notificationSource=n=>n.source==='client'?(views[n.view]||'Ứng dụng'):(sources[n.source]||'Ứng dụng');
 export const notificationMessage=(n,labels={})=>n.source==='request'?[labels[n.eventType]||n.eventType,n.message].filter(Boolean).join(' · '):[n.phase&&(phases[n.phase]||n.phase),n.message].filter(Boolean).join(' · ');
-const syncError=e=>/Failed to fetch|NetworkError|Load failed/i.test(e?.message||'')?'Không kết nối được Lab. Thông báo sẽ tự đồng bộ khi kết nối trở lại.':(e?.message||'Chưa đồng bộ được thông báo.');
+const syncError=e=>e?.network||/Failed to fetch|NetworkError|Load failed/i.test(e?.message||'')?'Không kết nối được Lab. Thông báo sẽ tự đồng bộ khi kết nối trở lại.':(e?.message||'Chưa đồng bộ được thông báo.');
 const noticeDate=new Intl.DateTimeFormat('vi-VN',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit',timeZone:'Asia/Ho_Chi_Minh'});
 const formatNoticeDate=at=>at&&Number.isFinite(Date.parse(at))?noticeDate.format(new Date(at)):'Không rõ thời gian';
 const identity=user=>user?JSON.stringify([user.role,user.name]):null;

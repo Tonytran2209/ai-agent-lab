@@ -12,9 +12,9 @@ test('browser polling coalesces slow calls, suspends hidden tabs, resumes once a
  p.tick();p.tick();assert.equal(count,1);doc.change(true);resolve();await settle();assert.equal(timers.scheduled.size,0);
  doc.change(false);await settle();assert.equal(count,2);assert.equal(timers.scheduled.size,1);p.stop();doc.change(false);assert.equal(timers.scheduled.size,0);assert.equal(count,2);
 });
-test('failed polling uses bounded backoff and a successful call restores normal cadence',async()=>{
+test('failed polling retries soon, then uses bounded backoff and a successful call restores normal cadence',async()=>{
  const timers=clock(),doc=visibility();let fails=true;const p=startPolling(async()=>{if(fails)throw Error('offline');},{document:doc,timers,interval:()=>30000});await settle();
- assert.equal([...timers.scheduled.values()][0].ms,60000);await timers.fire();assert.equal([...timers.scheduled.values()][0].ms,120000);fails=false;await timers.fire();assert.equal([...timers.scheduled.values()][0].ms,30000);p.stop();
+ const next=()=>[...timers.scheduled.values()][0].ms;assert.equal(next(),3000);await timers.fire();assert.equal(next(),10000);await timers.fire();assert.equal(next(),60000);await timers.fire();assert.equal(next(),120000);await timers.fire();assert.equal(next(),120000);fails=false;await timers.fire();assert.equal([...timers.scheduled.values()][0].ms,30000);p.stop();
 });
 test('idle browser request budget falls and all paginated history remains searchable',async()=>{
  const timers=clock(),doc=visibility();let count=0;const p=startPolling(async()=>{count+=3;},{document:doc,timers,interval:()=>30000});await settle();for(let i=0;i<9;i++)await timers.fire();p.stop();

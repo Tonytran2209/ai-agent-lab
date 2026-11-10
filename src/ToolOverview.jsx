@@ -257,6 +257,8 @@ function ToolDetail({ tool, onOpenReport }) {
   )
 }
 
+const clockTime = (at) => new Intl.DateTimeFormat("vi-VN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Ho_Chi_Minh" }).format(new Date(at))
+
 export default function ToolOverview({ data, days = 7, api, onOpenReport, onChanged = () => {} }) {
   const [open, setOpen] = useState(null),
     [drawer, setDrawer] = useState(null),
@@ -329,6 +331,7 @@ export default function ToolOverview({ data, days = 7, api, onOpenReport, onChan
                         <td>
                           <OpPill op={op} />
                           <small className="tool-dim">{t.reportedAt ? timeAgo(t.reportedAt) : t.reason || ""}</small>
+                          {results.get(t.id)?.stale && <small className="tool-stale" title="Lần đọc mới nhất không thành công (app đang khởi động lại, chậm hoặc mất kết nối). Lab đang hiện số liệu đọc được gần nhất và sẽ tự đọc lại.">App chưa phản hồi · số liệu lúc {clockTime(results.get(t.id).stale.since)}</small>}
                           {t.connected && <small className={"tool-target-result " + toneOf(t.status)}>Mục tiêu: {statusLabels[t.status]}</small>}
                         </td>
                         <td>

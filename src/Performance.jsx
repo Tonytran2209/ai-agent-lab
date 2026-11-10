@@ -768,8 +768,9 @@ function RuntimeReport({ target: t, days }) {
     },
     { cost: 0 },
   )
-  const tone =
-    t.status === "ready"
+  const tone = t.stale
+    ? "warning"
+    : t.status === "ready"
       ? "success"
       : t.status === "degraded"
         ? "warning"
@@ -783,7 +784,9 @@ function RuntimeReport({ target: t, days }) {
           <p className="perf-repository">{t.origin}</p>
         </div>
         <Signal tone={tone}>
-          {t.status === "ready"
+          {t.stale
+            ? "App chưa phản hồi · số liệu lúc " + new Intl.DateTimeFormat("vi-VN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Ho_Chi_Minh" }).format(new Date(t.stale.since))
+            : t.status === "ready"
             ? "App & database phản hồi"
             : t.status === "unauthorized"
               ? "Không xác thực được"

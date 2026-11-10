@@ -315,3 +315,38 @@ test("a stored profile is re-detected at once when the report shows a job it doe
     rmSync(dir, { recursive: true, force: true })
   }
 })
+test("a failed read keeps the last good report for 30 minutes, marked stale, and retries after 5 s", async () => {
+  let clock = Date.parse("2026-11-10T07:00:00Z"), up = true, calls = 0
+  const monitor = createAppMonitoring({
+    targets: () => [target],
+    now: () => clock,
+    fetcher: async () => {
+      calls++
+      if (!up) throw new TypeError("fetch failed")
+      return Response.json({ protocol: "app-monitoring-v1", appId: "writer-studio", generatedAt: new Date(clock).toISOString(),
+        window: { days: 7 }, http: { calls: 3 }, database: { status: "ready" } })
+    },
+  })
+  assert.equal((await monitor.snapshot(7)).targets[0].status, "ready")
+  up = false
+  clock += 31000
+  const stale = (await monitor.snapshot(7)).targets[0]
+  assert.equal(stale.status, "ready")
+  assert.equal(stale.report.http.calls, 3)
+  assert.deepEqual(stale.stale, { since: "2026-11-10T07:00:00.000Z", status: "unavailable" })
+  clock += 2000
+  await monitor.snapshot(7)
+  assert.equal(calls, 2, "a failure is cached for 5 s only")
+  clock += 4000
+  await monitor.snapshot(7)
+  assert.equal(calls, 3)
+  clock += 30 * 60000
+  const gone = (await monitor.snapshot(7)).targets[0]
+  assert.equal(gone.status, "unavailable")
+  assert.equal(gone.report, null)
+  up = true
+  clock += 6000
+  const back = (await monitor.snapshot(7)).targets[0]
+  assert.equal(back.status, "ready")
+  assert.equal(back.stale, undefined)
+})

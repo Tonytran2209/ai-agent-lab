@@ -821,3 +821,4 @@
 /* Ordered list rows: fixed index badge, name takes the remaining width, time on the right. */
 .tool-steps.tool-steps-ordered li > span.tool-step-index { flex: 0 0 22px; }
 .tool-steps.tool-steps-ordered li > span:nth-child(2) { flex: 1; min-width: 0; text-align: left; }
+.tool-stale{display:block;margin-top:2px;color:var(--warning,#b7791f);font-size:11px}
