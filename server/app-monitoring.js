@@ -404,12 +404,15 @@ const sectionsOf = (report) =>
     (k) => report[k] != null,
   )
 
+const STALE_MS = 30 * 60000
+
 export function createAppMonitoring({
   targets = () => monitoringTargets(),
   fetcher = fetch,
   now = Date.now,
 } = {}) {
-  let cache = new Map()
+  let cache = new Map(),
+    lastGood = new Map()
   // One bounded, authenticated, no-redirect read. `expectedAppId` null accepts any app id (probe).
   async function fetchReport(target, days, expectedAppId) {
     const base = { id: target.id, name: target.name, origin: target.origin }
@@ -472,12 +475,25 @@ export function createAppMonitoring({
     const key = [target.id, target.origin, target.appId, crypto.createHash("sha256").update(target.token).digest("hex"), days].join(":"),
       prior = cache.get(key)
     if (prior && prior.until > now()) return prior.promise
-    const promise = fetchReport(target, days, target.appId).then(({ reportedAppId, httpStatus, ...result }) =>
-      result.status === "invalid" || result.status === "not-found" ? { ...result, status: "unavailable" } : result,
-    )
-    cache.set(key, { until: now() + 30000, promise })
+    const entry = { until: now() + 30000, promise: null }
+    // A failed read (app restarting after a deploy, slow, offline) keeps showing the last good report
+    // for up to STALE_MS, marked `stale`, instead of blanking the tool. Failures are cached 5 s only.
+    entry.promise = fetchReport(target, days, target.appId).then(({ reportedAppId, httpStatus, ...raw }) => {
+      const result = raw.status === "invalid" || raw.status === "not-found" ? { ...raw, status: "unavailable" } : raw
+      if (result.report) {
+        lastGood.set(key, { result, at: now() })
+        if (lastGood.size > 360) lastGood = new Map([[key, lastGood.get(key)]])
+        return result
+      }
+      entry.until = Math.min(entry.until, now() + 5000)
+      const prior = lastGood.get(key)
+      return prior && now() - prior.at <= STALE_MS
+        ? { ...prior.result, stale: { since: new Date(prior.at).toISOString(), status: result.status } }
+        : result
+    })
+    cache.set(key, entry)
     if (cache.size > 360) cache = new Map()
-    return promise
+    return entry.promise
   }
   return {
     async snapshot(days) {
@@ -514,6 +530,7 @@ export function createAppMonitoring({
     },
     clear() {
       cache = new Map()
+      lastGood = new Map()
     },
   }
 }
