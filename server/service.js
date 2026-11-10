@@ -114,6 +114,9 @@ export function createService(db, options = {}) {
   const queueRows=rows=>{if(!serialized)return rows;const order=new Map(db.prepare('SELECT request_id,ticket,draining,historical_deployed FROM project_queue_order').all().map(x=>[x.request_id,x]));const leases=new Map(db.prepare("SELECT request_id,json_extract(data,'$.lease.expiresAt') AS expiresAt FROM local_planning WHERE json_extract(data,'$.lease') IS NOT NULL").all().map(j=>[j.request_id,j.expiresAt]));return rows.map(r=>({...r,historicalDeployment:Boolean(order.get(r.id)?.historical_deployed),queueTicket:order.get(r.id)?.ticket||0,queuePriority:order.get(r.id)?.draining||0,planningLease:leases.get(r.id)||null}));};
   const librarySourceCommit=id=>{const row=db.prepare("SELECT json_extract(data,'$.sourceCommit') AS sourceCommit FROM libraries WHERE id=?").get(id);if(!row)fail("Không tìm thấy library version.",404);return row.sourceCommit;};
   const queueState=(r,rows)=>{if(!serialized)return null;const p=projects.get(r.projectId);return projectQueueState(r,Array.isArray(rows)?rows:queueRows(list().reverse()),p,librarySourceCommit(p.libraryVersionId));};
+  // Queue view for a whole-table scan: list once, compute queue order once, reuse it for every row.
+  // Calling queueState(r) without rows re-reads the whole table per row (quadratic in request count).
+  const queueSnapshot=()=>{const rows=list().reverse();return {rows,ordered:queueRows(rows)};};
   const assertOpen=r=>{if(r.archivedAt||r.stopControl)fail('Request đã dừng hoặc nằm trong thùng rác; tạo feedback mới để thực hiện tiếp.',409);};
   const assertTurn=r=>{assertOpen(r);if(queueState(r)?.blocked)fail('Project đang xử lý '+queueState(r).blockedBy+'; chờ deploy và đồng bộ MD trước khi nhận việc tiếp.',409);};
   const publicRequest = (r,queueRows) => {
@@ -274,9 +277,11 @@ export function createService(db, options = {}) {
     },
     takePreparation() {
       return transaction(db, () => {
-        let r = list().reverse().find(r => !queueState(r)?.blocked && !(queueState(r)?.staleBase&&r.draft) && r.preparation?.status === "queued" && !["lab-agent","codex-local"].includes(r.preparation.engine) &&
+        const {rows,ordered}=queueSnapshot();
+        let r = rows.find(r => r.preparation?.status === "queued" && !["lab-agent","codex-local"].includes(r.preparation.engine) &&
           (!r.preparation.retryAt || Date.parse(r.preparation.retryAt) <= Date.now()) &&
-          ["feedback", "needs-triage", "draft", "awaiting-approval"].includes(r.status));
+          ["feedback", "needs-triage", "draft", "awaiting-approval"].includes(r.status) &&
+          !queueState(r,ordered)?.blocked && !(queueState(r,ordered)?.staleBase&&r.draft));
         if (!r) return null;
         r=service.prepareProjectHead(r.id);
         r.preparation = { ...r.preparation, status: "running", attempts: (r.preparation.attempts || 0) + 1, startedAt: now() };
@@ -451,7 +456,7 @@ export function createService(db, options = {}) {
       if(['verifying','failed'].includes(r.status)&&verificationPassed(r)&&localChecksPassed(r))r.status='review';
       changed(r,'workflow_simplified','Workflow migration','Dùng kiểm tra code và CI đúng commit; liên kết từng tiêu chí là tham khảo.');count++;
     }return {count};});},
-    ready: () => list().filter(r => !r.stopControl&&!r.archivedAt&&r.status === "approved" && executionReadiness(r).ready && service.ciCompatibility?.(r)?.ready!==false && !queueState(r)?.blocked && !queueState(r)?.staleBase && projects.get(r.projectId).enabled).map(publicRequest),
+    ready: () => {const {rows,ordered}=queueSnapshot();return rows.reverse().filter(r => !r.stopControl&&!r.archivedAt&&r.status === "approved" && executionReadiness(r).ready && service.ciCompatibility?.(r)?.ready!==false && !queueState(r,ordered)?.blocked && !queueState(r,ordered)?.staleBase && projects.get(r.projectId).enabled).map(r=>publicRequest(r,ordered));},
     claim(id, owner, observedBaseCommit, contractProtocol, attachmentProtocol) {
       return transaction(db, () => {
         const r = get(id); assertTurn(r);assertExecutionReady(r);if(service.ciCompatibility?.(r)?.ready===false)fail(service.ciCompatibility(r).message,409);if(serialized&&r.baseCommit!==currentLibrary(r.projectId).sourceCommit)fail("Base đã thay đổi; cần khảo sát lại trước thực thi.",409); if(r.attachments?.length&&attachmentProtocol!=="feedback-images-v1")fail("Runner cần hỗ trợ ảnh feedback trước khi thực thi."); if(r.contractProtocol&&contractProtocol!==r.contractProtocol)fail("Agent cần khai báo contractProtocol md-trace-v1 trước khi thực thi."); if(!projects.get(r.projectId).enabled)fail("Project đang tạm dừng."); if (r.status !== "approved") fail("Request chưa được duyệt hoặc đã được claim.");
@@ -564,7 +569,7 @@ export function createService(db, options = {}) {
         return changed(r,"browser_verification_queued",actor,r.verification.note);
       });
     },
-    verifications: () => list().filter(r=>!r.stopControl&&!r.archivedAt&&!queueState(r)?.blocked&&r.status==="verifying"&&(!r.ciCollection||Date.parse(r.ciCollection.expiresAt)<=Date.now())&&r.verification&&["queued","ci"].includes(r.verification.phase)).map(publicRequest),
+    verifications: () => {const {rows,ordered}=queueSnapshot();return rows.reverse().filter(r=>!r.stopControl&&!r.archivedAt&&r.status==="verifying"&&(!r.ciCollection||Date.parse(r.ciCollection.expiresAt)<=Date.now())&&r.verification&&["queued","ci"].includes(r.verification.phase)&&!queueState(r,ordered)?.blocked).map(r=>publicRequest(r,ordered));},
     claimVerification(id,owner) {
       return transaction(db,()=>{
         const r=get(id),v=r.verification; assertTurn(r);
@@ -648,7 +653,7 @@ export function createService(db, options = {}) {
     publish(id, actor, options = {}) {
       return transaction(db, () => { const r = get(id); assertOpen(r); if(!projects.get(r.projectId).enabled||!projects.get(r.projectId).releaseEnabled)fail("Project chưa bật phát hành sau nghiệm thu."); if(serialized&&queueState(r)?.position===0)queueTicket(r,true); queueRelease(r, actor, options); return changed(r, "release_queued", actor); });
     },
-    releases: () => list().filter(r => !r.stopControl&&!r.archivedAt&&r.status === "completed" && !queueState(r)?.blocked && r.release && !["deployed", "failed"].includes(r.release.phase)).map(publicRequest),
+    releases: () => {const {rows,ordered}=queueSnapshot();return rows.reverse().filter(r => !r.stopControl&&!r.archivedAt&&r.status === "completed" && r.release && !["deployed", "failed"].includes(r.release.phase) && !queueState(r,ordered)?.blocked).map(r=>publicRequest(r,ordered));},
     claimRelease(id, owner, protocol) {
       return transaction(db, () => {
         const r = get(id), release = r.release; assertTurn(r);
