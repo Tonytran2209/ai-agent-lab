@@ -315,36 +315,49 @@ test("a stored profile is re-detected at once when the report shows a job it doe
     rmSync(dir, { recursive: true, force: true })
   }
 })
-test("a failed read keeps the last good report for 30 minutes, marked stale, and retries after 5 s", async () => {
-  let clock = Date.parse("2026-11-10T07:00:00Z"), up = true, calls = 0
+test("reports are served at once and refreshed in the background; failures keep the last good report, marked stale", async () => {
+  let clock = Date.parse("2026-11-10T07:00:00Z"), mode = "up", calls = 0, release
+  const settle = async () => { for (let i = 0; i < 20; i++) await Promise.resolve() }
   const monitor = createAppMonitoring({
     targets: () => [target],
     now: () => clock,
     fetcher: async () => {
       calls++
-      if (!up) throw new TypeError("fetch failed")
+      if (mode === "down") throw new TypeError("fetch failed")
+      if (mode === "slow") await new Promise((r) => (release = r))
       return Response.json({ protocol: "app-monitoring-v1", appId: "writer-studio", generatedAt: new Date(clock).toISOString(),
-        window: { days: 7 }, http: { calls: 3 }, database: { status: "ready" } })
+        window: { days: 7 }, http: { calls }, database: { status: "ready" } })
     },
   })
-  assert.equal((await monitor.snapshot(7)).targets[0].status, "ready")
-  up = false
+  assert.equal((await monitor.snapshot(7)).targets[0].report.http.calls, 1)
+  // Older than 30 s: answered at once from cache while a slow refresh runs.
+  mode = "slow"
   clock += 31000
+  assert.equal((await monitor.snapshot(7)).targets[0].report.http.calls, 1)
+  assert.equal(calls, 2)
+  release()
+  await settle()
+  assert.equal((await monitor.snapshot(7)).targets[0].report.http.calls, 2, "background result replaces the cache")
+  // App down: the background read fails; the last good report stays, marked stale.
+  mode = "down"
+  clock += 31000
+  await monitor.snapshot(7)
+  await settle()
   const stale = (await monitor.snapshot(7)).targets[0]
   assert.equal(stale.status, "ready")
-  assert.equal(stale.report.http.calls, 3)
-  assert.deepEqual(stale.stale, { since: "2026-11-10T07:00:00.000Z", status: "unavailable" })
-  clock += 2000
+  assert.equal(stale.report.http.calls, 2)
+  assert.equal(stale.stale.status, "unavailable")
+  assert.equal(calls, 3, "a failure is cached for 5 s")
+  clock += 6000
   await monitor.snapshot(7)
-  assert.equal(calls, 2, "a failure is cached for 5 s only")
-  clock += 4000
-  await monitor.snapshot(7)
-  assert.equal(calls, 3)
-  clock += 30 * 60000
+  assert.equal(calls, 4)
+  // After 30 minutes without a good read the tool shows as unavailable.
+  clock += 31 * 60000
+  await settle()
   const gone = (await monitor.snapshot(7)).targets[0]
   assert.equal(gone.status, "unavailable")
   assert.equal(gone.report, null)
-  up = true
+  mode = "up"
   clock += 6000
   const back = (await monitor.snapshot(7)).targets[0]
   assert.equal(back.status, "ready")

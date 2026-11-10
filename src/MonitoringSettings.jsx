@@ -1,21 +1,22 @@
-import React, { useEffect, useState } from "react"
+import React, { useState } from "react"
+import { useResource } from "./resource-cache.js"
 import { SettingsHeader, SettingsRow } from "./SettingsUI.jsx"
 import { ConnectToolForm, ToolSettings, ProbeResult } from "./ToolManager.jsx"
 
 // Settings page: list of tools and their connection state. Daily work (connect, adjust, remove)
 // also happens in Performance → Status through the same panels.
 export default function MonitoringSettings({ api }) {
-  const [data, setData] = useState(null),
-    [open, setOpen] = useState(null),
+  const resource = useResource("settings:monitoring", () => api("/settings/monitoring")),
+    data = resource.data ?? null,
+    setData = resource.set
+  const [open, setOpen] = useState(null),
     [adding, setAdding] = useState(false),
     [probe, setProbe] = useState(null),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [notice, setNotice] = useState("")
-  const load = () => api("/settings/monitoring").then(setData).catch((e) => setError(e.message))
-  useEffect(() => {
-    load()
-  }, [])
+  const load = resource.reload
+  const shownError = error || resource.error
   async function test(t) {
     setBusy(true)
     setError("")
@@ -37,7 +38,7 @@ export default function MonitoringSettings({ api }) {
 
       <section className="settings-group">
         <h2>Tool đang theo dõi{data ? " · " + data.targets.length + "/" + data.max : ""}</h2>
-        {!data && !error && <p className="settings-hint">Đang tải…</p>}
+        {!data && !shownError && <p className="settings-hint">Đang tải…</p>}
         {data?.environmentError && <p className="settings-alert error">LAB_MONITORING_TARGETS trên Railway không hợp lệ nên đang bị bỏ qua.</p>}
         {data && !data.targets.length && <p className="settings-hint">Chưa có tool nào. Kết nối tool đầu tiên ở bên dưới.</p>}
         {data?.targets.map((t) => (
@@ -80,7 +81,7 @@ export default function MonitoringSettings({ api }) {
             onSaved={(list, message) => { setData(list); setAdding(false); setNotice(message) }} />
         ) : <button type="button" className="button primary" disabled={full} onClick={() => { setAdding(true); setNotice("") }}>+ Kết nối tool</button>}
       </section>
-      {error && <p role="alert" className="settings-alert error">{error}</p>}
+      {shownError && <p role="alert" className="settings-alert error">{shownError}</p>}
       {notice && <p role="status" className="settings-alert">{notice}</p>}
       <details className="settings-extra">
         <summary>Tool cần chuẩn bị gì để kết nối</summary>
