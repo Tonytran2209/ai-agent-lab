@@ -390,3 +390,37 @@ test("connection-map statuses never wait for app reports and send no report body
   assert.ok(!JSON.stringify(second).includes("secret job"), "no report body")
   assert.ok(!JSON.stringify(second).includes(target.token))
 })
+test("deploy events never hold the Status tab: kept results return at once and refresh in the background", async () => {
+  const { createDeployEvents } = await import("../server/app-monitoring.js")
+  let clock = Date.parse("2026-11-11T03:00:00Z"), calls = 0, release = null
+  const link = { id: "writer-studio", projectId: "p", serviceId: "s", environmentId: "e", token: "railway-token-123" }
+  const settle = async () => { for (let i = 0; i < 30; i++) await Promise.resolve() }
+  const events = createDeployEvents({
+    links: () => [link],
+    now: () => clock,
+    fetcher: async (u, o) => {
+      const q = JSON.parse(o.body).query
+      if (q.includes("projectToken")) return Response.json({ data: { projectToken: { projectId: "p", environmentId: "e" } } })
+      calls++
+      if (release === "hang") await new Promise((r) => (release = r))
+      return Response.json({ data: { deployments: { edges: [{ node: { id: "d" + calls, status: "SUCCESS", createdAt: "2026-11-11T02:00:00Z", meta: {} } }] } } })
+    },
+  })
+  assert.equal((await events.snapshot())["writer-studio"].items[0].id, "d1")
+  // After 5 minutes a slow Railway does not delay the answer: the kept result comes back at once.
+  clock += 301000
+  release = "hang"
+  const t0 = performance.now()
+  assert.equal((await events.snapshot())["writer-studio"].items[0].id, "d1")
+  assert.ok(performance.now() - t0 < 200)
+  await settle()
+  await new Promise((r) => setTimeout(r, 10))
+  release()
+  await settle()
+  assert.equal((await events.snapshot())["writer-studio"].items[0].id, "d2", "background refresh replaces it")
+  // Nothing kept yet and Railway hangs: answer within ~1.5 s with { pending: true }.
+  const cold = createDeployEvents({ links: () => [link], fetcher: () => new Promise(() => {}) })
+  const t1 = performance.now()
+  assert.deepEqual((await cold.snapshot())["writer-studio"], { pending: true })
+  assert.ok(performance.now() - t1 < 2500)
+})

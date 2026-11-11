@@ -100,6 +100,10 @@ export function createApp(config, options = {}) {
   const monitoringRegistry = createMonitoringRegistry(db, config);
   const appMonitoring = createAppMonitoring({targets:()=>monitoringRegistry.targets()});
   const deployEvents = createDeployEvents({links:()=>monitoringRegistry.railwayLinks()});
+  // Keeps app reports and Railway deploys warm (default 7-day window) so the first visitor after a
+  // restart or a quiet spell gets them at once; reads after 30 s refresh in the background.
+  let warmTimer=null;
+  const monitoringWarmup={start(){const run=()=>Promise.all([appMonitoring.snapshot(7),deployEvents.snapshot()]).catch(()=>{});void run();warmTimer=setInterval(run,60000);warmTimer.unref?.();},stop(){clearInterval(warmTimer);warmTimer=null;}};
   const app = express();
   app.use(['/api', '/runner', '/mcp'], performanceReport.middleware);
   // Railway edge proxy adds one trusted hop; app is designed for one replica.
@@ -416,14 +420,14 @@ export function createApp(config, options = {}) {
       status >= 500 && e.status === undefined ? "Không xử lý được yêu cầu. Dữ liệu đã lưu vẫn được giữ." : e.message;
     res.status(status).json({ error,...(e instanceof ZodError&&req.path.startsWith('/runner/planning/')?{code:'PLAN_SCHEMA',details:e.issues.slice(0,12).map(i=>({path:i.path.join('.'),code:i.code,message:i.message.slice(0,300)}))}:{}),...(e.code==='SCOPE_POLICY'?{code:e.code,details:e.details}:{}) });
   });
-  return { app, db, service, notificationCenter, deploymentOnboarding, onboarding, pipeline, delivery, lark, agent, knowledge, maintenance, dataManagement, cloud, repairs, recovery, learning };
+  return { app, db, service, monitoringWarmup, notificationCenter, deploymentOnboarding, onboarding, pipeline, delivery, lark, agent, knowledge, maintenance, dataManagement, cloud, repairs, recovery, learning };
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const { app, db, pipeline, delivery, recovery, lark, deploymentOnboarding } = createApp(process.env);
+  const { app, db, pipeline, delivery, recovery, lark, deploymentOnboarding, monitoringWarmup } = createApp(process.env);
   const port = Number(process.env.PORT || 3000);
-  pipeline.start(); delivery.start(); recovery.start(); lark.start(); deploymentOnboarding.start();
+  pipeline.start(); delivery.start(); recovery.start(); lark.start(); deploymentOnboarding.start(); monitoringWarmup.start();
   const server = app.listen(port, "0.0.0.0", () => { console.log("AI Agent Lab listening on port " + port); });
-  const stop = async () => { await pipeline.stop(); await delivery.stop();await recovery.stop(); await lark.stop();await deploymentOnboarding.stop(); server.close(() => db.close()); };
+  const stop = async () => { monitoringWarmup.stop(); await pipeline.stop(); await delivery.stop();await recovery.stop(); await lark.stop();await deploymentOnboarding.stop(); server.close(() => db.close()); };
   process.once("SIGTERM", stop); process.once("SIGINT", stop);
 }
 

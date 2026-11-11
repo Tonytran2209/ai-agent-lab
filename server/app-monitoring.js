@@ -586,7 +586,9 @@ export function createAppMonitoring({
 
 const deployQuery = `query LabToolDeploys($input: DeploymentListInput!) { deployments(input: $input, first: 20) { edges { node { id status createdAt meta } } } }`
 
-// Read-only Railway deployments per linked tool, cached five minutes; failures stay per tool.
+// Read-only Railway deployments per linked tool, refreshed every five minutes; failures stay per tool.
+const DEPLOY_STALE_MS = 60 * 60000
+const DEPLOY_WAIT_MS = 1500
 export function createDeployEvents({ links = () => [], fetcher = fetch, now = Date.now } = {}) {
   let cache = new Map()
   async function read(link) {
@@ -618,13 +620,35 @@ export function createDeployEvents({ links = () => [], fetcher = fetch, now = Da
     }
   }
   return {
+    // Stale-while-revalidate: a kept result (≤ DEPLOY_STALE_MS old) is returned at once and refreshed
+    // in the background after 5 minutes, so the Status tab never waits on Railway. With nothing
+    // kept yet, it waits at most DEPLOY_WAIT_MS and otherwise reports { pending: true } for now.
     async snapshot() {
       const result = {}
       await Promise.all(links().map(async (l) => {
         const key = [l.id, l.projectId, l.serviceId, l.environmentId, crypto.createHash("sha256").update(l.token).digest("hex")].join(":")
-        const prior = cache.get(key)
-        if (!prior || prior.until <= now()) cache.set(key, { until: now() + 300000, promise: read(l) })
-        result[l.id] = await cache.get(key).promise
+        const start = () => {
+          const entry = { until: now() + 300000, promise: null, value: undefined, at: 0, refreshing: false }
+          entry.promise = read(l).then((value) => {
+            entry.value = value
+            entry.at = now()
+            return value
+          })
+          return entry
+        }
+        let entry = cache.get(key)
+        if (!entry) cache.set(key, (entry = start()))
+        if (entry.value !== undefined && now() - entry.at <= DEPLOY_STALE_MS) {
+          if (entry.until <= now() && !entry.refreshing) {
+            entry.refreshing = true
+            const next = start()
+            next.promise.then(() => cache.set(key, next)).finally(() => (entry.refreshing = false))
+          }
+          result[l.id] = entry.value
+          return
+        }
+        if (entry.value !== undefined) cache.set(key, (entry = start()))
+        result[l.id] = await Promise.race([entry.promise, new Promise((r) => setTimeout(() => r({ pending: true }), DEPLOY_WAIT_MS).unref?.())])
       }))
       if (cache.size > 100) cache = new Map()
       return result
