@@ -11,6 +11,9 @@ const NODE_H = 96
 const COL_X = 380
 const ROW_GAP = 128
 const LAYOUT_KEY = "lab-connection-map-v2"
+// Space kept free when fitting: column titles above, toolbar and legend along the bottom edge.
+const FIT_TOP = 64
+const FIT_BOTTOM = 76
 
 const number = (v) => new Intl.NumberFormat("vi-VN").format(v ?? 0)
 const timestamp = (v) => (v ? new Date(v).toLocaleString("vi-VN") : "Chưa có tín hiệu")
@@ -82,7 +85,7 @@ export default function ConnectionMap({ projects, runner, monitored, onOpenApp }
     if (!el) return
     const pts = nodes.all.map((n) => from[n.key] || defaults[n.key] || { x: 0, y: 0 })
     const minX = Math.min(...pts.map((p) => p.x)) - NODE_W / 2 - 40, maxX = Math.max(...pts.map((p) => p.x)) + NODE_W / 2 + 40
-    const minY = Math.min(...pts.map((p) => p.y)) - NODE_H / 2 - 64, maxY = Math.max(...pts.map((p) => p.y)) + NODE_H / 2 + 40
+    const minY = Math.min(...pts.map((p) => p.y)) - NODE_H / 2 - FIT_TOP, maxY = Math.max(...pts.map((p) => p.y)) + NODE_H / 2 + FIT_BOTTOM
     const z = Math.min(1, el.clientWidth / (maxX - minX), el.clientHeight / (maxY - minY))
     setView({ z, x: el.clientWidth / 2 - ((minX + maxX) / 2) * z, y: el.clientHeight / 2 - ((minY + maxY) / 2) * z })
   }
