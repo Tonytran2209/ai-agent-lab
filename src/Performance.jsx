@@ -95,12 +95,34 @@ function Metric({
   )
 }
 
+// Placeholder while no report is cached: the table frame with tool names and loading cells.
+function ToolsSkeleton({ tools }) {
+  const rows = tools?.length ? tools : [{ id: "a" }, { id: "b" }, { id: "c" }]
+  return (
+    <article className="perf-card perf-skeleton-card" role="status" aria-label="Đang đọc số liệu ứng dụng">
+      <span className="sr-only">Đang đọc số liệu ứng dụng…</span>
+      {rows.map((t) => (
+        <div className="perf-skeleton-row" key={t.id} aria-hidden="true">
+          <span className="perf-skeleton-name">{t.name || <i className="perf-skeleton-bar wide" />}</span>
+          <i className="perf-skeleton-bar" />
+          <i className="perf-skeleton-bar" />
+          <i className="perf-skeleton-bar" />
+          <i className="perf-skeleton-bar short" />
+        </div>
+      ))}
+    </article>
+  )
+}
+
 // view "status": BA tool status overview. view "projects": technical report of each app.
 function ProjectRuntime({ api, days, initialApp = "all", view = "projects", onOpenReport }) {
   const [selected, setSelected] = useState(initialApp)
-  const monitoring = useResource("monitoring:" + days, () => api("/monitoring?days=" + days))
+  const monitoring = useResource("monitoring:" + days, () => api("/monitoring?days=" + days), { persist: true })
   const data = monitoring.data ?? null,
     error = monitoring.error
+  // Tool names for the placeholder table while no report is cached yet (cheap, no app reads).
+  const toolList = useResource(data ? null : "settings:monitoring", () => api("/settings/monitoring"), { interval: 300000, persist: true })
+  const clock = (at) => new Intl.DateTimeFormat("vi-VN", { hour: "2-digit", minute: "2-digit", second: "2-digit", timeZone: "Asia/Ho_Chi_Minh" }).format(new Date(at))
   return (
     <>
       <div className="perf-section-heading">
@@ -111,6 +133,11 @@ function ProjectRuntime({ api, days, initialApp = "all", view = "projects", onOp
               ? "Main Job, P95 và tỷ lệ lỗi so với target · kỳ theo giờ VN khi tool gửi từng lần chạy · tự cập nhật 60 giây"
               : "Số liệu kỹ thuật trực tiếp từ app (HTTP, AI, máy chủ, nội dung) · tự cập nhật 60 giây"}
           </p>
+          {data && monitoring.updatedAt > 0 && (
+            <small className="perf-freshness" role="status">
+              {monitoring.restored || monitoring.loading ? "Số liệu lúc " + clock(monitoring.updatedAt) + " · đang cập nhật…" : "Cập nhật " + clock(monitoring.updatedAt)}
+            </small>
+          )}
         </div>
         {view === "projects" && <PerformanceSelect
           aria-label="Lọc ứng dụng monitoring"
@@ -130,11 +157,7 @@ function ProjectRuntime({ api, days, initialApp = "all", view = "projects", onOp
           {error}
         </p>
       )}
-      {!data && !error && (
-        <div className="perf-loading" role="status">
-          Đang đọc số liệu ứng dụng…
-        </div>
-      )}
+      {!data && !error && <ToolsSkeleton tools={toolList.data?.targets} />}
       {data?.configurationError && (
         <p className="perf-error">Cấu hình kết nối monitoring không hợp lệ.</p>
       )}
@@ -732,9 +755,10 @@ export default function Performance({ api, onRequest }) {
   const report = useResource(
     "performance:" + days + ":" + reportProject,
     () => api("/performance?days=" + days + (reportProject === "all" ? "" : "&projectId=" + encodeURIComponent(reportProject))),
+    { persist: true },
   )
   // The map needs app states only: a lightweight, non-blocking endpoint (no reports, no Railway reads).
-  const monitoring = useResource(scope === "lab" ? "monitoring-status:" + days : null, () => api("/monitoring/status?days=" + days), { interval: 15000 })
+  const monitoring = useResource(scope === "lab" ? "monitoring-status:" + days : null, () => api("/monitoring/status?days=" + days), { interval: 15000, persist: true })
   const data = report.data ?? null,
     error = report.error,
     busy = report.loading

@@ -974,3 +974,15 @@
   border-bottom: 1px solid var(--border);
   font-size: 12px;
 }
+/* Freshness of the shown report, and the placeholder table while nothing is cached yet. */
+.perf-freshness { display: block; margin-top: 4px; color: var(--secondary); font-size: 12px; }
+.perf-skeleton-card { display: grid; gap: 4px; padding: 12px 20px; }
+.perf-skeleton-row { display: grid; grid-template-columns: minmax(140px, 2fr) repeat(3, minmax(0, 1fr)) minmax(0, .6fr); gap: 24px; align-items: center; padding: 14px 0; border-bottom: 1px solid var(--border); }
+.perf-skeleton-row:last-child { border-bottom: 0; }
+.perf-skeleton-name { font-size: 14px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.perf-skeleton-bar { display: block; height: 12px; border-radius: 6px; background: linear-gradient(90deg, var(--surface-soft) 0%, var(--surface-hover) 50%, var(--surface-soft) 100%); background-size: 200% 100%; animation: perf-shimmer 1.4s ease-in-out infinite; }
+.perf-skeleton-bar.wide { width: 70%; }
+.perf-skeleton-bar.short { width: 60%; }
+@keyframes perf-shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+@media (prefers-reduced-motion: reduce) { .perf-skeleton-bar { animation: none; } }
+@media (max-width: 600px) { .perf-skeleton-row { grid-template-columns: 1fr 1fr; gap: 10px; } .perf-skeleton-row > i:nth-of-type(n+2) { display: none; } }
