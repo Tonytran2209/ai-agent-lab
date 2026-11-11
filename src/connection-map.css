@@ -1,4 +1,6 @@
 /* Connection map (ConnectionMap.jsx): pannable, zoomable canvas with draggable nodes. */
+/* Same spacing as the other Performance sections (the former .perf-topology card). */
+.perf-card.cmap { margin: var(--space-6) 0; }
 .cmap-canvas {
   position: relative;
   height: 540px;
@@ -180,6 +182,7 @@
 .cmap-open { width: 100%; margin-top: 12px; }
 
 @media (max-width: 600px) {
+  .perf-card.cmap { padding: var(--space-4); }
   .cmap-canvas { height: 460px; }
   .cmap-legend { display: none; }
   .cmap-details { bottom: 14px; }
