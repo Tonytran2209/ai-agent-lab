@@ -321,6 +321,8 @@ export const defaultClickTargetMs = 200
 //   clickLatency  main action click → "processing" state painted (second animation frame)
 //   responseTime  main action click → the system visibly accepted the work (job created/queued,
 //                 first stream event or first partial result); never the job's completion
+//   hidden tab    no paint and no animation frames: the sample ends when the end condition is reached
+//                 or when the tab becomes hidden, whichever is first; never dropped, one per action
 // Exact milliseconds, nearest-rank P95 over the window. Reports without the marker are shown but
 // not scored, because they measure something else (e.g. completion time or histogram buckets).
 export const kpiStandard = "ui-kpi-v2"

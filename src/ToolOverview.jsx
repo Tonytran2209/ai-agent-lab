@@ -19,7 +19,7 @@ const hints = {
   status: "Dòng trên: trạng thái vận hành (Lab đọc được báo cáo của tool hay không). Dòng dưới: kết quả so với mục tiêu của Main Job (thời gian hoàn thành và tỷ lệ thành công) trong kỳ.",
   time: "P95 thời lượng Main Job trong kỳ: 95% lượt chạy thành công xong nhanh hơn mức này. Kỳ không có lượt nào thì dùng 30 hoặc 61 ngày gần nhất (ghi rõ dưới số). Lượt hoàn thành gần nhất xem trong tooltip.",
   success: "Tỷ lệ thành công trong cùng kỳ với thời gian hoàn thành, gồm cả lỗi kỹ thuật và thất bại nghiệp vụ. Khi app báo đơn vị nghiệp vụ (ví dụ hồ sơ LinkedIn đã được nền tảng xác nhận), tỷ lệ tính trên đơn vị đó thay vì lượt chạy.",
-  response: "Chuẩn ui-kpi-v2, P95 đo trong trình duyệt: từ lúc bấm thao tác chính đến khi hệ thống xác nhận đã nhận việc (tạo job, sự kiện đầu tiên hoặc kết quả đầu tiên). Không phải thời gian hoàn thành job. App chưa theo chuẩn hiển thị màu xám, không chấm.",
+  response: "Chuẩn ui-kpi-v2, P95 đo trong trình duyệt: từ lúc bấm thao tác chính đến khi hệ thống xác nhận đã nhận việc (tạo job, sự kiện đầu tiên hoặc kết quả đầu tiên). Không phải thời gian hoàn thành job. Nếu người dùng đã chuyển tab, mẫu chốt tại lúc hệ thống nhận việc. App chưa theo chuẩn hiển thị màu xám, không chấm.",
   click: "Chuẩn ui-kpi-v2, P95 đo trong trình duyệt: từ lúc bấm đến khi giao diện đã vẽ trạng thái đang xử lý. App chưa theo chuẩn hiển thị màu xám, không chấm.",
 }
 const toneOf = (status) => ({ ok: "good", bad: "bad" })[status] || "muted"
