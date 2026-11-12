@@ -25,3 +25,19 @@ test('persisted copies belong to one user, survive a reload and are removed at s
  m.forgetPersisted();assert.equal(mem.size,0);
  delete globalThis.localStorage;
 });
+test('a full browser storage drops the oldest copies instead of every copy',async()=>{
+ const mem=new Map();let limit=3;
+ globalThis.localStorage={get length(){return mem.size;},key:i=>[...mem.keys()][i]??null,getItem:k=>mem.get(k)??null,
+  setItem:(k,v)=>{if(!mem.has(k)&&mem.size>=limit)throw Error('QuotaExceededError');mem.set(k,String(v));},removeItem:k=>mem.delete(k)};
+ const m=await import('../src/resource-cache.js?quota');m.setCacheOwner('tony:admin');
+ const name=k=>'lab-cache:v1:tony:admin:'+k;
+ m.writePersisted('monitoring:1',{n:1},1000);m.writePersisted('monitoring:7',{n:7},3000);m.writePersisted('performance:7:all',{n:0},2000);
+ m.writePersisted('monitoring:30',{n:30},4000);
+ assert.deepEqual([...mem.keys()].sort(),[name('monitoring:30'),name('monitoring:7'),name('performance:7:all')],'only the oldest copy was removed');
+ limit=0;m.writePersisted('monitoring:14',{n:14},5000);
+ assert.equal(mem.has(name('monitoring:14')),false,'a copy that cannot fit is skipped');
+ assert.equal(mem.size,0,'eviction stops when nothing else is left');
+ globalThis.localStorage={get length(){throw Error('blocked');},key(){throw Error('blocked');},getItem(){throw Error('blocked');},setItem(){throw Error('blocked');},removeItem(){throw Error('blocked');}};
+ assert.doesNotThrow(()=>m.writePersisted('monitoring:7',{n:7},6000),'blocked storage keeps working from memory');
+ delete globalThis.localStorage;
+});

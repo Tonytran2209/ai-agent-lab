@@ -21,14 +21,39 @@ function readPersisted(key) {
     return null
   }
 }
-function writePersisted(key, data, at) {
+// Storage full: drop the oldest kept copy (any key but `keep`) so newer data still fits.
+// Returns false when nothing else can be removed.
+function evictOldest(keep) {
+  let oldest = null,
+    oldestAt = Infinity
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i)
+    if (!k || k === keep || !k.startsWith(PERSIST_PREFIX)) continue
+    // Copies start with {"at":<ms>, so the age is read without parsing the whole report.
+    const at = Number(/^\{"at":(\d+)/.exec(localStorage.getItem(k) || "")?.[1] || 0)
+    if (at < oldestAt) (oldest = k), (oldestAt = at)
+  }
+  if (oldest === null) return false
+  localStorage.removeItem(oldest)
+  return true
+}
+export function writePersisted(key, data, at) {
   if (!owner) return
+  const name = persistKey(key)
   try {
     const text = JSON.stringify({ at, data })
-    if (text.length > PERSIST_MAX_CHARS) return localStorage.removeItem(persistKey(key))
-    localStorage.setItem(persistKey(key), text)
+    if (text.length > PERSIST_MAX_CHARS) return localStorage.removeItem(name)
+    for (;;) {
+      try {
+        return localStorage.setItem(name, text)
+      } catch {
+        // Never wipe every copy: removing all of them left Status and Project empty after the
+        // next reload. Drop the oldest ones until this one fits, or give up on this key only.
+        if (!evictOldest(name)) return localStorage.removeItem(name)
+      }
+    }
   } catch {
-    forgetPersisted() // storage full or blocked: keep working from memory only
+    // Storage blocked: keep working from memory only.
   }
 }
 const entry = (key) => {
