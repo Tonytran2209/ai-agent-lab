@@ -761,7 +761,7 @@ export default function Performance({ api, onRequest }) {
   const monitoring = useResource(scope === "lab" ? "monitoring-status:" + days : null, () => api("/monitoring/status?days=" + days), { interval: 15000, persist: true })
   const data = report.data ?? null,
     error = report.error,
-    busy = report.loading
+    busy = scope === "lab" && report.loading
   const next = monitoring.data
   const monitored = next
     ? next.configurationError
@@ -776,13 +776,10 @@ export default function Performance({ api, onRequest }) {
       ? { error: true, targets: [] }
       : null
   const refreshAll = () => {
+    if (scope !== "lab") return void fetchResource("monitoring:" + days, () => api("/monitoring?days=" + days)).catch(() => {})
     report.reload()
     fetchResource("monitoring-status:" + days, () => api("/monitoring/status?days=" + days)).catch(() => {})
   }
-  const recent =
-    data?.recent.filter(
-      (r) => projectId === "all" || r.projectId === projectId,
-    ) || []
   const summary = data?.summary,
     lab = data?.lab
   const maximum = Math.max(1, ...(data?.trend.map((v) => v.created) || []))
@@ -844,15 +841,22 @@ export default function Performance({ api, onRequest }) {
             Status
           </button>
         </div>
-        <small>
+        {scope === "lab" && <small>
           {data
             ? "Cập nhật " +
               timestamp(data.generatedAt) +
               " · Tự làm mới 60 giây"
             : "Đang kết nối dữ liệu"}
-        </small>
+        </small>}
       </div>
-      {error && (
+      {/* Project and Status read /api/monitoring only: the Lab report never blocks or blanks them. */}
+      {scope !== "lab" && (
+        <div className="perf-report" key={scope + days}>
+          <ProjectRuntime api={api} days={days} initialApp={focusApp} view={scope} key={scope + focusApp}
+            onOpenReport={(id) => { setFocusApp(id); setScope("projects") }} />
+        </div>
+      )}
+      {scope === "lab" && error && (
         <div className="perf-error" role="alert">
           {error} {data && "Đang hiển thị dữ liệu đã tải trước đó."}
           <button
@@ -864,7 +868,7 @@ export default function Performance({ api, onRequest }) {
           </button>
         </div>
       )}
-      {!data && !error && (
+      {scope === "lab" && !data && !error && (
         <div className="perf-loading" role="status">
           <span className="sr-only">Đang tải báo cáo vận hành…</span>
           <div className="perf-skeleton-grid" aria-hidden="true">
@@ -874,10 +878,9 @@ export default function Performance({ api, onRequest }) {
           </div>
         </div>
       )}
-      {data && (
+      {scope === "lab" && data && (
         <div className="perf-report" key={scope + days + reportProject}>
-          {scope === "lab" ? (
-            <>
+          <>
               <div className="perf-section-heading">
                 <div>
                   <h2>Hoạt động AI Agent Lab</h2>
@@ -1102,13 +1105,6 @@ export default function Performance({ api, onRequest }) {
                   }
                 />
               </div>
-            </>
-          ) : (
-            <ProjectRuntime api={api} days={days} initialApp={focusApp} view={scope} key={scope + focusApp}
-              onOpenReport={(id) => { setFocusApp(id); setScope("projects") }} />
-          )}
-          {scope === "lab" && (
-            <>
               <article className="perf-card perf-recent">
                 <div className="perf-card-heading">
                   <div>
@@ -1133,7 +1129,7 @@ export default function Performance({ api, onRequest }) {
                       </tr>
                     </thead>
                     <tbody>
-                      {(scope === "lab" ? data.recent : recent).map((r) => (
+                      {data.recent.map((r) => (
                         <tr key={r.id}>
                           <td>
                             <button
@@ -1176,7 +1172,7 @@ export default function Performance({ api, onRequest }) {
                     </tbody>
                   </table>
                 </div>
-                {!(scope === "lab" ? data.recent : recent).length && (
+                {!data.recent.length && (
                   <div className="perf-empty">
                     Chưa có feedback trong khoảng thời gian đã chọn.
                   </div>
@@ -1189,8 +1185,7 @@ export default function Performance({ api, onRequest }) {
                 bị. Thời lượng deploy tính tới lúc Lab xác nhận thành công;
                 request thiếu mốc thời gian được loại khỏi mẫu P95.
               </p>
-            </>
-          )}
+          </>
         </div>
       )}
     </section>
